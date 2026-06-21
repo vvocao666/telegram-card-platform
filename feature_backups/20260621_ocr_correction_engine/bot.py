@@ -10,20 +10,7 @@ from telegram.request import HTTPXRequest
 from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDGER_ADD_GROUP
 from config.logging_config import configure_logging
 from config.settings import load_settings
-from handlers.admin_handler import (
-    auto_learn_cards_text,
-    learn_cancel_command,
-    learn_cards_command,
-    learn_confirm_command,
-    ocr_candidates_command,
-    ocr_cache_today_command,
-    ocr_debug_command,
-    ocr_font_stats_command,
-    ocr_health_command,
-    ocr_learning_stats_command,
-    show_id,
-    show_version,
-)
+from handlers.admin_handler import show_id, show_version
 from handlers.broadcast_handler import handle_broadcast_callback, start_broadcast
 from handlers.card_ocr_handler import handle_photo
 from handlers.ledger_handler import (
@@ -73,16 +60,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("id", show_id))
     app.add_handler(CommandHandler("version", show_version))
-    app.add_handler(CommandHandler("ocr_debug", ocr_debug_command))
-    app.add_handler(CommandHandler("ocr_candidates", ocr_candidates_command))
-    app.add_handler(CommandHandler("ocr_font_stats", ocr_font_stats_command))
-    app.add_handler(CommandHandler("ocr_cache_today", ocr_cache_today_command))
-    app.add_handler(CommandHandler("ocr_health", ocr_health_command))
-    app.add_handler(CommandHandler("learn_cards", learn_cards_command))
-    app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
-    app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))
-    app.add_handler(CommandHandler("ocr_learning_stats", ocr_learning_stats_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_learn_cards_text), group=-2)
     app.add_handler(
         MessageHandler(
             filters.Regex(f"^({re.escape(TEXT_LEDGER_ADD_GROUP)}|记账拉机器人进群)$"),

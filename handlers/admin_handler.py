@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from services.runtime import (
     is_owner_update,
+    auto_learn_cards_text,
+    learn_cancel_command,
+    learn_cards_command,
+    learn_confirm_command,
     ledger_owner_ids,
+    ocr_candidates_command,
+    ocr_cache_today_command,
+    ocr_debug_command,
+    ocr_font_stats_command,
+    ocr_health_command,
+    ocr_learning_stats_command,
     owner_user_id,
     parse_chat_id,
     show_id,

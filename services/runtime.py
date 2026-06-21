@@ -28,6 +28,16 @@ from telegram.request import HTTPXRequest
 from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
+from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
+from services.ocr.correction_engine import apply_corrections
+from services.ocr.debug_commands import ocr_candidates as format_ocr_candidates_debug
+from services.ocr.debug_commands import ocr_debug as format_ocr_debug
+from services.ocr.debug_commands import ocr_font_stats as format_ocr_font_stats
+from services.ocr.font_repository import FontRepository
+from services.ocr.daily_learning import extract_ground_truth_cards
+from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
+from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
+from services.ocr.validator import validate_candidate
 from storage.repositories.ledger_storage import LedgerStore
 
 
@@ -74,6 +84,8 @@ CLEANUP_AFTER_SECONDS = max(60, int(float(os.getenv("CLEANUP_AFTER_HOURS", "24")
 CLEANUP_CHECK_SECONDS = max(60, int(os.getenv("CLEANUP_CHECK_SECONDS", "300")))
 CLEANUP_OUTPUTS_DIR = Path(os.getenv("CLEANUP_OUTPUTS_DIR", "outputs")).expanduser()
 LEDGER_DB_PATH = Path(os.getenv("LEDGER_DB_PATH", "outputs/ledger.sqlite3")).expanduser()
+OCR_CANDIDATES_PATH = Path(os.getenv("OCR_CANDIDATES_PATH", "outputs/ocr_candidates.json")).expanduser()
+TODAY_OCR_CACHE_PATH = Path(os.getenv("TODAY_OCR_CACHE_PATH", "outputs/today_ocr_cache.json")).expanduser()
 PHOTO_BATCH_MAX_IMAGES = max(1, int(os.getenv("PHOTO_BATCH_MAX_IMAGES", "50")))
 PHOTO_RATE_WINDOW_SECONDS = max(10, int(os.getenv("PHOTO_RATE_WINDOW_SECONDS", "60")))
 PHOTO_RATE_LIMIT_PER_CHAT = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_CHAT", "80")))
@@ -122,6 +134,10 @@ class OcrResult:
     raw_text: str = ""
     uncertain_count: int = 0
     source_caption: str = ""
+    ocr_fixed_count: int = 0
+    ocr_missing_count: int = 0
+    ocr_false_negative: int = 0
+    ocr_character_confusion: int = 0
 
 
 @dataclass(frozen=True)
@@ -142,6 +158,8 @@ ocrspace_cooldown_until = 0.0
 ocrspace_key_cooldowns: dict[str, float] = {}
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
+font_repository = FontRepository()
+pending_learning_texts: dict[int, str] = {}
 LEDGER_TZ = timezone(timedelta(hours=8))
 LEDGER_CALLBACK_TEXT = {
     "ledger:yesterday": "昨日账单",
@@ -220,6 +238,87 @@ def parse_ocrspace_api_keys(raw_keys: str, fallback_key: str = "") -> list[str]:
 
 
 OCR_SPACE_API_KEYS = parse_ocrspace_api_keys(OCR_SPACE_API_KEYS_RAW, OCR_SPACE_API_KEY)
+
+
+def ocr_confusion_count(source_cards: list[str], selected_cards: list[str]) -> int:
+    count = 0
+    for selected in selected_cards:
+        selected_compact = selected.replace("-", "")
+        for source in source_cards:
+            source_compact = source.replace("-", "")
+            if source == selected or len(source_compact) != len(selected_compact):
+                continue
+            if hamming_distance(source_compact, selected_compact) == 1:
+                count += 1
+                break
+    return count
+
+
+def enhanced_ocrspace_pubg_cards(raw_text: str, legacy_cards: list[str]) -> tuple[list[str], dict[str, int]]:
+    stats = {
+        "ocr_fixed_count": 0,
+        "ocr_missing_count": 0,
+        "ocr_false_negative": 0,
+        "ocr_character_confusion": 0,
+    }
+    if not raw_text.strip():
+        return [], stats
+
+    try:
+        correction_result = apply_corrections(raw_text, card_type="PUBG")
+        audit = build_candidate_audit(raw_text, card_type="PUBG")
+        append_candidate_audit(raw_text, card_type="PUBG", output_path=OCR_CANDIDATES_PATH)
+        font_repository.learn_sample(raw_text, card_type="PUBG")
+    except Exception:
+        logger.exception("OCR candidate audit failed")
+        return [], stats
+
+    scored_items = []
+    for item in audit.candidate_list:
+        value = str(item.get("value", ""))
+        if not validate_candidate(value, card_type="PUBG"):
+            continue
+        score = item.get("score")
+        scored_items.append((float(score or 0.0), value))
+    if correction_result.best_candidate:
+        value = correction_result.best_candidate.candidate.corrected_text
+        if validate_candidate(value, card_type="PUBG"):
+            scored_items.append((float(correction_result.best_candidate.score), value))
+
+    score_by_value = {value: score for score, value in scored_items}
+    selected: list[str] = []
+    for item in audit.candidate_list:
+        value = str(item.get("value", ""))
+        if value not in score_by_value:
+            continue
+        same_index = next((index for index, existing in enumerate(selected) if likely_same_card(value, existing)), None)
+        if same_index is None:
+            selected.append(value)
+            continue
+        existing = selected[same_index]
+        if score_by_value[value] > score_by_value.get(existing, 0.0):
+            selected[same_index] = value
+    if correction_result.best_candidate:
+        value = correction_result.best_candidate.candidate.corrected_text
+        if validate_candidate(value, card_type="PUBG") and value not in selected:
+            selected.append(value)
+
+    legacy_set = set(legacy_cards)
+    selected_set = set(selected)
+    stats["ocr_fixed_count"] = len([card for card in selected if card not in legacy_set])
+    stats["ocr_missing_count"] = max(0, len(selected_set - legacy_set))
+    stats["ocr_false_negative"] = stats["ocr_missing_count"]
+    stats["ocr_character_confusion"] = ocr_confusion_count(legacy_cards, selected)
+    return selected, stats
+
+
+def merge_ocr_stats(left: dict[str, int], right: dict[str, int]) -> dict[str, int]:
+    return {
+        "ocr_fixed_count": left.get("ocr_fixed_count", 0) + right.get("ocr_fixed_count", 0),
+        "ocr_missing_count": left.get("ocr_missing_count", 0) + right.get("ocr_missing_count", 0),
+        "ocr_false_negative": left.get("ocr_false_negative", 0) + right.get("ocr_false_negative", 0),
+        "ocr_character_confusion": left.get("ocr_character_confusion", 0) + right.get("ocr_character_confusion", 0),
+    }
 
 
 BUILTIN_PUBG_CARD_CORRECTIONS = {
@@ -320,7 +419,7 @@ def repair_first_group(group: str) -> str:
 
 
 def valid_card(card: str) -> bool:
-    return bool(re.fullmatch(r"S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card))
+    return bool(re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card))
 
 
 def apply_builtin_pubg_correction(card: str) -> str:
@@ -705,6 +804,12 @@ def run_ocrspace(
     raw_chunks: list[str] = []
     all_cards: list[str] = []
     all_psn_ordered: list[str] = []
+    ocr_stats = {
+        "ocr_fixed_count": 0,
+        "ocr_missing_count": 0,
+        "ocr_false_negative": 0,
+        "ocr_character_confusion": 0,
+    }
     uncertain_total = 0
     try:
         upload_path = prepare_ocrspace_image(image_path)
@@ -761,7 +866,10 @@ def run_ocrspace(
                 if raw_text:
                     raw_chunks.append(raw_text)
 
-                cards, uncertain = settle_image_cards(extract_cards(raw_text))
+                legacy_cards = extract_cards(raw_text)
+                enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
+                ocr_stats = merge_ocr_stats(ocr_stats, enhanced_stats)
+                cards, uncertain = settle_image_cards(enhanced_cards + legacy_cards)
                 psn_ordered = exact_unique_text(extract_psn_ordered(raw_text, force=psn_hint or not cards))
                 all_cards.extend(cards)
                 all_psn_ordered.extend(psn_ordered)
@@ -781,6 +889,10 @@ def run_ocrspace(
                         psn_expected_count=psn_expected_count,
                         raw_text="\n".join(raw_chunks),
                         uncertain_count=uncertain_total,
+                        ocr_fixed_count=ocr_stats["ocr_fixed_count"],
+                        ocr_missing_count=ocr_stats["ocr_missing_count"],
+                        ocr_false_negative=ocr_stats["ocr_false_negative"],
+                        ocr_character_confusion=ocr_stats["ocr_character_confusion"],
                     )
     except Exception:
         logger.exception("OCR.space request failed")
@@ -796,6 +908,10 @@ def run_ocrspace(
         psn_expected_count=psn_expected_count,
         raw_text="\n".join(raw_chunks),
         uncertain_count=uncertain_total,
+        ocr_fixed_count=ocr_stats["ocr_fixed_count"],
+        ocr_missing_count=ocr_stats["ocr_missing_count"],
+        ocr_false_negative=ocr_stats["ocr_false_negative"],
+        ocr_character_confusion=ocr_stats["ocr_character_confusion"],
     )
 
 
@@ -927,6 +1043,10 @@ def run_ocr(
                 psn_expected_count=psn_expected_count,
                 raw_text=remote.raw_text + "\n" + local.raw_text,
                 uncertain_count=uncertain,
+                ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
+                ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
+                ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
+                ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
             )
         return OcrResult(
             cards=tuple(),
@@ -937,6 +1057,10 @@ def run_ocr(
             psn_expected_count=psn_expected_count,
             raw_text=local.raw_text,
             uncertain_count=uncertain,
+            ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
+            ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
+            ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
+            ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
         )
 
     return run_local_ocr(
@@ -1765,6 +1889,149 @@ async def show_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(BOT_VERSION)
 
 
+def ocr_debug_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
+    if context.args:
+        return " ".join(context.args)
+    if update.message and update.message.reply_to_message:
+        return update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
+    return ""
+
+
+async def ocr_debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    raw_text = ocr_debug_input(update, context)
+    if not raw_text:
+        await update.message.reply_text("Usage: /ocr_debug raw_ocr_text")
+        return
+    await update.message.reply_text(format_ocr_debug(raw_text, card_type="PUBG"))
+
+
+async def ocr_candidates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    raw_text = ocr_debug_input(update, context)
+    if not raw_text:
+        await update.message.reply_text("Usage: /ocr_candidates raw_ocr_text")
+        return
+    await update.message.reply_text(format_ocr_candidates_debug(raw_text, card_type="PUBG"))
+
+
+async def ocr_font_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    await update.message.reply_text(format_ocr_font_stats(font_repository))
+
+
+async def ocr_cache_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
+    lines = [
+        "OCR Cache Today",
+        f"Date: {summary.date}",
+        f"Images: {summary.images}",
+        f"OCR cards: {summary.ocr_count}",
+        f"Path: {summary.path}",
+        "First 10:",
+        *(summary.first_cards or ("-",)),
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
+async def ocr_health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
+    lines = [
+        "OCR Health",
+        f"Provider: {OCR_PROVIDER}",
+        f"OCRSpace keys: {len(OCR_SPACE_API_KEYS)}",
+        f"Local fallback: {LOCAL_FALLBACK}",
+        f"Today cache: {'ready' if summary.exists else 'missing'}",
+        f"Today images: {summary.images}",
+        f"Today OCR cards: {summary.ocr_count}",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
+def command_body(update: Update, command: str) -> str:
+    if not update.message or not update.message.text:
+        return ""
+    text = update.message.text
+    first_line, _, rest = text.partition("\n")
+    if first_line.strip().split(maxsplit=1)[0].split("@", 1)[0] != f"/{command}":
+        return text
+    inline = first_line.strip().split(maxsplit=1)
+    values = []
+    if len(inline) > 1:
+        values.append(inline[1])
+    if rest:
+        values.append(rest)
+    return "\n".join(values).strip()
+
+
+async def learn_cards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    text = command_body(update, "learn_cards")
+    if not text:
+        await update.message.reply_text("请在 /learn_cards 后粘贴人工确认的卡密列表。")
+        return
+    preview = build_learning_preview(text)
+    if not preview.ocr_cache_found:
+        await update.message.reply_text(preview.message)
+        return
+    if preview.card_count < 5:
+        await update.message.reply_text(f"仅检测到 {preview.card_count} 条合法卡密，至少需要 5 条才进入批量学习确认。")
+        return
+    pending_learning_texts[update.effective_user.id] = text
+    await update.message.reply_text(preview.message)
+
+
+async def auto_learn_cards_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.message.text or not update.effective_user:
+        return
+    if not is_owner_update(update):
+        return
+    if update.message.text.strip().startswith("/"):
+        return
+    text = update.message.text
+    cards = extract_ground_truth_cards(text)
+    if len(cards) < 5:
+        return
+    preview = build_learning_preview(text)
+    if not preview.ocr_cache_found:
+        await update.message.reply_text(preview.message)
+        raise ApplicationHandlerStop
+    pending_learning_texts[update.effective_user.id] = text
+    await update.message.reply_text(preview.message)
+    raise ApplicationHandlerStop
+
+
+async def learn_confirm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update) or not update.effective_user:
+        return
+    text = pending_learning_texts.pop(update.effective_user.id, "")
+    if not text:
+        await update.message.reply_text("没有待确认的OCR学习任务。")
+        return
+    await update.message.reply_text(execute_learning(text))
+
+
+async def learn_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update) or not update.effective_user:
+        return
+    pending_learning_texts.pop(update.effective_user.id, None)
+    await update.message.reply_text("已取消今日OCR学习。")
+
+
+async def ocr_learning_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    await update.message.reply_text(format_learning_stats())
+
+
 def ledger_owner_ids(chat_id: int | None = None) -> set[int]:
     if chat_id is not None:
         chat_owner_id = ledger_store.get_chat_owner_id(chat_id)
@@ -2334,9 +2601,22 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
                     logger.info("Unrecognized OCR raw text: %s", result.raw_text.strip().replace("\n", " | ")[:1000])
                 results.append(corrected)
+                try:
+                    append_today_ocr_cache(
+                        list(corrected.cards) + [psn_key(line) or line for line in corrected.psn_ordered],
+                        raw_candidates=exact_unique_text(list(result.cards) + list(result.psn_ordered)),
+                        image_count=1,
+                        path=TODAY_OCR_CACHE_PATH,
+                    )
+                except Exception:
+                    logger.exception("Failed to write today OCR cache")
             except Exception:
                 logger.exception("Batch image OCR failed")
                 results.append(OcrResult(cards=tuple()))
+                try:
+                    append_today_ocr_cache([], image_count=1, path=TODAY_OCR_CACHE_PATH)
+                except Exception:
+                    logger.exception("Failed to write empty today OCR cache")
 
         if not has_card_results(results):
             return
