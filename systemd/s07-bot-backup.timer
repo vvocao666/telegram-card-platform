@@ -1,0 +1,10 @@
+[Unit]
+Description=Run S07 bot data backup daily
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

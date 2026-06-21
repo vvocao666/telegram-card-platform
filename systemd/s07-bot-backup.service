@@ -1,0 +1,7 @@
+[Unit]
+Description=Backup S07 bot data
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/s07-bot
+ExecStart=/root/s07-bot/scripts/backup_data.sh

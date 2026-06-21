@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram Card Platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/telegram-card-platform/service.env
+ExecStart=/bin/sh -lc 'cd "$APP_DIR" && exec "${PYTHON_BIN:-.venv/bin/python3}" bot.py'
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+CPUQuota=150%
+MemoryMax=700M
+TasksMax=128
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

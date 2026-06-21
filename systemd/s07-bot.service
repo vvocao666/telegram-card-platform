@@ -1,0 +1,19 @@
+[Unit]
+Description=S07 Telegram OCR Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/s07-bot
+ExecStart=/root/s07-bot/.venv/bin/python3 /root/s07-bot/bot.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+CPUQuota=150%
+MemoryMax=700M
+TasksMax=128
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

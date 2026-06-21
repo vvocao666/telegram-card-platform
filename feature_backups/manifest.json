@@ -1,0 +1,37 @@
+{
+  "name": "telegram-bot-feature-backups",
+  "updated_at": "2026-06-21",
+  "snapshot_note": "The removed payment add-on is not included. Current standards are documented in docs/CURRENT_FEATURES.md and docs/REBUILD_GUIDE.md.",
+  "features": [
+    {
+      "id": 1,
+      "title": "识别卡密功能（只识别卡密不转发）",
+      "path": "01-card-ocr-only",
+      "includes": ["PUBG/PSN OCR", "纠错学习", "查重", "疑似冲突", "复制友好格式", "无卡密图片静默"]
+    },
+    {
+      "id": 2,
+      "title": "识别卡密功能（副机器人转发）",
+      "path": "02-card-ocr-audit-forward",
+      "includes": ["功能包1全部能力", "副机器人同步", "来源群组/用户信息", "自己/别人使用均可同步"]
+    },
+    {
+      "id": 3,
+      "title": "记账功能",
+      "path": "03-ledger",
+      "includes": ["入款RMB", "下发USDT", "汇率换算", "应下发/已下发/未下发", "账单按钮", "清账", "暂停/开启", "日切", "群主权限"]
+    },
+    {
+      "id": 4,
+      "title": "币价功能",
+      "path": "04-okx-price",
+      "includes": ["币价", "bj", "z0/Z0", "OKX USDT/CNY 5档价格"]
+    },
+    {
+      "id": 5,
+      "title": "防篡改功能",
+      "path": "05-trc20-anti-tamper",
+      "includes": ["USDT-TRC20地址检测", "防篡改核对图片", "生成时间"]
+    }
+  ]
+}
