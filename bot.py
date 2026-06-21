@@ -18,9 +18,13 @@ from handlers.admin_handler import (
     ocr_candidates_command,
     ocr_cache_today_command,
     ocr_debug_command,
+    ocr_export_fonts_command,
     ocr_font_stats_command,
     ocr_health_command,
+    ocr_import_fonts_command,
     ocr_learning_stats_command,
+    ocr_review_command,
+    ocr_version_command,
     show_id,
     show_version,
 )
@@ -76,6 +80,10 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("ocr_debug", ocr_debug_command))
     app.add_handler(CommandHandler("ocr_candidates", ocr_candidates_command))
     app.add_handler(CommandHandler("ocr_font_stats", ocr_font_stats_command))
+    app.add_handler(CommandHandler("ocr_review", ocr_review_command))
+    app.add_handler(CommandHandler("ocr_export_fonts", ocr_export_fonts_command))
+    app.add_handler(CommandHandler("ocr_import_fonts", ocr_import_fonts_command))
+    app.add_handler(CommandHandler("ocr_version", ocr_version_command))
     app.add_handler(CommandHandler("ocr_cache_today", ocr_cache_today_command))
     app.add_handler(CommandHandler("ocr_health", ocr_health_command))
     app.add_handler(CommandHandler("learn_cards", learn_cards_command))

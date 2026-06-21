@@ -1,6 +1,8 @@
 import json
 
-from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
+from services.ocr.font_repository import FontRepository
+from services.ocr.font_templates import FontTemplateRepository
+from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_report, format_learning_stats
 from services.ocr.today_cache import append_today_ocr_cache
 
 
@@ -83,3 +85,19 @@ def test_learning_stats_outputs_totals(tmp_path):
     assert "2 -> Z" in output
     assert "S07304-AAAA-BBBB-CCCCC" in output
     assert "2026-06-22T00:00:00+00:00" in output
+
+
+def test_learning_report_marks_stats_warning_when_counts_do_not_match(tmp_path):
+    output = format_learning_report(
+        human_count=5,
+        ocr_count=4,
+        correct_count=1,
+        character_errors=1,
+        missing_count=1,
+        false_positive_count=1,
+        duplicate_count=0,
+        font_repository=FontRepository(tmp_path / "font_profiles.json"),
+        template_repository=FontTemplateRepository(tmp_path / "font_templates.json"),
+    )
+
+    assert "stats_warning=True" in output

@@ -74,6 +74,7 @@ def format_learning_report(
     font_repository: FontRepository,
     template_repository: FontTemplateRepository,
 ) -> str:
+    stats_warning = correct_count + character_errors + missing_count != human_count
     top_pairs = _top_error_pairs(font_repository)
     templates = template_repository.list_templates()
     sample_total = sum(template.samples for template in templates)
@@ -91,6 +92,7 @@ def format_learning_report(
         f"漏识别：{missing_count}",
         f"多识别：{false_positive_count}",
         f"重复：{duplicate_count}",
+        f"stats_warning={stats_warning}",
         "",
         "新增学习规则TOP10：",
     ]

@@ -30,9 +30,15 @@ from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr.correction_engine import apply_corrections
+from services.ocr.admin_commands import (
+    export_font_templates,
+    format_font_stats as format_ocr_font_stats_plus,
+    format_ocr_review,
+    format_ocr_version,
+    import_font_templates,
+)
 from services.ocr.debug_commands import ocr_candidates as format_ocr_candidates_debug
 from services.ocr.debug_commands import ocr_debug as format_ocr_debug
-from services.ocr.debug_commands import ocr_font_stats as format_ocr_font_stats
 from services.ocr.font_repository import FontRepository
 from services.ocr.daily_learning import extract_ground_truth_cards
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
@@ -1957,7 +1963,59 @@ async def ocr_candidates_command(update: Update, context: ContextTypes.DEFAULT_T
 async def ocr_font_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not is_owner_update(update):
         return
-    await update.message.reply_text(format_ocr_font_stats(font_repository))
+    await update.message.reply_text(format_ocr_font_stats_plus(font_repository))
+
+
+async def ocr_review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    await update.message.reply_text(format_ocr_review(OCR_CANDIDATES_PATH))
+
+
+async def ocr_export_fonts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    path = export_font_templates(Path("outputs") / "font_templates.json")
+    if not path.exists():
+        await update.message.reply_text("font_templates.json not found")
+        return
+    with path.open("rb") as template_file:
+        await update.message.reply_document(document=template_file, filename="font_templates.json")
+
+
+async def ocr_import_fonts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    payload = command_body(update, "ocr_import_fonts")
+    if not payload and update.message.reply_to_message and update.message.reply_to_message.document:
+        document = update.message.reply_to_message.document
+        tg_file = await context.bot.get_file(document.file_id)
+        temp_dir = Path(tempfile.mkdtemp(prefix="ocr_font_import_"))
+        temp_path = temp_dir / (document.file_name or "font_templates.json")
+        try:
+            await tg_file.download_to_drive(custom_path=temp_path)
+            payload = temp_path.read_text(encoding="utf-8")
+        finally:
+            try:
+                temp_path.unlink(missing_ok=True)
+                temp_dir.rmdir()
+            except OSError:
+                pass
+    if not payload:
+        await update.message.reply_text("Usage: /ocr_import_fonts JSON 或回复 font_templates.json 文件")
+        return
+    try:
+        count = import_font_templates(payload, Path("outputs") / "font_templates.json")
+    except Exception as exc:
+        await update.message.reply_text(f"OCR font import failed: {exc}")
+        return
+    await update.message.reply_text(f"OCR font templates imported: {count}")
+
+
+async def ocr_version_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    await update.message.reply_text(format_ocr_version(Path("."), current_version=BOT_VERSION))
 
 
 async def ocr_cache_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
