@@ -38,6 +38,7 @@ from services.ocr.daily_learning import extract_ground_truth_cards
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.ocr.validator import validate_candidate
+from services.ocr.duplicate_detector import canonical_card
 from storage.repositories.ledger_storage import LedgerStore
 
 
@@ -129,6 +130,8 @@ class OcrResult:
     psn_cards: tuple[str, ...] = tuple()
     psn_uncertain: tuple[str, ...] = tuple()
     psn_ordered: tuple[str, ...] = tuple()
+    card_locations: tuple[tuple[str, int, int], ...] = tuple()
+    psn_locations: tuple[tuple[str, int, int], ...] = tuple()
     pubg_expected_count: int | None = None
     psn_expected_count: int | None = None
     raw_text: str = ""
@@ -138,6 +141,16 @@ class OcrResult:
     ocr_missing_count: int = 0
     ocr_false_negative: int = 0
     ocr_character_confusion: int = 0
+
+
+@dataclass(frozen=True)
+class OrderedCardOccurrence:
+    card: str
+    image_index: int
+    y: int
+    x: int
+    duplicate_key: str
+    display: str = ""
 
 
 @dataclass(frozen=True)
@@ -1149,9 +1162,50 @@ def source_username_only(source_user: str) -> str:
     return parts[0] if parts else source_user.strip() or "Unknown"
 
 
+def ordered_pubg_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
+    occurrences: list[OrderedCardOccurrence] = []
+    for image_index, result in enumerate(results, start=1):
+        if result.card_locations:
+            for card, y, x in result.card_locations:
+                key = canonical_card(card)
+                if key and valid_card(card):
+                    occurrences.append(OrderedCardOccurrence(card=card, image_index=image_index, y=int(y), x=int(x), duplicate_key=key))
+            continue
+        for y, card in enumerate(result.cards):
+            key = canonical_card(card)
+            if key and valid_card(card):
+                occurrences.append(OrderedCardOccurrence(card=card, image_index=image_index, y=y, x=0, duplicate_key=key))
+    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+
+
+def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
+    occurrences: list[OrderedCardOccurrence] = []
+    for image_index, result in enumerate(results, start=1):
+        if result.psn_locations:
+            for line, y, x in result.psn_locations:
+                key = psn_key(line)
+                if not key:
+                    continue
+                display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
+                occurrences.append(OrderedCardOccurrence(card=key, image_index=image_index, y=int(y), x=int(x), duplicate_key=key, display=display))
+            continue
+        if result.psn_ordered:
+            ordered_psn = list(result.psn_ordered)
+        else:
+            ordered_psn = exact_unique_psn(list(result.psn_cards)) + exact_unique_text(list(result.psn_uncertain))
+        ordered_psn = limit_psn_ordered(ordered_psn, result.psn_expected_count)
+        for y, line in enumerate(ordered_psn):
+            key = psn_key(line)
+            if not key:
+                continue
+            display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
+            occurrences.append(OrderedCardOccurrence(card=key, image_index=image_index, y=y, x=0, duplicate_key=key, display=display))
+    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+
+
 def format_reply(results: list[OcrResult]) -> str:
-    pubg_occurrences: list[tuple[str, int]] = []
-    psn_occurrences: list[tuple[str, str, int]] = []
+    pubg_occurrences = ordered_pubg_occurrences(results)
+    psn_occurrences = ordered_psn_occurrences(results)
     conflict_lines: list[str] = []
     expected_pubg_total = 0
     expected_psn_total = 0
@@ -1159,29 +1213,12 @@ def format_reply(results: list[OcrResult]) -> str:
     psn_image_count = 0
     uncertain_count = 0
     for index, result in enumerate(results, start=1):
-        cards = exact_unique(list(result.cards))
-        if result.psn_ordered:
-            psn = [card for card in result.psn_ordered if not card.endswith(FUZZY_SUFFIX)]
-            fuzzy_psn = [card for card in result.psn_ordered if card.endswith(FUZZY_SUFFIX)]
-            ordered_psn = list(result.psn_ordered)
-        else:
-            psn = exact_unique_psn(list(result.psn_cards))
-            fuzzy_psn = exact_unique_text(list(result.psn_uncertain))
-            ordered_psn = psn + fuzzy_psn
-        ordered_psn = limit_psn_ordered(ordered_psn, result.psn_expected_count)
-        psn = [card for card in ordered_psn if not card.endswith(FUZZY_SUFFIX)]
-        fuzzy_psn = [card for card in ordered_psn if card.endswith(FUZZY_SUFFIX)]
-        if cards:
+        image_pubg = [item for item in pubg_occurrences if item.image_index == index]
+        image_psn = [item for item in psn_occurrences if item.image_index == index]
+        if image_pubg:
             pubg_image_count += 1
-        if psn or fuzzy_psn:
+        if image_psn:
             psn_image_count += 1
-        pubg_occurrences.extend((card, index) for card in cards)
-        for line in ordered_psn:
-            key = psn_key(line)
-            if not key:
-                continue
-            display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
-            psn_occurrences.append((display, key, index))
         if result.pubg_expected_count:
             expected_pubg_total += result.pubg_expected_count
         if result.psn_expected_count:
@@ -1193,24 +1230,24 @@ def format_reply(results: list[OcrResult]) -> str:
     pubg_cards: list[str] = []
     seen_pubg: dict[str, int] = {}
     pubg_duplicate_groups: dict[int, list[int]] = {}
-    for card, index in pubg_occurrences:
-        if not valid_card(card):
+    for occurrence in pubg_occurrences:
+        if not valid_card(occurrence.card):
             continue
-        if card not in seen_pubg:
-            seen_pubg[card] = index
-            pubg_cards.append(card)
+        if occurrence.duplicate_key not in seen_pubg:
+            seen_pubg[occurrence.duplicate_key] = occurrence.image_index
+            pubg_cards.append(occurrence.card)
             continue
-        pubg_duplicate_groups.setdefault(seen_pubg[card], []).append(index)
+        pubg_duplicate_groups.setdefault(seen_pubg[occurrence.duplicate_key], []).append(occurrence.image_index)
 
     psn_lines: list[str] = []
     seen_psn: dict[str, int] = {}
     psn_duplicate_groups: dict[int, list[int]] = {}
-    for display, key, index in psn_occurrences:
-        if key not in seen_psn:
-            seen_psn[key] = index
-            psn_lines.append(display)
+    for occurrence in psn_occurrences:
+        if occurrence.duplicate_key not in seen_psn:
+            seen_psn[occurrence.duplicate_key] = occurrence.image_index
+            psn_lines.append(occurrence.display)
             continue
-        psn_duplicate_groups.setdefault(seen_psn[key], []).append(index)
+        psn_duplicate_groups.setdefault(seen_psn[occurrence.duplicate_key], []).append(occurrence.image_index)
     psn_cards = exact_unique_psn([card for card in psn_lines if not card.endswith(FUZZY_SUFFIX)])
     psn_uncertain = exact_unique_text([card for card in psn_lines if card.endswith(FUZZY_SUFFIX)])
     pubg_duplicate_lines = format_duplicate_lines(list(pubg_duplicate_groups.items()))
@@ -1254,19 +1291,19 @@ def format_reply(results: list[OcrResult]) -> str:
 def result_card_lines(results: list[OcrResult]) -> tuple[list[str], list[str]]:
     pubg_cards: list[str] = []
     psn_lines: list[str] = []
-    for result in results:
-        pubg_cards.extend(card for card in exact_unique(list(result.cards)) if valid_card(card))
-        if result.psn_ordered:
-            ordered_psn = list(result.psn_ordered)
-        else:
-            ordered_psn = exact_unique_psn(list(result.psn_cards)) + exact_unique_text(list(result.psn_uncertain))
-        ordered_psn = limit_psn_ordered(ordered_psn, result.psn_expected_count)
-        for line in ordered_psn:
-            key = psn_key(line)
-            if not key:
-                continue
-            psn_lines.append(f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key)
-    return exact_unique(pubg_cards), unique_psn_lines(psn_lines)
+    seen_pubg: set[str] = set()
+    for occurrence in ordered_pubg_occurrences(results):
+        if occurrence.duplicate_key in seen_pubg:
+            continue
+        seen_pubg.add(occurrence.duplicate_key)
+        pubg_cards.append(occurrence.card)
+    seen_psn: set[str] = set()
+    for occurrence in ordered_psn_occurrences(results):
+        if occurrence.duplicate_key in seen_psn:
+            continue
+        seen_psn.add(occurrence.duplicate_key)
+        psn_lines.append(occurrence.display)
+    return pubg_cards, psn_lines
 
 
 def has_card_results(results: list[OcrResult]) -> bool:
