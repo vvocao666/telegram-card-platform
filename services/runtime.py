@@ -479,6 +479,31 @@ def valid_psn_card(card: str) -> bool:
     return bool(re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", card))
 
 
+def psn_is_pubg_substring(psn: str, pubg_cards: list[str] | tuple[str, ...]) -> bool:
+    key = psn_key(psn) or normalize_text(psn).strip()
+    if not key:
+        return False
+    compact_key = key.replace("-", "")
+    for pubg in pubg_cards:
+        normalized_pubg = normalize_text(pubg).strip()
+        if not valid_card(normalized_pubg):
+            continue
+        if key in normalized_pubg or compact_key in normalized_pubg.replace("-", ""):
+            return True
+    return False
+
+
+def filter_psn_pubg_substrings(psn_lines: list[str], pubg_cards: list[str] | tuple[str, ...]) -> list[str]:
+    if not pubg_cards:
+        return psn_lines
+    filtered: list[str] = []
+    for line in psn_lines:
+        if psn_is_pubg_substring(line, pubg_cards):
+            continue
+        filtered.append(line)
+    return filtered
+
+
 def add_card_candidate(cards: list[str], seen: set[str], first: str, second: str, third: str, fourth: str) -> None:
     card = apply_builtin_pubg_correction(f"{repair_first_group(first)}-{second}-{third}-{fourth}")
     if valid_card(card) and card not in seen:
@@ -555,6 +580,7 @@ def repair_psn_group(group: str, index: int) -> tuple[str, bool]:
 
 def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]]:
     text = normalize_text(text)
+    pubg_cards = extract_cards(text)
     pattern = (
         r"(?<![A-Z0-9-])"
         r"([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})"
@@ -567,6 +593,8 @@ def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]
         if match.start() > 0 and text[match.start() - 1] == "-":
             continue
         candidate = "-".join(match.groups())
+        if psn_is_pubg_substring(candidate, pubg_cards):
+            continue
         if not candidate.startswith("S07") and candidate not in seen:
             seen.add(candidate)
             results.append((candidate, False))
@@ -575,6 +603,7 @@ def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]
 
 def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
     text = normalize_text(text)
+    pubg_cards = extract_cards(text)
     label_pattern = re.compile(r"(\u5361\s*\u53f7|\u5bc6\s*\u7801)")
     code_pattern = re.compile(
         r"([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})"
@@ -594,6 +623,8 @@ def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
             matches = list(code_pattern.finditer(next_line))
         for match in matches[:1]:
             candidate = "-".join(match.groups())
+            if psn_is_pubg_substring(candidate, pubg_cards):
+                continue
             if candidate.startswith("S07") or candidate in seen:
                 continue
             seen.add(candidate)
@@ -602,17 +633,25 @@ def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
 
 
 def extract_psn_ordered(text: str, force: bool = False) -> list[str]:
+    pubg_cards = extract_cards(text)
     labeled = scan_labeled_psn_candidates(text)
     if labeled:
-        return psn_matches_to_lines(labeled)
-    return [
-        f"{card}{FUZZY_SUFFIX}" if fuzzy and not card.endswith(FUZZY_SUFFIX) else card
-        for card, fuzzy in scan_psn_candidates(text, force=force)
-    ]
+        return filter_psn_pubg_substrings(psn_matches_to_lines(labeled), pubg_cards)
+    return filter_psn_pubg_substrings(
+        [
+            f"{card}{FUZZY_SUFFIX}" if fuzzy and not card.endswith(FUZZY_SUFFIX) else card
+            for card, fuzzy in scan_psn_candidates(text, force=force)
+        ],
+        pubg_cards,
+    )
 
 
 def extract_psn_cards(text: str, force: bool = False) -> list[str]:
-    return [card for card, fuzzy in scan_psn_candidates(text, force=force) if not fuzzy and valid_psn_card(card)]
+    pubg_cards = extract_cards(text)
+    return filter_psn_pubg_substrings(
+        [card for card, fuzzy in scan_psn_candidates(text, force=force) if not fuzzy and valid_psn_card(card)],
+        pubg_cards,
+    )
 
 
 def psn_matches_to_lines(matches: list[tuple[str, bool]]) -> list[str]:
@@ -623,10 +662,12 @@ def psn_matches_to_lines(matches: list[tuple[str, bool]]) -> list[str]:
 
 
 def prefer_labeled_psn_ordered(raw_chunks: list[str], fallback_ordered: list[str]) -> list[str]:
-    labeled = scan_labeled_psn_candidates("\n".join(raw_chunks))
+    raw_text = "\n".join(raw_chunks)
+    pubg_cards = extract_cards(raw_text)
+    labeled = scan_labeled_psn_candidates(raw_text)
     if labeled:
-        return exact_unique_text(psn_matches_to_lines(labeled))
-    return exact_unique_text(fallback_ordered)
+        return exact_unique_text(filter_psn_pubg_substrings(psn_matches_to_lines(labeled), pubg_cards))
+    return exact_unique_text(filter_psn_pubg_substrings(fallback_ordered, pubg_cards))
 
 
 def extract_uncertain_psn_cards(text: str, known_cards: list[str] | None = None, force: bool = False) -> list[str]:
@@ -1648,12 +1689,15 @@ def ordered_pubg_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurr
 
 def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
     occurrences: list[OrderedCardOccurrence] = []
+    all_pubg_cards = [card for result in results for card in result.cards if valid_card(card)]
     for image_index, result in enumerate(results, start=1):
         sequence_index = result.sequence_index or image_index
         if result.psn_locations:
             for line, y, x in result.psn_locations:
                 key = psn_key(line)
                 if not key:
+                    continue
+                if psn_is_pubg_substring(key, all_pubg_cards):
                     continue
                 display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
                 occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=int(y), x=int(x), duplicate_key=key, display=display))
@@ -1662,10 +1706,13 @@ def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurre
             ordered_psn = list(result.psn_ordered)
         else:
             ordered_psn = exact_unique_psn(list(result.psn_cards)) + exact_unique_text(list(result.psn_uncertain))
+        ordered_psn = filter_psn_pubg_substrings(ordered_psn, all_pubg_cards)
         ordered_psn = limit_psn_ordered(ordered_psn, result.psn_expected_count)
         for y, line in enumerate(ordered_psn):
             key = psn_key(line)
             if not key:
+                continue
+            if psn_is_pubg_substring(key, all_pubg_cards):
                 continue
             display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
             occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=y, x=0, duplicate_key=key, display=display))
