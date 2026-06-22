@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import bot
@@ -37,10 +38,11 @@ def test_status_commands_are_registered():
 
 def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     cache_path = tmp_path / "today_ocr_cache.json"
+    today = datetime.now().strftime("%Y-%m-%d")
     cache_path.write_text(
-        """
-        {
-          "date": "2026-06-22",
+        f"""
+        {{
+          "date": "{today}",
           "images": 2,
           "ocr_cards": [
             "S07304-WJB9-VPEZ-MUFWK",
@@ -50,7 +52,7 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
             "S07304-WJB9-VPEZ-MUFWK",
             "S07304-WJB9-VPEZ-MUFWK"
           ]
-        }
+        }}
         """,
         encoding="utf-8",
     )
@@ -62,7 +64,7 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     monkeypatch.setattr(bot, "git_output", lambda args: "f557b1a" if args[0] == "rev-parse" else "main")
     bot.remote_ocr_status.update(
         {
-            "today_date": "2026-06-22",
+            "today_date": today,
             "today_remote_calls": 4,
             "today_remote_success": 3,
             "today_remote_failed": 1,

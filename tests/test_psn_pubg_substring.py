@@ -277,6 +277,33 @@ def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp
     assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_line_wrap" in caplog.text
 
 
+def test_wrapped_pubg_does_not_borrow_next_card_prefix(monkeypatch, tmp_path, caplog):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07304-94VF-NG88-JES07", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "card: S07304-94VF-NG88-", "rec_box": [20, 10, 300, 30]},
+            {"text": "JE", "rec_box": [20, 35, 120, 55]},
+            {"text": "card: S07304-UM3A-RHGF-", "rec_box": [20, 90, 300, 110]},
+            {"text": "SY5RQ", "rec_box": [20, 115, 120, 135]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    with caplog.at_level("INFO"):
+        result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == ("S07304-UM3A-RHGF-SY5RQ",)
+    assert "S07304-94VF-NG88-JES07" not in result.cards
+    assert "PUBG LINE WRAP UNRESOLVED:" in caplog.text
+    assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_line_wrap" in caplog.text
+
+
 def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")

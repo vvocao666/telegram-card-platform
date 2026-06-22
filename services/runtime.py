@@ -388,6 +388,7 @@ PUBG_PREFIXES = {
     "S07228",
     "S07286",
 }
+PUBG_PREFIX_RE = re.compile(r"(?:" + "|".join(sorted(PUBG_PREFIXES)) + r")")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
@@ -558,6 +559,30 @@ def is_pubg_image_text(text: str) -> bool:
     return bool(re.search(r"S0[A-Z0-9]304", compact))
 
 
+def line_has_pubg_prefix(text: str) -> bool:
+    return bool(PUBG_PREFIX_RE.search(normalize_text(text)))
+
+
+def clean_pubg_fragment(text: str, *, from_prefix: bool) -> str:
+    normalized = normalize_text(text)
+    if from_prefix:
+        match = PUBG_PREFIX_RE.search(normalized)
+        if not match:
+            return ""
+        normalized = normalized[match.start() :]
+    return re.sub(r"[^A-Z0-9-]", "", normalized)
+
+
+def join_pubg_fragments(left: str, right: str) -> str:
+    if not left:
+        return right
+    if not right:
+        return left
+    if left.endswith("-") or right.startswith("-"):
+        return left + right
+    return left + right
+
+
 def extract_cards(text: str) -> list[str]:
     text = normalize_text(text)
     sep = r"[\s\-_|:：；;,.，。|]+"
@@ -684,20 +709,30 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
             continue
         if not line.text.strip().endswith("-") and len(re.findall(r"-", line.text)) >= 3:
             continue
+        current = clean_pubg_fragment(line.text, from_prefix=True)
+        if not current:
+            continue
         for end in range(index + 1, min(index + 4, len(lines))):
-            joined = "\n".join(part.text for part in lines[index : end + 1])
-            joined_cards = extract_cards(joined)
-            if not joined_cards:
+            next_line = lines[end]
+            if line_has_pubg_prefix(next_line.text):
+                logger.info(
+                    "PUBG LINE WRAP UNRESOLVED: %s reason=next_pubg_prefix",
+                    " + ".join(part.text for part in lines[index:end]),
+                )
+                break
+            next_fragment = clean_pubg_fragment(next_line.text, from_prefix=False)
+            current = join_pubg_fragments(current, next_fragment)
+            card = apply_builtin_pubg_correction(current)
+            if not valid_card(card):
                 continue
-            for card in joined_cards:
-                if card not in seen:
-                    seen.add(card)
-                    cards.append(card)
-                    logger.info(
-                        "PUBG LINE WRAP MERGED: %s => %s",
-                        " + ".join(part.text for part in lines[index : end + 1]),
-                        card,
-                    )
+            if card not in seen:
+                seen.add(card)
+                cards.append(card)
+                logger.info(
+                    "PUBG LINE WRAP MERGED: %s => %s",
+                    " + ".join(part.text for part in lines[index : end + 1]),
+                    card,
+                )
             break
     return cards
 
@@ -714,21 +749,14 @@ def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: lis
         return worker_cards
     result: list[str] = []
     seen: set[str] = set()
-    text_keys = {key for card in text_cards if (key := pubg_card_prefix_key(card))}
     for card in text_cards:
         if card in seen:
             continue
         seen.add(card)
         result.append(card)
     for card in worker_cards:
-        key = pubg_card_prefix_key(card)
-        if key in text_keys and card not in seen:
+        if card not in seen:
             logger.info("PUBG WORKER CARD DROPPED: %s reason=conflict_with_line_wrap", card)
-            continue
-        if card in seen:
-            continue
-        seen.add(card)
-        result.append(card)
     return result
 
 
