@@ -1905,6 +1905,14 @@ def photo_sequence(update: Update) -> int:
     return photo_sequence_by_update.get(id(update), 0)
 
 
+def photo_display_order(update: Update) -> tuple[int, int]:
+    message = getattr(update, "message", None)
+    message_id = getattr(message, "message_id", None)
+    if isinstance(message_id, int):
+        return message_id, photo_sequence(update)
+    return 10**12, photo_sequence(update)
+
+
 def result_location(index: int, result: OcrResult) -> str:
     return f"第{index}张"
 
@@ -3494,17 +3502,17 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         chat_tasks.pop(chat_id, None)
         if not updates:
             return
-        updates.sort(key=photo_sequence)
+        updates.sort(key=photo_display_order)
         message = updates[-1].message
         if not message:
             return
 
         await message.chat.send_action("typing")
         results: list[OcrResult] = []
-        for update in updates:
+        for batch_index, update in enumerate(updates, start=1):
             try:
                 result = await recognize_update(update, context)
-                result = replace(result, sequence_index=photo_sequence(update))
+                result = replace(result, sequence_index=batch_index)
                 corrected = apply_card_corrections(chat_id, result)
                 corrected_pubg, corrected_psn = result_card_lines([corrected])
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
