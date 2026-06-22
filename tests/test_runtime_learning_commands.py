@@ -1,8 +1,5 @@
 import asyncio
 
-import pytest
-from telegram.ext import ApplicationHandlerStop
-
 import services.runtime as runtime
 from services.ocr.today_cache import append_today_ocr_cache
 
@@ -87,18 +84,17 @@ def test_learn_confirm_executes_and_cancel_discards(monkeypatch, tmp_path):
     assert 1 not in runtime.pending_learning_texts
 
 
-def test_owner_plain_text_auto_enters_learning_confirmation(monkeypatch, tmp_path):
+def test_owner_plain_text_does_not_auto_enter_learning_confirmation(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime, "OWNER_CHAT_ID", "1")
     runtime.pending_learning_texts.clear()
     append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=tmp_path / "outputs" / "today_ocr_cache.json")
     update = FakeUpdate(HUMAN_TEXT, user_id=1)
 
-    with pytest.raises(ApplicationHandlerStop):
-        asyncio.run(runtime.auto_learn_cards_text(update, FakeContext()))
+    asyncio.run(runtime.auto_learn_cards_text(update, FakeContext()))
 
-    assert "/learn_confirm" in update.message.replies[-1]
-    assert runtime.pending_learning_texts[1] == HUMAN_TEXT
+    assert update.message.replies == []
+    assert runtime.pending_learning_texts == {}
 
 
 def test_non_owner_plain_text_does_not_trigger_learning(monkeypatch, tmp_path):

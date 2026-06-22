@@ -11,7 +11,6 @@ from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDG
 from config.logging_config import configure_logging
 from config.settings import load_settings
 from handlers.admin_handler import (
-    auto_learn_cards_text,
     learn_cancel_command,
     learn_cards_command,
     learn_confirm_command,
@@ -95,7 +94,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
     app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))
     app.add_handler(CommandHandler("ocr_learning_stats", ocr_learning_stats_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_learn_cards_text), group=-2)
     app.add_handler(
         MessageHandler(
             filters.Regex(f"^({re.escape(TEXT_LEDGER_ADD_GROUP)}|记账拉机器人进群)$"),

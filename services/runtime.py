@@ -2672,23 +2672,7 @@ async def learn_cards_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def auto_learn_cards_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text or not update.effective_user:
-        return
-    if not is_owner_update(update):
-        return
-    if update.message.text.strip().startswith("/"):
-        return
-    text = update.message.text
-    cards = extract_ground_truth_cards(text)
-    if len(cards) < 5:
-        return
-    preview = build_learning_preview(text)
-    if not preview.ocr_cache_found:
-        await update.message.reply_text(preview.message)
-        raise ApplicationHandlerStop
-    pending_learning_texts[update.effective_user.id] = text
-    await update.message.reply_text(preview.message)
-    raise ApplicationHandlerStop
+    return
 
 
 async def learn_confirm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2847,15 +2831,6 @@ async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     calculation = calculate_expression(update.message.text or "")
     if calculation is not None:
         await update.message.reply_text(calculation)
-        return True
-    text_result = card_text_result(update.message.text or "") if recognition_enabled else None
-    if text_result is not None:
-        corrected_result = apply_card_corrections(update.effective_chat.id, text_result)
-        history_duplicates = register_card_history([update], [corrected_result])
-        await reply_html_chunks(
-            update.message,
-            append_history_duplicates(format_reply([corrected_result]), history_duplicates),
-        )
         return True
     reply_message = update.message.reply_to_message
     reply_user = ledger_actor_from_message(reply_message) if reply_message else None
