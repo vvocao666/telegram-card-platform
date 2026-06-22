@@ -23,6 +23,8 @@ def reset_remote_ocr_status():
             "today_remote_failed": 0,
             "today_fallback_count": 0,
             "today_remote_latency_total_ms": 0,
+            "today_enhanced_used": 0,
+            "today_cache_hits": 0,
         }
     )
     yield
@@ -68,6 +70,8 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
         "ok": True,
         "cards": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
         "texts": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
+        "enhanced_used": True,
+        "cached": True,
     }
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
 
@@ -79,6 +83,8 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert bot.remote_ocr_status["today_remote_calls"] == 1
     assert bot.remote_ocr_status["today_remote_success"] == 1
     assert bot.remote_ocr_status["today_remote_failed"] == 0
+    assert bot.remote_ocr_status["today_enhanced_used"] == 1
+    assert bot.remote_ocr_status["today_cache_hits"] == 1
     assert bot.avg_remote_latency_ms() >= 0
 
 
@@ -157,6 +163,7 @@ def test_remote_ocr_logs_success_and_fallback(monkeypatch, tmp_path, caplog):
         "ok": True,
         "cards": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
         "texts": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
+        "enhanced_used": True,
     }
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
 
@@ -167,6 +174,7 @@ def test_remote_ocr_logs_success_and_fallback(monkeypatch, tmp_path, caplog):
     assert result is not None
     assert "REMOTE OCR START url=" in caplog.text
     assert "REMOTE OCR SUCCESS latency_ms=" in caplog.text
+    assert "enhanced_used=true" in caplog.text
     assert "OCRSPACE FALLBACK reason=test" in caplog.text
 
 
@@ -212,6 +220,8 @@ def test_remote_ocr_status_command_outputs_requested_fields(monkeypatch):
             "today_remote_failed": 1,
             "today_fallback_count": 1,
             "today_remote_latency_total_ms": 300,
+            "today_enhanced_used": 1,
+            "today_cache_hits": 1,
         }
     )
     monkeypatch.setattr(bot, "remote_ocr_available", lambda: (True, "ok"))
@@ -239,3 +249,6 @@ def test_remote_ocr_status_command_outputs_requested_fields(monkeypatch):
     assert "today_remote_failed: 1" in text
     assert "today_fallback_count: 1" in text
     assert "avg_remote_latency_ms: 150" in text
+    assert "enhanced_rate: 33.3%" in text
+    assert "cache_hit_rate: 33.3%" in text
+    assert "current_provider:" in text

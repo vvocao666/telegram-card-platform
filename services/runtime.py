@@ -197,6 +197,8 @@ remote_ocr_status = {
     "today_remote_failed": 0,
     "today_fallback_count": 0,
     "today_remote_latency_total_ms": 0,
+    "today_enhanced_used": 0,
+    "today_cache_hits": 0,
 }
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
@@ -1062,6 +1064,8 @@ def ensure_remote_ocr_today(now: datetime | None = None) -> None:
             "today_remote_failed": 0,
             "today_fallback_count": 0,
             "today_remote_latency_total_ms": 0,
+            "today_enhanced_used": 0,
+            "today_cache_hits": 0,
         }
     )
 
@@ -1093,6 +1097,20 @@ def avg_remote_latency_ms() -> int:
     return int(int(remote_ocr_status.get("today_remote_latency_total_ms", 0)) / success_count)
 
 
+def percent_rate(part: int, total: int) -> str:
+    if total <= 0:
+        return "0.0%"
+    return f"{(part / total) * 100:.1f}%"
+
+
+def current_ocr_provider() -> str:
+    if remote_ocr_status.get("last_ok"):
+        return "RTX5070"
+    if int(remote_ocr_status.get("today_fallback_count", 0)) > 0:
+        return "OCR.space"
+    return "unknown"
+
+
 def record_remote_ocr_status(
     ok: bool,
     latency_ms: int,
@@ -1100,6 +1118,8 @@ def record_remote_ocr_status(
     text_count: int = 0,
     error: str = "",
     health_check: bool = False,
+    enhanced_used: bool = False,
+    cache_hit: bool = False,
 ) -> None:
     now = remote_ocr_now()
     ensure_remote_ocr_today(now)
@@ -1115,8 +1135,18 @@ def record_remote_ocr_status(
     if ok:
         remote_ocr_status["today_remote_success"] += 1
         remote_ocr_status["today_remote_latency_total_ms"] += latency_ms
+        if enhanced_used:
+            remote_ocr_status["today_enhanced_used"] += 1
+        if cache_hit:
+            remote_ocr_status["today_cache_hits"] += 1
         remote_ocr_status["last_success_at"] = now.isoformat(timespec="seconds")
-        logger.info("REMOTE OCR SUCCESS latency_ms=%s cards=%s texts=%s", latency_ms, card_count, text_count)
+        logger.info(
+            "REMOTE OCR SUCCESS latency_ms=%s cards=%s texts=%s enhanced_used=%s",
+            latency_ms,
+            card_count,
+            text_count,
+            str(enhanced_used).lower(),
+        )
     else:
         remote_ocr_status["today_remote_failed"] += 1
         remote_ocr_status["last_failed_at"] = now.isoformat(timespec="seconds")
@@ -1211,7 +1241,14 @@ def run_remote_ocr(
             return None
 
         card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
-        record_remote_ocr_status(True, latency_ms, card_count=card_count, text_count=len(text_values))
+        record_remote_ocr_status(
+            True,
+            latency_ms,
+            card_count=card_count,
+            text_count=len(text_values),
+            enhanced_used=bool(payload.get("enhanced_used")),
+            cache_hit=bool(payload.get("cached")),
+        )
         return OcrResult(
             cards=tuple(cards),
             psn_cards=tuple(psn_cards),
@@ -2288,6 +2325,7 @@ async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAUL
     if not update.message or not is_owner_update(update):
         return
     available, reason = await asyncio.to_thread(remote_ocr_available)
+    remote_calls = int(remote_ocr_status["today_remote_calls"])
     lines = [
         "Remote OCR Status",
         f"remote_enabled: {REMOTE_OCR_ENABLED}",
@@ -2302,6 +2340,9 @@ async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAUL
         f"today_remote_failed: {remote_ocr_status['today_remote_failed']}",
         f"today_fallback_count: {remote_ocr_status['today_fallback_count']}",
         f"avg_remote_latency_ms: {avg_remote_latency_ms()}",
+        f"enhanced_rate: {percent_rate(int(remote_ocr_status['today_enhanced_used']), remote_calls)}",
+        f"cache_hit_rate: {percent_rate(int(remote_ocr_status['today_cache_hits']), remote_calls)}",
+        f"current_provider: {current_ocr_provider()}",
     ]
     await update.message.reply_text("\n".join(lines))
 
