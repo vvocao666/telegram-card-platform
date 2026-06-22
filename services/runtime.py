@@ -43,6 +43,7 @@ from services.ocr.debug_commands import ocr_debug as format_ocr_debug
 from services.ocr.font_repository import FontRepository
 from services.ocr.daily_learning import extract_ground_truth_cards
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
+from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
@@ -153,6 +154,7 @@ class OcrResult:
     ocr_missing_count: int = 0
     ocr_false_negative: int = 0
     ocr_character_confusion: int = 0
+    corrections_applied: tuple[dict[str, str], ...] = tuple()
 
 
 @dataclass(frozen=True)
@@ -369,7 +371,7 @@ def merge_ocr_stats(left: dict[str, int], right: dict[str, int]) -> dict[str, in
 
 BUILTIN_PUBG_CARD_CORRECTIONS = {
     "S07304-9M8Q-Y7UW-78220": "S07304-9M8Q-Y7UW-78Z2U",
-    "S07304-8MP5-4TYS-VDVR6": "S07304-8MP5-4TY9-VDVR6",
+    "S07304-8MP5-4TY9-VDVR6": "S07304-8MP5-4TYS-VDVR6",
     "S07304-4U60-U5L1-GLXUV": "S07304-4U6Q-U5LL-GLXUV",
 }
 
@@ -832,6 +834,12 @@ def settle_image_cards(cards: list[str]) -> tuple[list[str], int]:
     return merge_card_variants(cards)
 
 
+def settle_and_correct_pubg_cards(cards: list[str]) -> tuple[list[str], int, tuple[dict[str, str], ...]]:
+    settled, uncertain = settle_image_cards(cards)
+    correction = apply_pubg_char_corrections(settled, font_repository=font_repository)
+    return list(correction.cards), uncertain, tuple(item.as_dict() for item in correction.corrections)
+
+
 def filter_local_ocr_cards(cards: list[str], min_votes: int = LOCAL_OCR_MIN_CARD_VOTES) -> list[str]:
     if min_votes <= 1:
         return exact_unique(cards)
@@ -962,7 +970,7 @@ def run_ocrspace(
                 legacy_cards = extract_cards(raw_text)
                 enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
                 ocr_stats = merge_ocr_stats(ocr_stats, enhanced_stats)
-                cards, uncertain = settle_image_cards(enhanced_cards + legacy_cards)
+                cards, uncertain, card_corrections = settle_and_correct_pubg_cards(enhanced_cards + legacy_cards)
                 psn_ordered = exact_unique_text(extract_psn_ordered(raw_text, force=psn_hint or not cards))
                 all_cards.extend(cards)
                 all_psn_ordered.extend(psn_ordered)
@@ -972,9 +980,11 @@ def run_ocrspace(
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
         psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])
         uncertain_total += conflict_count
-        if merged_cards or psn_cards or psn_uncertain:
+        corrected_merged_cards, correction_uncertain, card_corrections = settle_and_correct_pubg_cards(merged_cards)
+        uncertain_total += correction_uncertain
+        if corrected_merged_cards or psn_cards or psn_uncertain:
             return OcrResult(
-                        cards=tuple(merged_cards),
+                        cards=tuple(corrected_merged_cards),
                         psn_cards=tuple(psn_cards),
                         psn_uncertain=tuple(psn_uncertain),
                         psn_ordered=tuple(psn_ordered),
@@ -986,6 +996,7 @@ def run_ocrspace(
                         ocr_missing_count=ocr_stats["ocr_missing_count"],
                         ocr_false_negative=ocr_stats["ocr_false_negative"],
                         ocr_character_confusion=ocr_stats["ocr_character_confusion"],
+                        corrections_applied=card_corrections,
                     )
     except Exception:
         logger.exception("OCR.space request failed")
@@ -1083,7 +1094,7 @@ def run_local_ocr(
             psn_cards.extend(card for card in ordered if not card.endswith(FUZZY_SUFFIX))
             psn_uncertain.extend(card for card in ordered if card.endswith(FUZZY_SUFFIX))
 
-    settled_cards, uncertain = settle_image_cards(filter_local_ocr_cards(cards))
+    settled_cards, uncertain, card_corrections = settle_and_correct_pubg_cards(filter_local_ocr_cards(cards))
     return OcrResult(
         cards=tuple(settled_cards),
         psn_cards=tuple(exact_unique_psn(psn_cards)),
@@ -1093,6 +1104,7 @@ def run_local_ocr(
         psn_expected_count=psn_expected_count,
         raw_text="\n".join(raw_chunks),
         uncertain_count=uncertain,
+        corrections_applied=card_corrections,
     )
 
 
@@ -1468,7 +1480,7 @@ def run_remote_ocr(
                 text_values.append(value)
 
         raw_text = "\n".join(text_values)
-        cards, uncertain = settle_image_cards(extract_cards(raw_text))
+        cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extract_cards(raw_text))
         psn_ordered = limit_psn_ordered(
             prefer_labeled_psn_ordered([raw_text], extract_psn_ordered(raw_text, force=psn_hint or not cards)),
             psn_expected_count,
@@ -1497,6 +1509,7 @@ def run_remote_ocr(
             psn_expected_count=psn_expected_count,
             raw_text=raw_text,
             uncertain_count=uncertain,
+            corrections_applied=card_corrections,
         )
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
@@ -1542,7 +1555,7 @@ def run_ocr(
         merged_psn = exact_unique_psn(list(remote.psn_cards) + list(local.psn_cards))
         merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(local.psn_uncertain))
         merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(local.psn_ordered), psn_expected_count)
-        settled_cards, conflict_count = settle_image_cards(merged)
+        settled_cards, conflict_count, card_corrections = settle_and_correct_pubg_cards(merged)
         uncertain += remote.uncertain_count + local.uncertain_count + conflict_count
         if settled_cards or merged_psn or merged_psn_uncertain:
             return OcrResult(
@@ -1558,6 +1571,7 @@ def run_ocr(
                 ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
                 ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
                 ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
+                corrections_applied=tuple(list(remote.corrections_applied) + list(local.corrections_applied) + list(card_corrections)),
             )
         return OcrResult(
             cards=tuple(),
@@ -1572,6 +1586,7 @@ def run_ocr(
             ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
             ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
             ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
+            corrections_applied=tuple(list(remote.corrections_applied) + list(local.corrections_applied)),
         )
 
     return run_local_ocr(
@@ -1919,6 +1934,7 @@ def apply_card_corrections(chat_id: int, result: OcrResult) -> OcrResult:
         psn_ordered=tuple(unique_psn_lines(corrected_psn_ordered)),
         psn_uncertain=tuple(exact_unique_text(corrected_psn_uncertain)),
         uncertain_count=0 if correction_applied else result.uncertain_count,
+        corrections_applied=result.corrections_applied,
     )
 
 

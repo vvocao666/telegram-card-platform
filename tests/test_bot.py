@@ -451,8 +451,8 @@ class BotFormattingTests(unittest.TestCase):
             bot.extract_cards("S07304-9M8Q-Y7UW-78220"),
         )
         self.assertEqual(
-            ["S07304-8MP5-4TY9-VDVR6"],
-            bot.extract_cards("S07304-8MP5-4TYS-VDVR6"),
+            ["S07304-8MP5-4TYS-VDVR6"],
+            bot.extract_cards("S07304-8MP5-4TY9-VDVR6"),
         )
 
     def test_resize_for_ocr_upscales_small_images(self):
