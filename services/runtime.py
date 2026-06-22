@@ -155,6 +155,7 @@ class OcrResult:
     ocr_false_negative: int = 0
     ocr_character_confusion: int = 0
     corrections_applied: tuple[dict[str, str], ...] = tuple()
+    has_unresolved_pubg_fragment: bool = False
 
 
 @dataclass(frozen=True)
@@ -697,9 +698,10 @@ def ordered_ocr_text_lines(items: list | tuple) -> list[OcrTextLine]:
     return sorted(lines, key=lambda line: (line.y, line.x, line.index))
 
 
-def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
+def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str], bool]:
     cards: list[str] = []
     seen: set[str] = set()
+    unresolved = False
     for index, line in enumerate(lines):
         for card in extract_cards(line.text):
             if card not in seen:
@@ -715,6 +717,7 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
         for end in range(index + 1, min(index + 4, len(lines))):
             next_line = lines[end]
             if line_has_pubg_prefix(next_line.text):
+                unresolved = True
                 logger.info(
                     "PUBG LINE WRAP UNRESOLVED: %s reason=next_pubg_prefix",
                     " + ".join(part.text for part in lines[index:end]),
@@ -734,7 +737,7 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
                     card,
                 )
             break
-    return cards
+    return cards, unresolved
 
 
 def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
@@ -1657,7 +1660,7 @@ def run_remote_ocr(
 
         text_items = payload.get("texts", []) or []
         ordered_lines = ordered_ocr_text_lines(text_items)
-        ordered_line_cards = extract_cards_from_ordered_lines(ordered_lines)
+        ordered_line_cards, has_unresolved_pubg_fragment = extract_cards_from_ordered_lines(ordered_lines)
         text_values: list[str] = []
         for item in text_items:
             if isinstance(item, dict):
@@ -1708,6 +1711,7 @@ def run_remote_ocr(
             raw_text=raw_text,
             uncertain_count=uncertain,
             corrections_applied=card_corrections,
+            has_unresolved_pubg_fragment=has_unresolved_pubg_fragment,
         )
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
@@ -1727,6 +1731,50 @@ def run_ocr(
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
     )
+    if (
+        remote is not None
+        and remote.has_unresolved_pubg_fragment
+        and OCR_PROVIDER == "ocrspace"
+        and OCR_SPACE_API_KEYS
+    ):
+        record_remote_ocr_fallback("remote unresolved pubg fragment")
+        fallback = run_ocrspace(
+            image_path,
+            psn_hint=psn_hint,
+            psn_expected_count=psn_expected_count,
+            pubg_expected_count=pubg_expected_count,
+        )
+        merged, conflict_count = merge_without_guessing(list(fallback.cards), list(remote.cards))
+        settled_cards, correction_conflicts, card_corrections = settle_and_correct_pubg_cards(merged)
+        merged_psn = exact_unique_psn(list(remote.psn_cards) + list(fallback.psn_cards))
+        merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(fallback.psn_uncertain))
+        merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(fallback.psn_ordered), psn_expected_count)
+        merged_raw_text = remote.raw_text + "\n" + fallback.raw_text
+        if settled_cards or is_pubg_image_text(merged_raw_text):
+            merged_psn = []
+            merged_psn_uncertain = []
+            merged_psn_ordered = []
+        if settled_cards or merged_psn or merged_psn_uncertain:
+            return OcrResult(
+                cards=tuple(settled_cards),
+                psn_cards=tuple(merged_psn),
+                psn_uncertain=tuple(merged_psn_uncertain),
+                psn_ordered=tuple(merged_psn_ordered),
+                pubg_expected_count=pubg_expected_count,
+                psn_expected_count=psn_expected_count,
+                raw_text=merged_raw_text,
+                uncertain_count=remote.uncertain_count + fallback.uncertain_count + conflict_count + correction_conflicts,
+                ocr_fixed_count=remote.ocr_fixed_count + fallback.ocr_fixed_count,
+                ocr_missing_count=remote.ocr_missing_count + fallback.ocr_missing_count,
+                ocr_false_negative=remote.ocr_false_negative + fallback.ocr_false_negative,
+                ocr_character_confusion=remote.ocr_character_confusion + fallback.ocr_character_confusion,
+                corrections_applied=tuple(
+                    list(remote.corrections_applied)
+                    + list(fallback.corrections_applied)
+                    + list(card_corrections)
+                ),
+            )
+
     if remote is not None:
         return remote
 

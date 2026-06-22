@@ -152,6 +152,38 @@ def test_run_ocr_falls_back_to_ocrspace_when_remote_fails(monkeypatch, tmp_path)
         bot.LOCAL_COMPLEMENT = old_complement
 
 
+def test_run_ocr_complements_remote_when_pubg_fragment_unresolved(monkeypatch, tmp_path):
+    remote = bot.OcrResult(
+        cards=("S07304-PZA2-THGH-LPAAZ", "S07304-CDRC-ULTQ-T6JZP"),
+        raw_text="S07304-EVGM-\n/H-7CD7Q\nS07304-PZA2-THGH-LPAAZ\nS07304-CDRC-ULTQ-T6JZP",
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=("S07304-EVGM-PDWH-7CD7Q", "S07304-PZA2-THGH-LPAAZ", "S07304-CDRC-ULTQ-T6JZP"),
+        raw_text="S07304-EVGM-PDWH-7CD7Q\nS07304-PZA2-THGH-LPAAZ\nS07304-CDRC-ULTQ-T6JZP",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (
+            "S07304-EVGM-PDWH-7CD7Q",
+            "S07304-PZA2-THGH-LPAAZ",
+            "S07304-CDRC-ULTQ-T6JZP",
+        )
+        assert result.psn_cards == tuple()
+        assert bot.remote_ocr_status["today_fallback_count"] == 1
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
