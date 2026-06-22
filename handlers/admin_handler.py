@@ -19,6 +19,7 @@ from services.runtime import (
     ocr_version_command,
     owner_user_id,
     parse_chat_id,
+    remote_ocr_status_command,
     show_id,
     show_version,
     update_is_from_owner,

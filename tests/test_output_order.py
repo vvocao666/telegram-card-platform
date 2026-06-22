@@ -79,3 +79,51 @@ def test_output_order_duplicate_keeps_first_position():
 
     assert _pubg_lines(reply) == [first, second, third]
     assert reply.count(first) == 1
+
+
+def test_output_order_thirty_one_images_uses_received_sequence_not_completion_order():
+    first = "S07292-U4F9-EAVG-A29Q6"
+    last = "S07292-VBKQ-6DJH-FJX6V"
+    middle = [_card(index) for index in range(2, 31)]
+    expected = [first, *middle, last]
+    completed_out_of_order = [
+        bot.OcrResult(cards=(card,), sequence_index=index)
+        for index, card in reversed(list(enumerate(expected, start=1)))
+    ]
+
+    reply = bot.format_reply(completed_out_of_order)
+    lines = _pubg_lines(reply)
+
+    assert lines == expected
+    assert lines[0] == first
+    assert lines[-1] == last
+
+
+def test_output_order_media_group_keeps_received_sequence_when_processing_finishes_out_of_order():
+    first = _card(1)
+    second = _card(2)
+    third = _card(3)
+    results = [
+        bot.OcrResult(cards=(third,), sequence_index=3),
+        bot.OcrResult(cards=(first,), sequence_index=1),
+        bot.OcrResult(cards=(second,), sequence_index=2),
+    ]
+
+    reply = bot.format_reply(results)
+
+    assert _pubg_lines(reply) == [first, second, third]
+
+
+def test_output_order_duplicate_keeps_first_sequence_position():
+    first = _card(1)
+    duplicate = first
+    second = _card(2)
+    results = [
+        bot.OcrResult(cards=(duplicate,), sequence_index=3),
+        bot.OcrResult(cards=(second,), sequence_index=2),
+        bot.OcrResult(cards=(first,), sequence_index=1),
+    ]
+
+    reply = bot.format_reply(results)
+
+    assert _pubg_lines(reply) == [first, second]

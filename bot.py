@@ -25,6 +25,7 @@ from handlers.admin_handler import (
     ocr_learning_stats_command,
     ocr_review_command,
     ocr_version_command,
+    remote_ocr_status_command,
     show_id,
     show_version,
 )
@@ -86,6 +87,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("ocr_version", ocr_version_command))
     app.add_handler(CommandHandler("ocr_cache_today", ocr_cache_today_command))
     app.add_handler(CommandHandler("ocr_health", ocr_health_command))
+    app.add_handler(CommandHandler("remote_ocr_status", remote_ocr_status_command))
     app.add_handler(CommandHandler("learn_cards", learn_cards_command))
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
     app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))

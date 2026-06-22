@@ -66,6 +66,9 @@ MULTI_BATCH_WAIT_SECONDS = max(
     2.0,
 )
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "ocrspace").strip().lower()
+REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "1").strip() == "1"
+REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
+REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
@@ -138,6 +141,7 @@ class OcrResult:
     psn_ordered: tuple[str, ...] = tuple()
     card_locations: tuple[tuple[str, int, int], ...] = tuple()
     psn_locations: tuple[tuple[str, int, int], ...] = tuple()
+    sequence_index: int = 0
     pubg_expected_count: int | None = None
     psn_expected_count: int | None = None
     raw_text: str = ""
@@ -170,11 +174,21 @@ class CardHistoryDuplicate:
 chat_buffers: dict[int, list[Update]] = defaultdict(list)
 chat_tasks: dict[int, asyncio.Task] = {}
 chat_flush_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+photo_sequence_lock = asyncio.Lock()
+photo_sequence_by_update: dict[int, int] = {}
+global_photo_sequence = 0
 photo_rate_chat: dict[int, list[float]] = defaultdict(list)
 photo_rate_user: dict[tuple[int, int], list[float]] = defaultdict(list)
 photo_rate_warned_at: dict[tuple[str, int], float] = {}
 ocrspace_cooldown_until = 0.0
 ocrspace_key_cooldowns: dict[str, float] = {}
+remote_ocr_status = {
+    "last_ok": False,
+    "last_error": "",
+    "last_latency_ms": 0,
+    "last_card_count": 0,
+    "last_checked_at": "",
+}
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
@@ -1022,12 +1036,128 @@ def run_local_ocr(
     )
 
 
+def record_remote_ocr_status(ok: bool, latency_ms: int, card_count: int = 0, error: str = "") -> None:
+    remote_ocr_status.update(
+        {
+            "last_ok": ok,
+            "last_error": error[:200],
+            "last_latency_ms": latency_ms,
+            "last_card_count": card_count,
+            "last_checked_at": datetime.now(LEDGER_TZ).isoformat(timespec="seconds"),
+        }
+    )
+
+
+def remote_ocr_available() -> tuple[bool, str]:
+    if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
+        return False, "disabled"
+    start = time.time()
+    try:
+        with httpx.Client(timeout=REMOTE_OCR_TIMEOUT) as client:
+            response = client.get(f"{REMOTE_OCR_URL}/health")
+        latency_ms = int((time.time() - start) * 1000)
+        if response.status_code != 200:
+            record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}")
+            return False, f"status={response.status_code}"
+        record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0))
+        return True, "ok"
+    except Exception as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        return False, type(exc).__name__
+
+
+def run_remote_ocr(
+    image_path: Path,
+    psn_hint: bool = False,
+    psn_expected_count: int | None = None,
+    pubg_expected_count: int | None = None,
+) -> OcrResult | None:
+    if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
+        return None
+
+    start = time.time()
+    try:
+        with image_path.open("rb") as image_file, httpx.Client(timeout=REMOTE_OCR_TIMEOUT) as client:
+            response = client.post(
+                f"{REMOTE_OCR_URL}/ocr",
+                files={"file": (image_path.name, image_file, "image/jpeg")},
+            )
+        latency_ms = int((time.time() - start) * 1000)
+        if response.status_code != 200:
+            record_remote_ocr_status(False, latency_ms, error=f"status {response.status_code}")
+            return None
+        payload = response.json()
+        if payload.get("ok") is not True:
+            record_remote_ocr_status(False, latency_ms, error="ok=false")
+            return None
+        worker_cards = payload.get("cards")
+        if not isinstance(worker_cards, list) or len(worker_cards) <= 0:
+            record_remote_ocr_status(False, latency_ms, error="empty cards")
+            return None
+
+        text_values: list[str] = []
+        for item in payload.get("texts", []) or []:
+            if isinstance(item, dict):
+                value = str(item.get("text", "")).strip()
+            else:
+                value = str(item).strip()
+            if value:
+                text_values.append(value)
+        for item in worker_cards:
+            if isinstance(item, dict):
+                value = str(item.get("text", "")).strip()
+            else:
+                value = str(item).strip()
+            if value:
+                text_values.append(value)
+
+        raw_text = "\n".join(text_values)
+        cards, uncertain = settle_image_cards(extract_cards(raw_text))
+        psn_ordered = limit_psn_ordered(
+            prefer_labeled_psn_ordered([raw_text], extract_psn_ordered(raw_text, force=psn_hint or not cards)),
+            psn_expected_count,
+        )
+        psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
+        psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])
+        if not cards and not psn_cards and not psn_uncertain:
+            record_remote_ocr_status(False, latency_ms, error="no valid cards")
+            return None
+
+        card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
+        record_remote_ocr_status(True, latency_ms, card_count=card_count)
+        return OcrResult(
+            cards=tuple(cards),
+            psn_cards=tuple(psn_cards),
+            psn_uncertain=tuple(psn_uncertain),
+            psn_ordered=tuple(psn_ordered),
+            pubg_expected_count=pubg_expected_count,
+            psn_expected_count=psn_expected_count,
+            raw_text=raw_text,
+            uncertain_count=uncertain,
+        )
+    except Exception as exc:
+        latency_ms = int((time.time() - start) * 1000)
+        record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        logger.info("Remote OCR fallback to OCR.space: %s", type(exc).__name__)
+        return None
+
+
 def run_ocr(
     image_path: Path,
     psn_hint: bool = False,
     psn_expected_count: int | None = None,
     pubg_expected_count: int | None = None,
 ) -> OcrResult:
+    remote = run_remote_ocr(
+        image_path,
+        psn_hint=psn_hint,
+        psn_expected_count=psn_expected_count,
+        pubg_expected_count=pubg_expected_count,
+    )
+    if remote is not None:
+        return remote
+
     if OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
         remote = run_ocrspace(
             image_path,
@@ -1131,6 +1261,22 @@ async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             pass
 
 
+async def assign_photo_sequence(update: Update) -> int:
+    global global_photo_sequence
+    key = id(update)
+    async with photo_sequence_lock:
+        existing = photo_sequence_by_update.get(key)
+        if existing is not None:
+            return existing
+        global_photo_sequence += 1
+        photo_sequence_by_update[key] = global_photo_sequence
+        return global_photo_sequence
+
+
+def photo_sequence(update: Update) -> int:
+    return photo_sequence_by_update.get(id(update), 0)
+
+
 def result_location(index: int, result: OcrResult) -> str:
     return f"第{index}张"
 
@@ -1171,29 +1317,31 @@ def source_username_only(source_user: str) -> str:
 def ordered_pubg_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
     occurrences: list[OrderedCardOccurrence] = []
     for image_index, result in enumerate(results, start=1):
+        sequence_index = result.sequence_index or image_index
         if result.card_locations:
             for card, y, x in result.card_locations:
                 key = canonical_card(card)
                 if key and valid_card(card):
-                    occurrences.append(OrderedCardOccurrence(card=card, image_index=image_index, y=int(y), x=int(x), duplicate_key=key))
+                    occurrences.append(OrderedCardOccurrence(card=card, image_index=sequence_index, y=int(y), x=int(x), duplicate_key=key))
             continue
         for y, card in enumerate(result.cards):
             key = canonical_card(card)
             if key and valid_card(card):
-                occurrences.append(OrderedCardOccurrence(card=card, image_index=image_index, y=y, x=0, duplicate_key=key))
+                occurrences.append(OrderedCardOccurrence(card=card, image_index=sequence_index, y=y, x=0, duplicate_key=key))
     return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
 
 
 def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
     occurrences: list[OrderedCardOccurrence] = []
     for image_index, result in enumerate(results, start=1):
+        sequence_index = result.sequence_index or image_index
         if result.psn_locations:
             for line, y, x in result.psn_locations:
                 key = psn_key(line)
                 if not key:
                     continue
                 display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
-                occurrences.append(OrderedCardOccurrence(card=key, image_index=image_index, y=int(y), x=int(x), duplicate_key=key, display=display))
+                occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=int(y), x=int(x), duplicate_key=key, display=display))
             continue
         if result.psn_ordered:
             ordered_psn = list(result.psn_ordered)
@@ -1205,7 +1353,7 @@ def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurre
             if not key:
                 continue
             display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
-            occurrences.append(OrderedCardOccurrence(card=key, image_index=image_index, y=y, x=0, duplicate_key=key, display=display))
+            occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=y, x=0, duplicate_key=key, display=display))
     return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
 
 
@@ -2050,6 +2198,27 @@ async def ocr_health_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text("\n".join(lines))
 
 
+async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_owner_update(update):
+        return
+    available, reason = await asyncio.to_thread(remote_ocr_available)
+    lines = [
+        "Remote OCR Status",
+        f"Enabled: {REMOTE_OCR_ENABLED}",
+        f"URL: {REMOTE_OCR_URL or '-'}",
+        f"Timeout: {REMOTE_OCR_TIMEOUT}s",
+        f"Available: {available}",
+        f"Reason: {reason}",
+        f"Last OK: {remote_ocr_status['last_ok']}",
+        f"Last latency: {remote_ocr_status['last_latency_ms']}ms",
+        f"Last card count: {remote_ocr_status['last_card_count']}",
+        f"Last error: {remote_ocr_status['last_error'] or '-'}",
+        f"Last checked: {remote_ocr_status['last_checked_at'] or '-'}",
+        "Fallback: OCR.space",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
 def command_body(update: Update, command: str) -> str:
     if not update.message or not update.message.text:
         return ""
@@ -2681,7 +2850,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         chat_tasks.pop(chat_id, None)
         if not updates:
             return
-        updates.sort(key=lambda item: 0 if is_owner_update(item) else 1)
+        updates.sort(key=photo_sequence)
         message = updates[-1].message
         if not message:
             return
@@ -2691,6 +2860,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         for update in updates:
             try:
                 result = await recognize_update(update, context)
+                result = replace(result, sequence_index=photo_sequence(update))
                 corrected = apply_card_corrections(chat_id, result)
                 corrected_pubg, corrected_psn = result_card_lines([corrected])
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
@@ -2745,10 +2915,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             f"当前批次图片已达到{PHOTO_BATCH_MAX_IMAGES}张，后续图片已保护性忽略，请等本批识别完成后再发。",
         )
         return
-    if owner_photo:
-        chat_buffers[chat_id].insert(0, update)
-    else:
-        chat_buffers[chat_id].append(update)
+    await assign_photo_sequence(update)
+    chat_buffers[chat_id].append(update)
     old_task = chat_tasks.get(chat_id)
     if old_task and not old_task.done():
         old_task.cancel()
