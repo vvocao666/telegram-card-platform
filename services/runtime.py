@@ -530,6 +530,14 @@ def add_card_candidate(cards: list[str], seen: set[str], first: str, second: str
         cards.append(card)
 
 
+@dataclass(frozen=True)
+class OcrTextLine:
+    text: str
+    y: float
+    x: float
+    index: int
+
+
 def text_without_s07_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if "S07" not in normalize_text(line))
 
@@ -610,6 +618,82 @@ def extract_cards(text: str) -> list[str]:
             continue
         add_card_candidate(cards, seen, first, compact[:4], compact[4:8], compact[8:])
 
+    return cards
+
+
+def ocr_item_text(item) -> str:
+    if isinstance(item, dict):
+        return str(item.get("text", "")).strip()
+    return str(item).strip()
+
+
+def ocr_item_xy(item) -> tuple[float, float]:
+    if not isinstance(item, dict):
+        return 0.0, 0.0
+    box = (
+        item.get("rec_box")
+        or item.get("rec_boxes")
+        or item.get("box")
+        or item.get("bbox")
+        or item.get("rect")
+    )
+    poly = item.get("rec_poly") or item.get("rec_polys") or item.get("poly") or item.get("points")
+    if isinstance(box, (list, tuple)) and len(box) >= 4:
+        try:
+            return float(box[1]), float(box[0])
+        except (TypeError, ValueError):
+            pass
+    if isinstance(poly, (list, tuple)) and poly:
+        points = poly
+        if len(points) == 1 and isinstance(points[0], (list, tuple)):
+            points = points[0]
+        xs: list[float] = []
+        ys: list[float] = []
+        for point in points:
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                try:
+                    xs.append(float(point[0]))
+                    ys.append(float(point[1]))
+                except (TypeError, ValueError):
+                    continue
+        if xs and ys:
+            return min(ys), min(xs)
+    return 0.0, 0.0
+
+
+def ordered_ocr_text_lines(items: list | tuple) -> list[OcrTextLine]:
+    lines: list[OcrTextLine] = []
+    for index, item in enumerate(items or []):
+        text = ocr_item_text(item)
+        if not text:
+            continue
+        y, x = ocr_item_xy(item)
+        lines.append(OcrTextLine(text=text, y=y, x=x, index=index))
+    return sorted(lines, key=lambda line: (line.y, line.x, line.index))
+
+
+def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
+    cards: list[str] = []
+    seen: set[str] = set()
+    for index, line in enumerate(lines):
+        for card in extract_cards(line.text):
+            if card not in seen:
+                seen.add(card)
+                cards.append(card)
+        if not is_pubg_image_text(line.text):
+            continue
+        if not line.text.strip().endswith("-") and len(re.findall(r"-", line.text)) >= 3:
+            continue
+        for end in range(index + 1, min(index + 4, len(lines))):
+            joined = "\n".join(part.text for part in lines[index : end + 1])
+            joined_cards = extract_cards(joined)
+            if not joined_cards:
+                continue
+            for card in joined_cards:
+                if card not in seen:
+                    seen.add(card)
+                    cards.append(card)
+            break
     return cards
 
 
@@ -1508,8 +1592,11 @@ def run_remote_ocr(
             record_remote_ocr_status(False, latency_ms, error="empty cards")
             return None
 
+        text_items = payload.get("texts", []) or []
+        ordered_lines = ordered_ocr_text_lines(text_items)
+        ordered_line_cards = extract_cards_from_ordered_lines(ordered_lines)
         text_values: list[str] = []
-        for item in payload.get("texts", []) or []:
+        for item in text_items:
             if isinstance(item, dict):
                 value = str(item.get("text", "")).strip()
             else:
@@ -1525,7 +1612,8 @@ def run_remote_ocr(
                 text_values.append(value)
 
         raw_text = "\n".join(text_values)
-        cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extract_cards(raw_text))
+        extracted_cards = ordered_line_cards or extract_cards(raw_text)
+        cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extracted_cards)
         psn_ordered = limit_psn_ordered(psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint), psn_expected_count)
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
         psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])

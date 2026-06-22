@@ -243,6 +243,69 @@ def test_remote_worker_four_char_tail_pubg_is_not_psn(monkeypatch, tmp_path):
     assert result.psn_ordered == tuple()
 
 
+def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07304-94VF-NG88-JES07", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "卡号：S07304-94VF-NG88-", "rec_box": [20, 10, 300, 30]},
+            {"text": "KLQUE", "rec_box": [20, 35, 120, 55]},
+            {"text": "密码：", "rec_box": [20, 60, 100, 80]},
+            {"text": "卡号：S07304-UM3A-RHGF-", "rec_box": [20, 90, 300, 110]},
+            {"text": "SY5RQ", "rec_box": [20, 115, 120, 135]},
+            {"text": "密码：", "rec_box": [20, 140, 100, 160]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07304-94VF-NG88-KLQUE",
+        "S07304-UM3A-RHGF-SY5RQ",
+    )
+    assert "S07304-94VF-NG88-JES07" not in result.cards
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
+def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07304-PZA2-THGH-LPAAZ", "score": 0.99},
+            {"text": "S07304-CDRC-ULTQ-T6JZP", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "卡号：S07304-EVGM-", "rec_box": [20, 10, 260, 30]},
+            {"text": "PDWH-7CD7Q", "rec_box": [20, 35, 180, 55]},
+            {"text": "密码：", "rec_box": [20, 60, 100, 80]},
+            {"text": "卡号：S07304-PZA2-THGH-LPAAZ", "rec_box": [20, 90, 360, 110]},
+            {"text": "密码：", "rec_box": [20, 115, 100, 135]},
+            {"text": "卡号：S07304-CDRC-ULTQ-T6JZP", "rec_box": [20, 145, 360, 165]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07304-EVGM-PDWH-7CD7Q",
+        "S07304-PZA2-THGH-LPAAZ",
+        "S07304-CDRC-ULTQ-T6JZP",
+    )
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
 def test_format_reply_filters_existing_dirty_psn():
     result = bot.OcrResult(
         cards=("S07304-KJDS-NPDD-NEUDY",),
