@@ -404,8 +404,8 @@ class BotFormattingTests(unittest.TestCase):
 
     def test_pubg_card_split_inside_groups_is_extracted(self):
         self.assertEqual(
-            ["S07273-HV8Z-VH24-XEB4N"],
-            bot.extract_cards("S07273-HV8\nZ-VH24-XEB4\nN"),
+            ["S07292-HV8Z-VH24-XEB4N"],
+            bot.extract_cards("S07292-HV8\nZ-VH24-XEB4\nN"),
         )
 
     def test_handwritten_pubg_font_samples_are_extracted(self):

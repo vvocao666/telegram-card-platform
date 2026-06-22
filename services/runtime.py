@@ -375,6 +375,20 @@ BUILTIN_PUBG_CARD_CORRECTIONS = {
     "S07304-4U60-U5L1-GLXUV": "S07304-4U6Q-U5LL-GLXUV",
 }
 
+PUBG_PREFIXES = {
+    "S07304",
+    "S07234",
+    "S07303",
+    "S07240",
+    "S07292",
+    "S07213",
+    "S07291",
+    "S07205",
+    "S07239",
+    "S07228",
+    "S07286",
+}
+
 
 def cleanup_server_files(now: float | None = None) -> int:
     if not CLEANUP_ENABLED:
@@ -467,7 +481,10 @@ def repair_first_group(group: str) -> str:
 
 
 def valid_card(card: str) -> bool:
-    return bool(re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}", card))
+    return bool(
+        re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}", card)
+        and card[:6] in PUBG_PREFIXES
+    )
 
 
 def apply_builtin_pubg_correction(card: str) -> str:
@@ -520,9 +537,14 @@ def text_without_s07_lines(text: str) -> str:
 def is_pubg_image_text(text: str) -> bool:
     normalized = normalize_text(text)
     compact = re.sub(r"[^A-Z0-9$]", "", normalized)
-    if "S07" in normalized or "S07304" in normalized or "S07304-" in normalized:
+    if any(prefix in normalized or f"{prefix}-" in normalized for prefix in PUBG_PREFIXES):
         return True
-    pubg_traces = ("S07", "S07304", "507304", "907304", "SO7304", "S07304", "$07304")
+    if "S07" in normalized:
+        return True
+    pubg_traces = ["S07", "507304", "907304", "SO7304", "$07304"]
+    for prefix in PUBG_PREFIXES:
+        suffix = prefix[1:]
+        pubg_traces.extend((prefix, f"5{suffix}", f"9{suffix}", f"${suffix}", f"SO{suffix[1:]}"))
     if any(trace in compact for trace in pubg_traces):
         return True
     return bool(re.search(r"S0[A-Z0-9]304", compact))

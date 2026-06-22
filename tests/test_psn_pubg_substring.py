@@ -3,6 +3,21 @@ from pathlib import Path
 import bot
 
 
+PUBG_PREFIXES = [
+    "S07304",
+    "S07234",
+    "S07303",
+    "S07240",
+    "S07292",
+    "S07213",
+    "S07291",
+    "S07205",
+    "S07239",
+    "S07228",
+    "S07286",
+]
+
+
 class FakeResponse:
     status_code = 200
 
@@ -31,6 +46,50 @@ def test_pubg_card_does_not_generate_psn_substring():
     text = "S07304-KJDS-NPDD-NEUDY"
 
     assert bot.extract_cards(text) == ["S07304-KJDS-NPDD-NEUDY"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_all_pubg_prefixes_are_recognized_as_pubg_only():
+    for prefix in PUBG_PREFIXES:
+        text = f"{prefix}-ABCD-EFGH-IJKL"
+
+        assert bot.is_pubg_image_text(text) is True
+        assert bot.extract_cards(text) == [text]
+        assert bot.extract_psn_cards(text) == []
+        assert bot.extract_psn_ordered(text) == []
+
+
+def test_all_pubg_prefix_tails_are_not_psn():
+    for prefix in PUBG_PREFIXES:
+        text = f"{prefix}-ABCD-EFGH-IJKLM"
+        tail = "ABCD-EFGH-IJKL"
+
+        assert bot.extract_cards(text) == [text]
+        assert bot.extract_psn_cards(text + "\n" + tail) == []
+        assert bot.extract_psn_ordered(text + "\n" + tail) == []
+
+
+def test_s07292_newline_tail_is_joined_and_psn_is_empty():
+    text = "S07292-ABCD-EFGH-\nIJKLM"
+
+    assert bot.extract_cards(text) == ["S07292-ABCD-EFGH-IJKLM"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_s07234_four_char_tail_is_pubg_only():
+    text = "S07234-ABCD-EFGH-IJKL"
+
+    assert bot.extract_cards(text) == ["S07234-ABCD-EFGH-IJKL"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_pubg_prefix_trace_without_complete_card_blocks_psn():
+    text = "S07292 blur\nABCD-EFGH-IJKL"
+
+    assert bot.is_pubg_image_text(text) is True
     assert bot.extract_psn_cards(text) == []
     assert bot.extract_psn_ordered(text) == []
 
