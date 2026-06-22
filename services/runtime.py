@@ -693,8 +693,43 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
                 if card not in seen:
                     seen.add(card)
                     cards.append(card)
+                    logger.info(
+                        "PUBG LINE WRAP MERGED: %s => %s",
+                        " + ".join(part.text for part in lines[index : end + 1]),
+                        card,
+                    )
             break
     return cards
+
+
+def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
+    parts = card.split("-")
+    if len(parts) != 4 or not valid_card(card):
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: list[str]) -> list[str]:
+    if not text_cards:
+        return worker_cards
+    result: list[str] = []
+    seen: set[str] = set()
+    text_keys = {key for card in text_cards if (key := pubg_card_prefix_key(card))}
+    for card in text_cards:
+        if card in seen:
+            continue
+        seen.add(card)
+        result.append(card)
+    for card in worker_cards:
+        key = pubg_card_prefix_key(card)
+        if key in text_keys and card not in seen:
+            logger.info("PUBG WORKER CARD DROPPED: %s reason=conflict_with_line_wrap", card)
+            continue
+        if card in seen:
+            continue
+        seen.add(card)
+        result.append(card)
+    return result
 
 
 def repair_psn_group(group: str, index: int) -> tuple[str, bool]:
@@ -1612,7 +1647,12 @@ def run_remote_ocr(
                 text_values.append(value)
 
         raw_text = "\n".join(text_values)
-        extracted_cards = ordered_line_cards or extract_cards(raw_text)
+        text_raw = "\n".join(line.text for line in ordered_lines)
+        worker_text = "\n".join(ocr_item_text(item) for item in worker_cards)
+        if ordered_lines and is_pubg_image_text(text_raw):
+            extracted_cards = merge_text_rebuilt_and_worker_cards(ordered_line_cards, extract_cards(worker_text))
+        else:
+            extracted_cards = ordered_line_cards or extract_cards(raw_text)
         cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extracted_cards)
         psn_ordered = limit_psn_ordered(psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint), psn_expected_count)
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])

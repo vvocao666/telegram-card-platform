@@ -243,7 +243,7 @@ def test_remote_worker_four_char_tail_pubg_is_not_psn(monkeypatch, tmp_path):
     assert result.psn_ordered == tuple()
 
 
-def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp_path):
+def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp_path, caplog):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
     payload = {
@@ -262,7 +262,8 @@ def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp
     }
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
 
-    result = bot.run_remote_ocr(image_path)
+    with caplog.at_level("INFO"):
+        result = bot.run_remote_ocr(image_path)
 
     assert result is not None
     assert result.cards == (
@@ -272,6 +273,8 @@ def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp
     assert "S07304-94VF-NG88-JES07" not in result.cards
     assert result.psn_cards == tuple()
     assert result.psn_ordered == tuple()
+    assert "PUBG LINE WRAP MERGED:" in caplog.text
+    assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_line_wrap" in caplog.text
 
 
 def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monkeypatch, tmp_path):
