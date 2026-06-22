@@ -13,6 +13,10 @@ def test_pubg_observed_correction_format_is_valid():
     assert validate_candidate("S07304-9M8Q-Y7UW-78Z2U", card_type="PUBG")
 
 
+def test_pubg_four_char_tail_format_is_valid():
+    assert validate_candidate("S07304-DTUM-QWGA-CEGV", card_type="PUBG")
+
+
 def test_psn_candidate_validation():
     assert validate_candidate("ABCD-EFGH-IJKL", card_type="PSN")
 

@@ -465,7 +465,7 @@ def repair_first_group(group: str) -> str:
 
 
 def valid_card(card: str) -> bool:
-    return bool(re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card))
+    return bool(re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}", card))
 
 
 def apply_builtin_pubg_correction(card: str) -> str:
@@ -511,6 +511,10 @@ def add_card_candidate(cards: list[str], seen: set[str], first: str, second: str
         cards.append(card)
 
 
+def text_without_s07_lines(text: str) -> str:
+    return "\n".join(line for line in text.splitlines() if "S07" not in normalize_text(line))
+
+
 def extract_cards(text: str) -> list[str]:
     text = normalize_text(text)
     sep = r"[\s\-_|:：；;,.，。|]+"
@@ -522,7 +526,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{5})"
+        + r"([A-Z0-9]{4,5})"
         + r"(?![A-Z0-9])"
     )
 
@@ -539,7 +543,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{5})"
+        + r"([A-Z0-9]{4,5})"
     )
     for match in re.finditer(noisy_shaped_pattern, text):
         matched_text = match.group(0)
@@ -552,7 +556,7 @@ def extract_cards(text: str) -> list[str]:
         r"([SP5$][0ODQU][7TIL/?][0-9ODQUILTZEA$SGB]{3})"
         r"([A-Z0-9]{4})"
         r"([A-Z0-9]{4})"
-        r"([A-Z0-9]{5})"
+        r"([A-Z0-9]{4,5})"
         r"(?![A-Z0-9])"
     )
     for first, second, third, fourth in re.findall(compact_pattern, text):
@@ -567,7 +571,7 @@ def extract_cards(text: str) -> list[str]:
         if "\n" not in rest and "|" not in rest:
             continue
         compact = re.sub(r"[^A-Z0-9]", "", rest)
-        if len(compact) != 13:
+        if len(compact) not in {12, 13}:
             continue
         add_card_candidate(cards, seen, first, compact[:4], compact[4:8], compact[8:])
 
@@ -581,6 +585,7 @@ def repair_psn_group(group: str, index: int) -> tuple[str, bool]:
 def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]]:
     text = normalize_text(text)
     pubg_cards = extract_cards(text)
+    text = text_without_s07_lines(text)
     pattern = (
         r"(?<![A-Z0-9-])"
         r"([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})"
@@ -604,6 +609,7 @@ def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]
 def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
     text = normalize_text(text)
     pubg_cards = extract_cards(text)
+    text = text_without_s07_lines(text)
     label_pattern = re.compile(r"(\u5361\s*\u53f7|\u5bc6\s*\u7801)")
     code_pattern = re.compile(
         r"([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})[\s_]*-[\s_]*([A-Z0-9]{4})"
@@ -1250,7 +1256,7 @@ def today_cache_counts() -> dict[str, int]:
             raw_candidates = [str(card) for card in data.get("raw_candidates", []) if isinstance(card, str)]
     except Exception:
         raw_candidates = []
-    pubg_count = sum(1 for card in cards if re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card))
+    pubg_count = sum(1 for card in cards if valid_card(card))
     psn_count = sum(1 for card in cards if re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", card))
     seen: set[str] = set()
     duplicate_count = 0

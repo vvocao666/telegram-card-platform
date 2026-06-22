@@ -43,6 +43,37 @@ def test_second_pubg_card_does_not_generate_psn_substring():
     assert bot.extract_psn_ordered(text) == []
 
 
+def test_four_char_tail_pubg_is_not_psn():
+    text = "S07304-DTUM-QWGA-CEGV"
+
+    assert bot.extract_cards(text) == ["S07304-DTUM-QWGA-CEGV"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_whrl_pubg_is_not_psn():
+    text = "S07304-WHRL-F8YT-7RYRQ"
+
+    assert bot.extract_cards(text) == ["S07304-WHRL-F8YT-7RYRQ"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_38zm_pubg_is_not_psn():
+    text = "S07304-38ZM-QFHZ-VKZ7M"
+
+    assert bot.extract_cards(text) == ["S07304-38ZM-QFHZ-VKZ7M"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_s07_line_is_not_scanned_as_psn():
+    text = "card: S07304-DTUM-QWGA-CEGV"
+
+    assert bot.extract_cards(text) == ["S07304-DTUM-QWGA-CEGV"]
+    assert bot.scan_psn_candidates(text) == []
+
+
 def test_labeled_pubg_tail_is_not_psn():
     text = "密码1: S07304-KJDS-NPDD-NEUDY"
 
@@ -75,6 +106,37 @@ def test_remote_worker_pubg_substring_psn_is_filtered(monkeypatch, tmp_path):
 
     assert result is not None
     assert result.cards == ("S07304-KJDS-NPDD-NEUDY",)
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
+def test_remote_worker_four_char_tail_pubg_is_not_psn(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07304-WHRL-F8YT-7RYRQ", "score": 0.99},
+            {"text": "S07304-DTUM-QWGA-CEGV", "score": 0.99},
+            {"text": "S07304-38ZM-QFHZ-VKZ7M", "score": 0.99},
+            {"text": "DTUM-QWGA-CEGV", "score": 0.98},
+        ],
+        "texts": [
+            {"text": "S07304-WHRL-F8YT-7RYRQ", "score": 0.99},
+            {"text": "S07304-DTUM-QWGA-CEGV", "score": 0.99},
+            {"text": "S07304-38ZM-QFHZ-VKZ7M", "score": 0.99},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07304-WHRL-F8YT-7RYRQ",
+        "S07304-DTUM-QWGA-CEGV",
+        "S07304-38ZM-QFHZ-VKZ7M",
+    )
     assert result.psn_cards == tuple()
     assert result.psn_ordered == tuple()
 

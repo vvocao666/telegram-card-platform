@@ -4,7 +4,7 @@ from services.ocr.scoring_engine import choose_best_candidate, score_candidate
 
 def test_valid_candidate_scores_higher_than_invalid_candidate():
     valid = Candidate("raw", "S07304-KVTE-JZGW-JVB4U", "PUBG")
-    invalid = Candidate("raw", "S07304-KVTE-JZGW-JVB4", "PUBG")
+    invalid = Candidate("raw", "S07304-KVTE-JZGW-JVB", "PUBG")
 
     assert score_candidate(valid).score > score_candidate(invalid).score
 
@@ -19,7 +19,7 @@ def test_learned_candidate_gets_priority_after_three_hits():
 
 def test_choose_best_candidate_returns_valid_candidate():
     candidates = [
-        Candidate("raw", "S07304-KVTE-JZGW-JVB4", "PUBG"),
+        Candidate("raw", "S07304-KVTE-JZGW-JVB", "PUBG"),
         Candidate("raw", "S07304-KVTE-JZGW-JVB4U", "PUBG"),
     ]
 
