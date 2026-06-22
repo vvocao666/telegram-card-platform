@@ -81,12 +81,55 @@ def test_labeled_pubg_tail_is_not_psn():
     assert bot.extract_psn_ordered(text) == []
 
 
-def test_independent_psn_still_works():
+def test_same_image_with_pubg_trace_suppresses_psn():
     text = "S07304-KJDS-NPDD-NEUDY\nPFP7-FP8X-26PH"
 
     assert bot.extract_cards(text) == ["S07304-KJDS-NPDD-NEUDY"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_independent_psn_image_still_works():
+    text = "PFP7-FP8X-26PH"
+
+    assert bot.extract_cards(text) == []
     assert bot.extract_psn_cards(text) == ["PFP7-FP8X-26PH"]
     assert bot.extract_psn_ordered(text) == ["PFP7-FP8X-26PH"]
+
+
+def test_pubg_image_trace_without_valid_pubg_does_not_emit_psn():
+    text = "S07 blur\nDTUM-QWGA-CEGV"
+
+    assert bot.is_pubg_image_text(text) is True
+    assert bot.extract_cards(text) == []
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_pubg_newline_tail_is_joined_and_psn_is_empty():
+    text = "S07304-EVGM-\nPDWH-7CD7Q"
+
+    assert bot.extract_cards(text) == ["S07304-EVGM-PDWH-7CD7Q"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_pubg_newline_last_group_is_joined_and_psn_is_empty():
+    text = "S07304-94VF-NG88-\nKLQUE"
+
+    assert bot.extract_cards(text) == ["S07304-94VF-NG88-KLQUE"]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text) == []
+
+
+def test_pubg_image_never_outputs_both_pubg_and_psn():
+    result = bot.OcrResult(
+        cards=tuple(bot.extract_cards("S07304-W4CW-6ZC8-DRN2R\nW4CW-6ZC8-DRN")),
+        psn_ordered=tuple(bot.extract_psn_ordered("S07304-W4CW-6ZC8-DRN2R\nW4CW-6ZC8-DRN")),
+    )
+
+    assert result.cards == ("S07304-W4CW-6ZC8-DRN2R",)
+    assert result.psn_ordered == tuple()
 
 
 def test_remote_worker_pubg_substring_psn_is_filtered(monkeypatch, tmp_path):

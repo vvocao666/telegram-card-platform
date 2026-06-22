@@ -517,6 +517,17 @@ def text_without_s07_lines(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if "S07" not in normalize_text(line))
 
 
+def is_pubg_image_text(text: str) -> bool:
+    normalized = normalize_text(text)
+    compact = re.sub(r"[^A-Z0-9$]", "", normalized)
+    if "S07" in normalized or "S07304" in normalized or "S07304-" in normalized:
+        return True
+    pubg_traces = ("S07", "S07304", "507304", "907304", "SO7304", "S07304", "$07304")
+    if any(trace in compact for trace in pubg_traces):
+        return True
+    return bool(re.search(r"S0[A-Z0-9]304", compact))
+
+
 def extract_cards(text: str) -> list[str]:
     text = normalize_text(text)
     sep = r"[\s\-_|:：；;,.，。|]+"
@@ -641,6 +652,8 @@ def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
 
 
 def extract_psn_ordered(text: str, force: bool = False) -> list[str]:
+    if is_pubg_image_text(text):
+        return []
     pubg_cards = extract_cards(text)
     labeled = scan_labeled_psn_candidates(text)
     if labeled:
@@ -655,6 +668,8 @@ def extract_psn_ordered(text: str, force: bool = False) -> list[str]:
 
 
 def extract_psn_cards(text: str, force: bool = False) -> list[str]:
+    if is_pubg_image_text(text):
+        return []
     pubg_cards = extract_cards(text)
     return filter_psn_pubg_substrings(
         [card for card, fuzzy in scan_psn_candidates(text, force=force) if not fuzzy and valid_psn_card(card)],
@@ -671,6 +686,8 @@ def psn_matches_to_lines(matches: list[tuple[str, bool]]) -> list[str]:
 
 def prefer_labeled_psn_ordered(raw_chunks: list[str], fallback_ordered: list[str]) -> list[str]:
     raw_text = "\n".join(raw_chunks)
+    if is_pubg_image_text(raw_text):
+        return []
     pubg_cards = extract_cards(raw_text)
     labeled = scan_labeled_psn_candidates(raw_text)
     if labeled:
@@ -680,6 +697,12 @@ def prefer_labeled_psn_ordered(raw_chunks: list[str], fallback_ordered: list[str
 
 def extract_uncertain_psn_cards(text: str, known_cards: list[str] | None = None, force: bool = False) -> list[str]:
     return []
+
+
+def psn_ordered_for_image(raw_text: str, cards: list[str], psn_hint: bool = False) -> list[str]:
+    if cards or is_pubg_image_text(raw_text):
+        return []
+    return exact_unique_text(extract_psn_ordered(raw_text, force=psn_hint))
 
 
 def parse_psn_expected_count(caption: str) -> int | None:
@@ -971,7 +994,7 @@ def run_ocrspace(
                 enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
                 ocr_stats = merge_ocr_stats(ocr_stats, enhanced_stats)
                 cards, uncertain, card_corrections = settle_and_correct_pubg_cards(enhanced_cards + legacy_cards)
-                psn_ordered = exact_unique_text(extract_psn_ordered(raw_text, force=psn_hint or not cards))
+                psn_ordered = psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint)
                 all_cards.extend(cards)
                 all_psn_ordered.extend(psn_ordered)
                 uncertain_total += uncertain
@@ -1089,7 +1112,7 @@ def run_local_ocr(
                     logger.info("Local OCR text: %s", text.strip().replace("\n", " | ")[:500])
             text_cards = extract_cards(text)
             cards.extend(text_cards)
-            ordered = extract_psn_ordered(text, force=psn_hint or not text_cards)
+            ordered = psn_ordered_for_image(text, text_cards, psn_hint=psn_hint)
             psn_ordered.extend(ordered)
             psn_cards.extend(card for card in ordered if not card.endswith(FUZZY_SUFFIX))
             psn_uncertain.extend(card for card in ordered if card.endswith(FUZZY_SUFFIX))
@@ -1481,10 +1504,7 @@ def run_remote_ocr(
 
         raw_text = "\n".join(text_values)
         cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extract_cards(raw_text))
-        psn_ordered = limit_psn_ordered(
-            prefer_labeled_psn_ordered([raw_text], extract_psn_ordered(raw_text, force=psn_hint or not cards)),
-            psn_expected_count,
-        )
+        psn_ordered = limit_psn_ordered(psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint), psn_expected_count)
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
         psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])
         if not cards and not psn_cards and not psn_uncertain:
@@ -1556,6 +1576,11 @@ def run_ocr(
         merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(local.psn_uncertain))
         merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(local.psn_ordered), psn_expected_count)
         settled_cards, conflict_count, card_corrections = settle_and_correct_pubg_cards(merged)
+        merged_raw_text = remote.raw_text + "\n" + local.raw_text
+        if settled_cards or is_pubg_image_text(merged_raw_text):
+            merged_psn = []
+            merged_psn_uncertain = []
+            merged_psn_ordered = []
         uncertain += remote.uncertain_count + local.uncertain_count + conflict_count
         if settled_cards or merged_psn or merged_psn_uncertain:
             return OcrResult(
@@ -1565,7 +1590,7 @@ def run_ocr(
                 psn_ordered=tuple(merged_psn_ordered),
                 pubg_expected_count=pubg_expected_count,
                 psn_expected_count=psn_expected_count,
-                raw_text=remote.raw_text + "\n" + local.raw_text,
+                raw_text=merged_raw_text,
                 uncertain_count=uncertain,
                 ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
                 ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
@@ -1580,7 +1605,7 @@ def run_ocr(
             psn_ordered=tuple(merged_psn_ordered),
             pubg_expected_count=pubg_expected_count,
             psn_expected_count=psn_expected_count,
-            raw_text=local.raw_text,
+            raw_text=merged_raw_text,
             uncertain_count=uncertain,
             ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
             ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,

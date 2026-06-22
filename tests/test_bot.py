@@ -709,11 +709,18 @@ class BotFormattingTests(unittest.TestCase):
     def test_no_card_results_are_silent(self):
         self.assertFalse(bot.has_card_results([bot.OcrResult(cards=tuple(), raw_text="hello")]))
 
-    def test_text_card_result_extracts_pubg_and_psn(self):
+    def test_text_card_result_with_pubg_suppresses_psn(self):
         result = bot.card_text_result("S07304-MBY6-MEF9-G7TFE\nMELG-BTF8-JCJN")
 
         self.assertIsNotNone(result)
         self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), result.cards)
+        self.assertEqual(tuple(), result.psn_ordered)
+
+    def test_text_card_result_extracts_independent_psn(self):
+        result = bot.card_text_result("MELG-BTF8-JCJN")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(tuple(), result.cards)
         self.assertEqual(("MELG-BTF8-JCJN",), result.psn_ordered)
 
     def test_unlearnable_correction_feedback_when_reply_has_no_wrong_card(self):
