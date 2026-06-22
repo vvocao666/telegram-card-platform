@@ -22,5 +22,6 @@ from services.runtime import (
     remote_ocr_status_command,
     show_id,
     show_version,
+    status_panel_command,
     update_is_from_owner,
 )

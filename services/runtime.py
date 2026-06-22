@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import tempfile
 import time
 from collections import Counter, defaultdict
@@ -108,6 +109,7 @@ OKX_EXCHANGE_RATE_URL = "https://www.okx.com/api/v5/market/exchange-rate"
 OKX_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_SAFE_TEXT_LIMIT = 3600
+PROCESS_STARTED_AT = time.time()
 
 SUCCESS_PREFIX = "\u672c\u6b21\u8bc6\u522b\u6210\u529f"
 COUNT_SUFFIX = "\u4e2a"
@@ -1109,6 +1111,196 @@ def current_ocr_provider() -> str:
     if int(remote_ocr_status.get("today_fallback_count", 0)) > 0:
         return "OCR.space"
     return "unknown"
+
+
+def safe_remote_url() -> str:
+    url = REMOTE_OCR_URL.split("?", 1)[0].replace("http://", "").replace("https://", "")
+    return url.rstrip("/")
+
+
+def format_time_value(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "无"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return text
+    return parsed.astimezone(LEDGER_TZ).strftime("%H:%M:%S")
+
+
+def process_memory_mb() -> str:
+    try:
+        if os.name == "posix":
+            statm = Path("/proc/self/statm")
+            if statm.exists():
+                pages = int(statm.read_text(encoding="utf-8").split()[1])
+                return f"{pages * os.sysconf('SC_PAGE_SIZE') / 1024 / 1024:.1f} MB"
+    except Exception:
+        pass
+    return "unknown"
+
+
+def process_uptime_text() -> str:
+    seconds = max(0, int(time.time() - PROCESS_STARTED_AT))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    if hours:
+        return f"{hours}小时{minutes}分钟"
+    return f"{minutes}分钟"
+
+
+def git_output(args: list[str]) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=Path("."),
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except Exception:
+        return "unknown"
+    value = (result.stdout or "").strip()
+    return value or "unknown"
+
+
+def service_active_state() -> str:
+    if os.name != "posix":
+        return "unknown"
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "telegram-card-platform"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except Exception:
+        return "unknown"
+    return (result.stdout or "").strip() or "unknown"
+
+
+def remote_worker_health() -> tuple[bool, dict[str, object], str]:
+    if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
+        return False, {}, "disabled"
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            response = client.get(f"{REMOTE_OCR_URL}/health")
+        if response.status_code != 200:
+            return False, {}, f"status={response.status_code}"
+        payload = response.json()
+    except Exception as exc:
+        return False, {}, exc.__class__.__name__
+    if not isinstance(payload, dict):
+        return False, {}, "invalid_json"
+    return True, payload, "ok"
+
+
+def today_cache_counts() -> dict[str, int]:
+    summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
+    cards = list(summary.first_cards)
+    raw_candidates: list[str] = []
+    try:
+        data = json.loads(TODAY_OCR_CACHE_PATH.read_text(encoding="utf-8")) if summary.exists else {}
+        if isinstance(data, dict):
+            cards = [str(card) for card in data.get("ocr_cards", []) if isinstance(card, str)]
+            raw_candidates = [str(card) for card in data.get("raw_candidates", []) if isinstance(card, str)]
+    except Exception:
+        raw_candidates = []
+    pubg_count = sum(1 for card in cards if re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card))
+    psn_count = sum(1 for card in cards if re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", card))
+    seen: set[str] = set()
+    duplicate_count = 0
+    for card in raw_candidates:
+        key = canonical_card(card)
+        if not key:
+            continue
+        if key in seen:
+            duplicate_count += 1
+        seen.add(key)
+    return {
+        "images": summary.images,
+        "cards": len(cards),
+        "pubg": pubg_count,
+        "psn": psn_count,
+        "duplicates": duplicate_count,
+    }
+
+
+def build_status_panel() -> str:
+    ensure_remote_ocr_today()
+    worker_ok, worker_payload, worker_error = remote_worker_health()
+    remote_ocr_status["remote_health"] = worker_ok
+    remote_calls = int(remote_ocr_status["today_remote_calls"])
+    cache_counts = today_cache_counts()
+    service_state = service_active_state()
+    branch = git_output(["branch", "--show-current"])
+    commit = git_output(["rev-parse", "--short", "HEAD"])
+    worker_status = str(worker_payload.get("status", "ok" if worker_ok else "offline"))
+    worker_gpu = str(worker_payload.get("gpu", "unknown"))
+    worker_engine = str(worker_payload.get("engine", "unknown"))
+    extra_fields = []
+    for key in ("pipeline_loaded", "opencv", "cached", "stats"):
+        if key in worker_payload:
+            extra_fields.append(f"{key}: {worker_payload[key]}")
+    worker_extra = "\n".join(extra_fields)
+    current_provider = "RTX5070" if worker_ok else "OCR.space"
+    lines = [
+        "━━━━━━━━━━━━━━",
+        "📊 机器人状态",
+        "━━━━━━━━━━━━━━",
+        "",
+        "🤖 阿里云机器人",
+        f"状态：{'运行中' if service_state == 'active' else service_state}",
+        "版本：v2.2-status-panel",
+        f"服务：telegram-card-platform {service_state}{'/running' if service_state == 'active' else ''}",
+        f"分支：{branch}",
+        f"Commit：{commit}",
+        f"内存：{process_memory_mb()}",
+        f"运行时间：{process_uptime_text()}",
+        f"ledger.sqlite3：{'存在' if LEDGER_DB_PATH.exists() else '缺失'}",
+        "",
+        "🖥 本地 RTX5070 OCR",
+        f"启用：{'是' if REMOTE_OCR_ENABLED else '否'}",
+        f"状态：{'在线' if worker_ok else '离线'}",
+        f"status：{worker_status if worker_ok else worker_error}",
+        f"GPU：{worker_gpu}",
+        f"引擎：{worker_engine}",
+        f"地址：{safe_remote_url()}",
+        f"平均延迟：{avg_remote_latency_ms()} ms",
+        f"最近成功：{format_time_value(remote_ocr_status.get('last_success_at'))}",
+        f"最近失败：{format_time_value(remote_ocr_status.get('last_failed_at'))}",
+        f"最近错误：{remote_ocr_status.get('last_error') or '无'}",
+    ]
+    if worker_extra:
+        lines.append(worker_extra)
+    lines.extend(
+        [
+            "",
+            "🔁 OCR 路由",
+            f"当前主引擎：{current_provider}",
+            "备用引擎：OCR.space",
+            f"OCR.space fallback：{'可用' if OCR_SPACE_API_KEYS else '未配置'}",
+            f"今日 Remote 调用：{remote_calls}",
+            f"成功：{remote_ocr_status['today_remote_success']}",
+            f"失败：{remote_ocr_status['today_remote_failed']}",
+            f"Fallback：{remote_ocr_status['today_fallback_count']}",
+            f"缓存命中率：{percent_rate(int(remote_ocr_status['today_cache_hits']), remote_calls)}",
+            f"OpenCV增强率：{percent_rate(int(remote_ocr_status['today_enhanced_used']), remote_calls)}",
+            "",
+            "📦 今日识别",
+            f"图片：{cache_counts['images']} 张",
+            f"卡密：{cache_counts['cards']} 个",
+            f"PUBG卡密：{cache_counts['pubg']} 个",
+            f"PSN卡密：{cache_counts['psn']} 个",
+            f"重复：{cache_counts['duplicates']} 个",
+            "",
+            "━━━━━━━━━━━━━━",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def record_remote_ocr_status(
@@ -2347,6 +2539,35 @@ async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAUL
     await update.message.reply_text("\n".join(lines))
 
 
+async def status_panel_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if is_owner_update(update):
+        return True
+    if not update.effective_chat or not update.effective_user or not context:
+        return False
+    try:
+        member = await asyncio.wait_for(
+            context.bot.get_chat_member(update.effective_chat.id, update.effective_user.id),
+            timeout=1.5,
+        )
+    except Exception:
+        return False
+    return getattr(member, "status", "") in {"administrator", "creator"}
+
+
+async def status_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not await status_panel_allowed(update, context):
+        await update.message.reply_text("无权限。")
+        return
+    try:
+        text = await asyncio.to_thread(build_status_panel)
+    except Exception as exc:
+        logger.exception("Failed to build status panel")
+        text = f"状态查询失败：{exc.__class__.__name__}"
+    await update.message.reply_text(text)
+
+
 def command_body(update: Update, command: str) -> str:
     if not update.message or not update.message.text:
         return ""
@@ -3077,6 +3298,8 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("id", show_id))
     app.add_handler(CommandHandler("version", show_version))
+    app.add_handler(CommandHandler(["status", "ocr_status"], status_panel_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^/状态(?:@\w+)?(?:\s|$)"), status_panel_command))
     app.add_handler(
         MessageHandler(
             filters.Regex(f"^({re.escape(TEXT_LEDGER_ADD_GROUP)}|记账拉机器人进群)$"),

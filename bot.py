@@ -28,6 +28,7 @@ from handlers.admin_handler import (
     remote_ocr_status_command,
     show_id,
     show_version,
+    status_panel_command,
 )
 from handlers.broadcast_handler import handle_broadcast_callback, start_broadcast
 from handlers.card_ocr_handler import handle_photo
@@ -88,6 +89,8 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("ocr_cache_today", ocr_cache_today_command))
     app.add_handler(CommandHandler("ocr_health", ocr_health_command))
     app.add_handler(CommandHandler("remote_ocr_status", remote_ocr_status_command))
+    app.add_handler(CommandHandler(["status", "ocr_status"], status_panel_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^/状态(?:@\w+)?(?:\s|$)"), status_panel_command))
     app.add_handler(CommandHandler("learn_cards", learn_cards_command))
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
     app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))
