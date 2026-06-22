@@ -188,6 +188,15 @@ remote_ocr_status = {
     "last_latency_ms": 0,
     "last_card_count": 0,
     "last_checked_at": "",
+    "remote_health": False,
+    "last_success_at": "",
+    "last_failed_at": "",
+    "today_date": "",
+    "today_remote_calls": 0,
+    "today_remote_success": 0,
+    "today_remote_failed": 0,
+    "today_fallback_count": 0,
+    "today_remote_latency_total_ms": 0,
 }
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
@@ -1036,14 +1045,89 @@ def run_local_ocr(
     )
 
 
-def record_remote_ocr_status(ok: bool, latency_ms: int, card_count: int = 0, error: str = "") -> None:
+def remote_ocr_now() -> datetime:
+    return datetime.now(LEDGER_TZ)
+
+
+def ensure_remote_ocr_today(now: datetime | None = None) -> None:
+    now = now or remote_ocr_now()
+    today = now.date().isoformat()
+    if remote_ocr_status.get("today_date") == today:
+        return
+    remote_ocr_status.update(
+        {
+            "today_date": today,
+            "today_remote_calls": 0,
+            "today_remote_success": 0,
+            "today_remote_failed": 0,
+            "today_fallback_count": 0,
+            "today_remote_latency_total_ms": 0,
+        }
+    )
+
+
+def record_remote_ocr_start() -> None:
+    ensure_remote_ocr_today()
+    remote_ocr_status["today_remote_calls"] += 1
+
+
+def record_remote_ocr_fallback(reason: str) -> None:
+    ensure_remote_ocr_today()
+    remote_ocr_status["today_fallback_count"] += 1
+    logger.info("OCRSPACE FALLBACK reason=%s", reason)
+
+
+def remote_ocr_fallback_reason() -> str:
+    if not REMOTE_OCR_ENABLED:
+        return "remote disabled"
+    if not REMOTE_OCR_URL:
+        return "remote url empty"
+    return remote_ocr_status.get("last_error") or "remote unavailable"
+
+
+def avg_remote_latency_ms() -> int:
+    ensure_remote_ocr_today()
+    success_count = int(remote_ocr_status.get("today_remote_success", 0))
+    if success_count <= 0:
+        return 0
+    return int(int(remote_ocr_status.get("today_remote_latency_total_ms", 0)) / success_count)
+
+
+def record_remote_ocr_status(
+    ok: bool,
+    latency_ms: int,
+    card_count: int = 0,
+    text_count: int = 0,
+    error: str = "",
+    health_check: bool = False,
+) -> None:
+    now = remote_ocr_now()
+    ensure_remote_ocr_today(now)
+    if health_check:
+        remote_ocr_status["remote_health"] = ok
+        remote_ocr_status["last_checked_at"] = now.isoformat(timespec="seconds")
+        if ok:
+            logger.info("REMOTE OCR HEALTH OK")
+        else:
+            logger.info("REMOTE OCR HEALTH FAILED reason=%s", error)
+        return
+
+    if ok:
+        remote_ocr_status["today_remote_success"] += 1
+        remote_ocr_status["today_remote_latency_total_ms"] += latency_ms
+        remote_ocr_status["last_success_at"] = now.isoformat(timespec="seconds")
+        logger.info("REMOTE OCR SUCCESS latency_ms=%s cards=%s texts=%s", latency_ms, card_count, text_count)
+    else:
+        remote_ocr_status["today_remote_failed"] += 1
+        remote_ocr_status["last_failed_at"] = now.isoformat(timespec="seconds")
+        logger.info("REMOTE OCR FAILED reason=%s", error)
     remote_ocr_status.update(
         {
             "last_ok": ok,
             "last_error": error[:200],
             "last_latency_ms": latency_ms,
             "last_card_count": card_count,
-            "last_checked_at": datetime.now(LEDGER_TZ).isoformat(timespec="seconds"),
+            "last_checked_at": now.isoformat(timespec="seconds"),
         }
     )
 
@@ -1057,13 +1141,13 @@ def remote_ocr_available() -> tuple[bool, str]:
             response = client.get(f"{REMOTE_OCR_URL}/health")
         latency_ms = int((time.time() - start) * 1000)
         if response.status_code != 200:
-            record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}")
+            record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}", health_check=True)
             return False, f"status={response.status_code}"
-        record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0))
+        record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0), health_check=True)
         return True, "ok"
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
-        record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        record_remote_ocr_status(False, latency_ms, error=type(exc).__name__, health_check=True)
         return False, type(exc).__name__
 
 
@@ -1077,12 +1161,14 @@ def run_remote_ocr(
         return None
 
     start = time.time()
+    record_remote_ocr_start()
+    logger.info("REMOTE OCR START url=%s", REMOTE_OCR_URL)
     try:
         with image_path.open("rb") as image_file, httpx.Client(timeout=REMOTE_OCR_TIMEOUT) as client:
             response = client.post(
                 f"{REMOTE_OCR_URL}/ocr",
                 files={"file": (image_path.name, image_file, "image/jpeg")},
-            )
+        )
         latency_ms = int((time.time() - start) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"status {response.status_code}")
@@ -1125,7 +1211,7 @@ def run_remote_ocr(
             return None
 
         card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
-        record_remote_ocr_status(True, latency_ms, card_count=card_count)
+        record_remote_ocr_status(True, latency_ms, card_count=card_count, text_count=len(text_values))
         return OcrResult(
             cards=tuple(cards),
             psn_cards=tuple(psn_cards),
@@ -1139,7 +1225,6 @@ def run_remote_ocr(
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
-        logger.info("Remote OCR fallback to OCR.space: %s", type(exc).__name__)
         return None
 
 
@@ -1159,6 +1244,7 @@ def run_ocr(
         return remote
 
     if OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
+        record_remote_ocr_fallback(remote_ocr_fallback_reason())
         remote = run_ocrspace(
             image_path,
             psn_hint=psn_hint,
@@ -2204,17 +2290,18 @@ async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAUL
     available, reason = await asyncio.to_thread(remote_ocr_available)
     lines = [
         "Remote OCR Status",
-        f"Enabled: {REMOTE_OCR_ENABLED}",
-        f"URL: {REMOTE_OCR_URL or '-'}",
-        f"Timeout: {REMOTE_OCR_TIMEOUT}s",
-        f"Available: {available}",
-        f"Reason: {reason}",
-        f"Last OK: {remote_ocr_status['last_ok']}",
-        f"Last latency: {remote_ocr_status['last_latency_ms']}ms",
-        f"Last card count: {remote_ocr_status['last_card_count']}",
-        f"Last error: {remote_ocr_status['last_error'] or '-'}",
-        f"Last checked: {remote_ocr_status['last_checked_at'] or '-'}",
-        "Fallback: OCR.space",
+        f"remote_enabled: {REMOTE_OCR_ENABLED}",
+        f"remote_url: {REMOTE_OCR_URL or '-'}",
+        f"remote_health: {available}",
+        f"health_reason: {reason}",
+        f"last_success_at: {remote_ocr_status['last_success_at'] or '-'}",
+        f"last_failed_at: {remote_ocr_status['last_failed_at'] or '-'}",
+        f"last_error: {remote_ocr_status['last_error'] or '-'}",
+        f"today_remote_calls: {remote_ocr_status['today_remote_calls']}",
+        f"today_remote_success: {remote_ocr_status['today_remote_success']}",
+        f"today_remote_failed: {remote_ocr_status['today_remote_failed']}",
+        f"today_fallback_count: {remote_ocr_status['today_fallback_count']}",
+        f"avg_remote_latency_ms: {avg_remote_latency_ms()}",
     ]
     await update.message.reply_text("\n".join(lines))
 

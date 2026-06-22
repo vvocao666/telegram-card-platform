@@ -1,6 +1,31 @@
 from pathlib import Path
 
+import asyncio
 import bot
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def reset_remote_ocr_status():
+    bot.remote_ocr_status.update(
+        {
+            "last_ok": False,
+            "last_error": "",
+            "last_latency_ms": 0,
+            "last_card_count": 0,
+            "last_checked_at": "",
+            "remote_health": False,
+            "last_success_at": "",
+            "last_failed_at": "",
+            "today_date": "",
+            "today_remote_calls": 0,
+            "today_remote_success": 0,
+            "today_remote_failed": 0,
+            "today_fallback_count": 0,
+            "today_remote_latency_total_ms": 0,
+        }
+    )
+    yield
 
 
 class FakeResponse:
@@ -51,6 +76,10 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert result is not None
     assert result.cards == ("S07304-WJB9-VPEZ-MUFWK",)
     assert bot.remote_ocr_status["last_ok"] is True
+    assert bot.remote_ocr_status["today_remote_calls"] == 1
+    assert bot.remote_ocr_status["today_remote_success"] == 1
+    assert bot.remote_ocr_status["today_remote_failed"] == 0
+    assert bot.avg_remote_latency_ms() >= 0
 
 
 def test_remote_ocr_empty_cards_falls_back(monkeypatch, tmp_path):
@@ -62,6 +91,8 @@ def test_remote_ocr_empty_cards_falls_back(monkeypatch, tmp_path):
     assert result is None
     assert bot.remote_ocr_status["last_ok"] is False
     assert bot.remote_ocr_status["last_error"] == "empty cards"
+    assert bot.remote_ocr_status["today_remote_calls"] == 1
+    assert bot.remote_ocr_status["today_remote_failed"] == 1
 
 
 def test_remote_ocr_invalid_json_falls_back(monkeypatch, tmp_path):
@@ -76,6 +107,7 @@ def test_remote_ocr_invalid_json_falls_back(monkeypatch, tmp_path):
     assert result is None
     assert bot.remote_ocr_status["last_ok"] is False
     assert bot.remote_ocr_status["last_error"] == "ValueError"
+    assert bot.remote_ocr_status["today_remote_failed"] == 1
 
 
 def test_run_ocr_uses_remote_before_ocrspace(monkeypatch, tmp_path):
@@ -105,6 +137,7 @@ def test_run_ocr_falls_back_to_ocrspace_when_remote_fails(monkeypatch, tmp_path)
         result = bot.run_ocr(write_image(tmp_path))
 
         assert result is fallback
+        assert bot.remote_ocr_status["today_fallback_count"] == 1
     finally:
         bot.OCR_PROVIDER = old_provider
         bot.OCR_SPACE_API_KEYS = old_keys
@@ -117,3 +150,92 @@ def test_remote_ocr_status_command_is_registered():
 
     assert "remote_ocr_status_command" in bot_py
     assert 'CommandHandler("remote_ocr_status", remote_ocr_status_command)' in bot_py
+
+
+def test_remote_ocr_logs_success_and_fallback(monkeypatch, tmp_path, caplog):
+    payload = {
+        "ok": True,
+        "cards": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
+        "texts": [{"text": "S07304-WJB9-VPEZ-MUFWK", "score": 0.99}],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    with caplog.at_level("INFO", logger="telegram-card-platform"):
+        result = bot.run_remote_ocr(write_image(tmp_path))
+        bot.record_remote_ocr_fallback("test")
+
+    assert result is not None
+    assert "REMOTE OCR START url=" in caplog.text
+    assert "REMOTE OCR SUCCESS latency_ms=" in caplog.text
+    assert "OCRSPACE FALLBACK reason=test" in caplog.text
+
+
+def test_remote_ocr_logs_failure(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(status_code=500)))
+
+    with caplog.at_level("INFO", logger="telegram-card-platform"):
+        result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is None
+    assert "REMOTE OCR FAILED reason=status 500" in caplog.text
+
+
+def test_remote_ocr_health_logs_ok_and_failed(monkeypatch, caplog):
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload={"status": "ok"})))
+    with caplog.at_level("INFO", logger="telegram-card-platform"):
+        available, reason = bot.remote_ocr_available()
+
+    assert available is True
+    assert reason == "ok"
+    assert bot.remote_ocr_status["remote_health"] is True
+    assert "REMOTE OCR HEALTH OK" in caplog.text
+
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(status_code=500)))
+    with caplog.at_level("INFO", logger="telegram-card-platform"):
+        available, reason = bot.remote_ocr_available()
+
+    assert available is False
+    assert reason == "status=500"
+    assert bot.remote_ocr_status["remote_health"] is False
+    assert "REMOTE OCR HEALTH FAILED reason=health status 500" in caplog.text
+
+
+def test_remote_ocr_status_command_outputs_requested_fields(monkeypatch):
+    bot.remote_ocr_status.update(
+        {
+            "today_date": bot.remote_ocr_now().date().isoformat(),
+            "last_success_at": "2026-06-22T10:00:00+08:00",
+            "last_failed_at": "2026-06-22T10:01:00+08:00",
+            "last_error": "timeout",
+            "today_remote_calls": 3,
+            "today_remote_success": 2,
+            "today_remote_failed": 1,
+            "today_fallback_count": 1,
+            "today_remote_latency_total_ms": 300,
+        }
+    )
+    monkeypatch.setattr(bot, "remote_ocr_available", lambda: (True, "ok"))
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
+    replies = []
+
+    async def reply_text(self, text):
+        replies.append(text)
+
+    message = type("Message", (), {"reply_text": reply_text})()
+    user = type("User", (), {"id": 123})()
+    update = type("Update", (), {"message": message, "effective_user": user})()
+
+    asyncio.run(bot.remote_ocr_status_command(update, None))
+
+    text = replies[0]
+    assert "remote_enabled:" in text
+    assert "remote_url:" in text
+    assert "remote_health: True" in text
+    assert "last_success_at: 2026-06-22T10:00:00+08:00" in text
+    assert "last_failed_at: 2026-06-22T10:01:00+08:00" in text
+    assert "last_error: timeout" in text
+    assert "today_remote_calls: 3" in text
+    assert "today_remote_success: 2" in text
+    assert "today_remote_failed: 1" in text
+    assert "today_fallback_count: 1" in text
+    assert "avg_remote_latency_ms: 150" in text
