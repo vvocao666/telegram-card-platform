@@ -2,7 +2,27 @@
 
 Current framework version: `telegram-card-platform-modular`
 
-Stable rollback baseline: `strict-v120-owner-broadcast-no-trx`
+Cloud Stable / 通用云服务器稳定版 / 最后通用稳定版: `v1.3.0-ocr-learning-plus`
+
+Owner Hybrid OCR line: `v2.x-hybrid-ocr` and later releases.
+
+## Release Selection
+
+Use `v1.3.0-ocr-learning-plus` for ordinary cloud-server deployment:
+
+- Ubuntu 22.04, Ubuntu 24.04, or Debian 12.
+- OCR.space / original OCR flow.
+- No local Windows GPU OCR worker.
+- No Tailscale dependency.
+- No `REMOTE_OCR_URL` requirement.
+
+Do not deploy `v2.x` on a normal cloud-only server unless you intentionally run the owner-specific Hybrid OCR environment:
+
+- Windows RTX5070 OCR Worker.
+- Tailscale connectivity.
+- `REMOTE_OCR_URL`.
+- Hybrid OCR routing.
+- Local GPU-first OCR.
 
 ## Server Requirements
 
@@ -26,6 +46,7 @@ Choose an application directory first:
 export APP_DIR=/opt/telegram-card-platform
 sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR"
 cd "$APP_DIR"
+git checkout v1.3.0-ocr-learning-plus
 ```
 
 Install dependencies:
@@ -126,10 +147,16 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -File scripts/restore.ps1 -BackupDir .\backups\telegram-card-platform-YYYYMMDD-HHMMSS
 ```
 
-## Rollback To v120
+## Rollback To Cloud Stable
 
-See:
+If you do not use local RTX5070 / Tailscale / Remote OCR, roll back to:
 
-```text
-feature_backups/v120_stable/ROLLBACK.md
+```bash
+cd "$APP_DIR"
+git fetch --tags
+git checkout v1.3.0-ocr-learning-plus
+.venv/bin/python3 -m pip install -r requirements.txt
+sudo systemctl restart telegram-card-platform
 ```
+
+Do not use v120 as the newest stable baseline. v120 remains a historical pre-modular backup only.

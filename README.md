@@ -2,11 +2,33 @@
 
 Current framework version: `telegram-card-platform-modular`
 
-Stable rollback baseline: `strict-v120-owner-broadcast-no-trx`
+Cloud Stable / 通用云服务器稳定版 / 最后通用稳定版: `v1.3.0-ocr-learning-plus`
+
+Owner Hybrid OCR line: `v2.x-hybrid-ocr` and later releases.
 
 Telegram Card Platform is a reusable Telegram bot framework for card OCR workflows. The v1.0 release packages the proven `strict-v120-owner-broadcast-no-trx` bot behavior into a modular structure for deployment, maintenance, and future extension.
 
 The platform combines OCR, card parsing, audit forwarding, ledger/accounting, owner broadcast, admin checks, storage, CI, backup, rollback, and systemd deployment.
+
+## Stable Release Recommendation
+
+For ordinary users, ordinary Ubuntu/Debian cloud servers, or deployments without a local Windows GPU OCR worker, use:
+
+```text
+v1.3.0-ocr-learning-plus
+```
+
+This is the last general cloud-server stable release before the project added owner-specific Hybrid OCR features.
+
+Do not use `v2.x` for a normal cloud-only deployment unless you also run the required owner environment:
+
+- Windows RTX5070 OCR Worker
+- Tailscale network access
+- `REMOTE_OCR_URL`
+- Hybrid OCR routing
+- Local GPU-first OCR
+
+The `v2.x` releases are kept for the current owner production environment and are not recommended as the default public deployment target.
 
 ## Current Features
 
@@ -29,6 +51,8 @@ The platform combines OCR, card parsing, audit forwarding, ledger/accounting, ow
 - `ROADMAP.md`: phased refactor plan.
 - `DEPLOY.md`: new server deployment guide.
 - `MAINTENANCE.md`: routine maintenance and rollback guide.
+- `ROLLBACK.md`: stable release rollback guide.
+- `docs/STABLE_RELEASES.md`: stable release selection guide.
 - `docs/CURRENT_FEATURES.md`: detailed feature inventory.
 - `docs/REBUILD_GUIDE.md`: rebuild notes.
 - `feature_backups/v120_stable/ROLLBACK.md`: restore guide for the last stable v120 version.
@@ -55,6 +79,7 @@ feature_backups/        # Stable rollback and feature backup files
 export APP_DIR=/opt/telegram-card-platform
 sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR"
 cd "$APP_DIR"
+git checkout v1.3.0-ocr-learning-plus
 sudo apt-get update
 sudo apt-get install -y python3 python3-venv python3-pip git tesseract-ocr
 python3 -m venv .venv
@@ -108,13 +133,15 @@ On Linux, restore `.env` from a secure copy, restore `outputs/` if historical da
 
 ## Rollback
 
-To restore the last stable v120 version, follow:
+For ordinary cloud-server deployments, roll back to:
 
-```text
-feature_backups/v120_stable/ROLLBACK.md
+```bash
+git checkout v1.3.0-ocr-learning-plus
 ```
 
-The rollback copy restores the original `bot.py`, `ledger_commands.py`, `ledger_storage.py`, `.env.example`, and `requirements.txt`.
+Do not treat v120 as the newest stable baseline. v120 is only the historical pre-modular backup. The current recommended general stable release is `v1.3.0-ocr-learning-plus`.
+
+See `ROLLBACK.md` and `docs/STABLE_RELEASES.md` for details.
 
 ## Update
 
