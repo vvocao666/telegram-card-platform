@@ -486,7 +486,7 @@ def repair_first_group(group: str) -> str:
 
 def valid_card(card: str) -> bool:
     return bool(
-        re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}", card)
+        re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card)
         and card[:6] in PUBG_PREFIXES
     )
 
@@ -599,7 +599,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{4,5})"
+        + r"([A-Z0-9]{5})"
         + r"(?![A-Z0-9])"
     )
 
@@ -616,7 +616,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{4,5})"
+        + r"([A-Z0-9]{5})"
         + r"(?![A-Z0-9])"
     )
     for tail, second, third, fourth in re.findall(missing_s0_pattern, text):
@@ -630,7 +630,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{4,5})"
+        + r"([A-Z0-9]{5})"
     )
     for match in re.finditer(noisy_shaped_pattern, text):
         matched_text = match.group(0)
@@ -643,7 +643,7 @@ def extract_cards(text: str) -> list[str]:
         r"([SP5$][0ODQU][7TIL/?][0-9ODQUILTZEA$SGB]{3})"
         r"([A-Z0-9]{4})"
         r"([A-Z0-9]{4})"
-        r"([A-Z0-9]{4,5})"
+        r"([A-Z0-9]{5})"
         r"(?![A-Z0-9])"
     )
     for first, second, third, fourth in re.findall(compact_pattern, text):

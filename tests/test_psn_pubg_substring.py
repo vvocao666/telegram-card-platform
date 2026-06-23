@@ -52,7 +52,7 @@ def test_pubg_card_does_not_generate_psn_substring():
 
 def test_all_pubg_prefixes_are_recognized_as_pubg_only():
     for prefix in PUBG_PREFIXES:
-        text = f"{prefix}-ABCD-EFGH-IJKL"
+        text = f"{prefix}-ABCD-EFGH-IJKLM"
 
         assert bot.is_pubg_image_text(text) is True
         assert bot.extract_cards(text) == [text]
@@ -78,10 +78,10 @@ def test_s07292_newline_tail_is_joined_and_psn_is_empty():
     assert bot.extract_psn_ordered(text) == []
 
 
-def test_s07234_four_char_tail_is_pubg_only():
+def test_s07234_four_char_tail_is_pubg_trace_only():
     text = "S07234-ABCD-EFGH-IJKL"
 
-    assert bot.extract_cards(text) == ["S07234-ABCD-EFGH-IJKL"]
+    assert bot.extract_cards(text) == []
     assert bot.extract_psn_cards(text) == []
     assert bot.extract_psn_ordered(text) == []
 
@@ -105,7 +105,7 @@ def test_second_pubg_card_does_not_generate_psn_substring():
 def test_four_char_tail_pubg_is_not_psn():
     text = "S07304-DTUM-QWGA-CEGV"
 
-    assert bot.extract_cards(text) == ["S07304-DTUM-QWGA-CEGV"]
+    assert bot.extract_cards(text) == []
     assert bot.extract_psn_cards(text) == []
     assert bot.extract_psn_ordered(text) == []
 
@@ -129,7 +129,7 @@ def test_38zm_pubg_is_not_psn():
 def test_s07_line_is_not_scanned_as_psn():
     text = "card: S07304-DTUM-QWGA-CEGV"
 
-    assert bot.extract_cards(text) == ["S07304-DTUM-QWGA-CEGV"]
+    assert bot.extract_cards(text) == []
     assert bot.scan_psn_candidates(text) == []
 
 
@@ -212,7 +212,7 @@ def test_remote_worker_pubg_substring_psn_is_filtered(monkeypatch, tmp_path):
     assert result.psn_ordered == tuple()
 
 
-def test_remote_worker_four_char_tail_pubg_is_not_psn(monkeypatch, tmp_path):
+def test_remote_worker_four_char_tail_pubg_trace_is_not_psn(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
     payload = {
@@ -236,7 +236,6 @@ def test_remote_worker_four_char_tail_pubg_is_not_psn(monkeypatch, tmp_path):
     assert result is not None
     assert result.cards == (
         "S07304-WHRL-F8YT-7RYRQ",
-        "S07304-DTUM-QWGA-CEGV",
         "S07304-38ZM-QFHZ-VKZ7M",
     )
     assert result.psn_cards == tuple()
@@ -362,6 +361,15 @@ def test_pubg_missing_s0_prefix_is_repaired_when_complete():
 
     assert bot.extract_cards(text) == ["S07292-P67A-CX6E-RZUN6"]
     assert bot.extract_psn_ordered(text, force=True) == []
+
+
+def test_s07_pubg_requires_five_char_tail():
+    incomplete = "S07292-XTLV-W93R-5P55"
+    complete = "S07292-XTLV-W93R-5P55S"
+
+    assert bot.extract_cards(incomplete) == []
+    assert bot.extract_psn_ordered(incomplete, force=True) == []
+    assert bot.extract_cards(complete) == [complete]
 
 
 def test_remote_worker_pubg_tail_fragment_does_not_output_psn(monkeypatch, tmp_path):

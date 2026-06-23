@@ -379,10 +379,10 @@ class BotFormattingTests(unittest.TestCase):
         self.assertFalse(bot.valid_card("S07304-KVTE-JZGW-JVB41J"))
         self.assertFalse(bot.valid_card("S0734-KVTE-JZGW-JVB4U"))
         self.assertFalse(bot.valid_card("S07304-KVTE1-JZGW-JVB4U"))
-        self.assertTrue(bot.valid_card("S07304-KVTE-JZGW-JVB4"))
+        self.assertFalse(bot.valid_card("S07304-KVTE-JZGW-JVB4"))
 
         self.assertEqual(["S07304-KVTE-JZGW-JVB4U"], bot.extract_cards("S07304-KVTE-JZGW-JVB4U"))
-        self.assertEqual(["S07304-KVTE-JZGW-JVB4"], bot.extract_cards("S07304-KVTE-JZGW-JVB4"))
+        self.assertEqual([], bot.extract_cards("S07304-KVTE-JZGW-JVB4"))
         self.assertEqual([], bot.extract_cards("S07304-KVTE-JZGW-JVB41J"))
 
     def test_pubg_card_after_label_digit_is_extracted(self):

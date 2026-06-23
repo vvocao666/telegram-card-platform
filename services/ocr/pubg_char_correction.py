@@ -22,7 +22,7 @@ PUBG_PREFIXES = (
 PUBG_RE = re.compile(
     r"^(?:"
     + "|".join(PUBG_PREFIXES)
-    + r")-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}$"
+    + r")-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$"
 )
 DEFAULT_FONT_HASH = "unknown_font"
 
