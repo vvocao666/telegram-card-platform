@@ -347,3 +347,33 @@ def test_format_reply_filters_existing_dirty_psn():
 
     assert "S07304-KJDS-NPDD-NEUDY" in reply
     assert "PSN" not in reply
+
+
+def test_pubg_prefix_tail_does_not_become_psn():
+    text = "7292-P67A-CX6E"
+
+    assert bot.is_pubg_image_text(text) is True
+    assert bot.extract_psn_ordered(text, force=True) == []
+    assert bot.extract_psn_cards(text, force=True) == []
+
+
+def test_pubg_missing_s0_prefix_is_repaired_when_complete():
+    text = "7292-P67A-CX6E-RZUN6"
+
+    assert bot.extract_cards(text) == ["S07292-P67A-CX6E-RZUN6"]
+    assert bot.extract_psn_ordered(text, force=True) == []
+
+
+def test_remote_worker_pubg_tail_fragment_does_not_output_psn(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [{"text": "7292-P67A-CX6E", "score": 0.99}],
+        "texts": [{"text": "7292-P67A-CX6E", "score": 0.99}],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is None

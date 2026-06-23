@@ -390,6 +390,8 @@ PUBG_PREFIXES = {
     "S07286",
 }
 PUBG_PREFIX_RE = re.compile(r"(?:" + "|".join(sorted(PUBG_PREFIXES)) + r")")
+PUBG_PREFIX_TAILS = {prefix[2:] for prefix in PUBG_PREFIXES}
+PUBG_PREFIX_TAIL_RE = re.compile(r"(?:" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
@@ -549,6 +551,8 @@ def is_pubg_image_text(text: str) -> bool:
     compact = re.sub(r"[^A-Z0-9$]", "", normalized)
     if any(prefix in normalized or f"{prefix}-" in normalized for prefix in PUBG_PREFIXES):
         return True
+    if re.search(r"(?<![A-Z0-9])(?:" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}", normalized):
+        return True
     if "S07" in normalized:
         return True
     pubg_traces = ["S07", "507304", "907304", "SO7304", "$07304"]
@@ -603,6 +607,20 @@ def extract_cards(text: str) -> list[str]:
     seen: set[str] = set()
     for first, second, third, fourth in re.findall(shaped_pattern, text):
         add_card_candidate(cards, seen, first, second, third, fourth)
+
+    missing_s0_pattern = (
+        r"(?<![A-Z0-9])"
+        r"(" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")"
+        + sep
+        + r"([A-Z0-9]{4})"
+        + sep
+        + r"([A-Z0-9]{4})"
+        + sep
+        + r"([A-Z0-9]{4,5})"
+        + r"(?![A-Z0-9])"
+    )
+    for tail, second, third, fourth in re.findall(missing_s0_pattern, text):
+        add_card_candidate(cards, seen, f"S0{tail}", second, third, fourth)
 
     noisy_shaped_pattern = (
         r"(?<![A-Z])"
