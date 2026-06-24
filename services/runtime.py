@@ -3927,7 +3927,12 @@ async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if content and index == 0:
             parts.extend(["", html.escape(content)])
         parts.extend(["", " ".join(mention_chunk)])
-        await update.message.reply_text("\n".join(parts), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(parts),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
         if index < len(chunks) - 1:
             await asyncio.sleep(1)
 

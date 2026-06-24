@@ -186,7 +186,9 @@ def test_group_notify_all_mentions_current_group_members(monkeypatch):
 
     asyncio.run(bot.notify_all_command(update, context))
 
-    reply = update.message.replies[0][0]
+    assert update.message.replies == []
+    assert context.bot.sent[0][0] == -1001
+    reply = context.bot.sent[0][1]
     assert "📢 通知所有人" in reply
     assert "今晚维护10分钟" in reply
     assert "@user1" in reply
@@ -228,9 +230,10 @@ def test_notify_all_splits_more_than_50_members(monkeypatch):
 
     asyncio.run(bot.notify_all_command(update, context))
 
-    assert len(update.message.replies) == 2
-    assert update.message.replies[0][0].count("@user") == 50
-    assert update.message.replies[1][0].count("@user") == 1
+    assert update.message.replies == []
+    assert len(context.bot.sent) == 2
+    assert context.bot.sent[0][1].count("@user") == 50
+    assert context.bot.sent[1][1].count("@user") == 1
 
 
 def test_notify_members_shows_cached_counts(monkeypatch):
