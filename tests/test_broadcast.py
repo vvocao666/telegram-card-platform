@@ -143,6 +143,16 @@ def test_private_broadcast_returns_group_selection(monkeypatch):
     assert update.message.replies[0][1]["reply_markup"].inline_keyboard
 
 
+def test_broadcast_group_keyboard_uses_checkmark(monkeypatch):
+    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+
+    keyboard = bot.broadcast_group_keyboard({-1001})
+    labels = [row[0].text for row in keyboard.inline_keyboard[:2]]
+
+    assert labels[0].startswith("√ ")
+    assert labels[1].startswith("□ ")
+
+
 def test_group_broadcast_does_not_start(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
     monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())

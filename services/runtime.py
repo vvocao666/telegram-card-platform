@@ -3726,7 +3726,7 @@ def broadcast_group_keyboard(selected: set[int] | None = None) -> InlineKeyboard
     for row in ledger_store.list_active_bot_groups():
         chat_id = int(row["chat_id"])
         title = row["title"] or str(chat_id)
-        prefix = "[x]" if chat_id in selected else "[ ]"
+        prefix = "√" if chat_id in selected else "□"
         rows.append([InlineKeyboardButton(f"{prefix} {title}", callback_data=f"broadcast:toggle:{chat_id}")])
     rows.append(
         [
