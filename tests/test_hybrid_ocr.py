@@ -7,6 +7,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def reset_remote_ocr_status():
+    old_remote_enabled = bot.REMOTE_OCR_ENABLED
+    old_remote_url = bot.REMOTE_OCR_URL
+    bot.REMOTE_OCR_ENABLED = True
+    bot.REMOTE_OCR_URL = "http://100.81.208.104:8000"
     bot.remote_ocr_status.update(
         {
             "last_ok": False,
@@ -28,6 +32,19 @@ def reset_remote_ocr_status():
         }
     )
     yield
+    bot.REMOTE_OCR_ENABLED = old_remote_enabled
+    bot.REMOTE_OCR_URL = old_remote_url
+
+
+def test_remote_ocr_can_be_disabled_for_cloud_deploy(monkeypatch, tmp_path):
+    monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", False)
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+    available, reason = bot.remote_ocr_available()
+
+    assert result is None
+    assert available is False
+    assert reason == "disabled"
 
 
 class FakeResponse:

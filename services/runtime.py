@@ -68,7 +68,7 @@ MULTI_BATCH_WAIT_SECONDS = max(
     2.0,
 )
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "ocrspace").strip().lower()
-REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "1").strip() == "1"
+REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
 REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()

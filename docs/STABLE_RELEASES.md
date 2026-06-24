@@ -1,61 +1,87 @@
-# Stable Releases
+# 稳定版本说明
 
-## Recommended Versions
+## 当前推荐
 
-### Ordinary Cloud Server Deployment
+普通云服务器部署：
 
-Use:
+```text
+v2.8.0-cloud-deploy
+```
+
+我本人 RTX5070 专用：
+
+```text
+owner-hybrid 最新版
+```
+
+旧稳定版：
 
 ```text
 v1.3.0-ocr-learning-plus
 ```
 
-Label: Cloud Stable / 通用云服务器稳定版 / 最后通用稳定版
+`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
 
-This release is the last general cloud-server stable version before local RTX5070 Hybrid OCR was introduced.
+## v2.8.0-cloud-deploy
 
-Included:
+这是当前最新版功能整理出的通用云服务器部署版。
 
-- Telegram card recognition.
-- OCR.space / original OCR flow.
-- Ledger/accounting.
-- Duplicate detection.
-- Output ordering.
-- OCR learning.
-- OCR review and font-related enhancements.
-- Direct deployment to ordinary Ubuntu/Debian cloud servers.
+适合：
 
-Not included:
+- 普通 Ubuntu / Debian 云服务器
+- 只配置 Telegram Bot Token 和 OCR.space Key
+- 不运行本地 Windows GPU
+- 不使用 Tailscale
 
-- RTX5070.
-- Windows OCR Worker.
-- Tailscale.
-- Remote OCR API.
-- Hybrid OCR.
-- Local GPU acceleration.
+包含：
 
-### Owner RTX5070 Deployment
+- Telegram 卡密识别
+- OCR.space / 云端 OCR
+- PUBG/PSN 图片级互斥
+- 任意 `S07XXX-XXXX-XXXX-XXXXX` 识别为 PUBG
+- PUBG 换行拼接
+- 文本消息不重复提取卡密
+- 去重、排序、Validator
+- OCR 学习功能
+- 状态面板
+- 记账、广播、管理员权限
+- 今日统计和缓存逻辑
 
-Use the current `v2.x` release line only for the owner environment.
+默认不依赖：
 
-The `v2.x` releases include owner-specific Hybrid OCR features:
+- RTX5070
+- Windows OCR Worker
+- Tailscale
+- Remote OCR API
+- Hybrid OCR
+- 本地显卡加速
 
-- Windows RTX5070 OCR Worker.
-- Tailscale network routing.
-- `REMOTE_OCR_URL`.
-- Hybrid OCR routing.
-- Local GPU-first OCR.
+## owner-hybrid 版本
 
-These releases are not recommended for ordinary cloud-only deployments.
+owner-hybrid 是我本人生产环境专用版本。
 
-## Why v1.3.0 Is The General Stable Baseline
+适合：
 
-`v1.3.0-ocr-learning-plus` is the final stable version before `v2.0.0-hybrid-ocr` introduced Remote OCR and owner-specific GPU infrastructure.
+- 阿里云机器人
+- Windows RTX5070 OCR Worker
+- Tailscale 打通
+- `REMOTE_OCR_ENABLED=true`
+- `REMOTE_OCR_URL=http://100.81.208.104:8000`
 
-For a normal new deployment, start from:
+普通云服务器不要默认部署 owner-hybrid。
 
-```bash
-git checkout v1.3.0-ocr-learning-plus
-```
+## 历史版本
 
-For the owner production environment, continue using the current `v2.x` release.
+### v1.3.0-ocr-learning-plus
+
+历史通用稳定版，已经归档。
+
+它不包含 RTX5070 / Remote OCR / Hybrid OCR，但也缺少后续修复：
+
+- 新的 PUBG/PSN 分类修复
+- 任意 S07 前缀修复
+- 文本消息忽略修复
+- 状态面板增强
+- 后续 OCR 排序和缓存修复
+
+因此不再作为最新推荐部署版本。

@@ -1,175 +1,165 @@
 # Telegram Card Platform
 
-Current framework version: `telegram-card-platform-modular`
+## 推荐版本
 
-Cloud Stable / 通用云服务器稳定版 / 最后通用稳定版: `v1.3.0-ocr-learning-plus`
+普通云服务器部署：`v2.8.0-cloud-deploy`
 
-Owner Hybrid OCR line: `v2.x-hybrid-ocr` and later releases.
+我本人 RTX5070 专用：`owner-hybrid` 最新版
 
-Telegram Card Platform is a reusable Telegram bot framework for card OCR workflows. The v1.0 release packages the proven `strict-v120-owner-broadcast-no-trx` bot behavior into a modular structure for deployment, maintenance, and future extension.
+旧稳定版：`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
 
-The platform combines OCR, card parsing, audit forwarding, ledger/accounting, owner broadcast, admin checks, storage, CI, backup, rollback, and systemd deployment.
+`v2.8.0-cloud-deploy` 是从当前最新版整理出的通用云服务器稳定部署版。它保留最近修复过的 OCR 规则、PUBG/PSN 分类、S07 前缀、文本忽略、状态面板、学习与缓存能力，但默认关闭本地 Windows RTX5070 OCR Worker、Tailscale、Remote OCR、Hybrid OCR。
 
-## Stable Release Recommendation
+普通 Ubuntu / Debian 云服务器默认只走 OCR.space / 云端 OCR，不需要本地电脑。
 
-For ordinary users, ordinary Ubuntu/Debian cloud servers, or deployments without a local Windows GPU OCR worker, use:
+如果以后需要我本人环境的 Hybrid OCR，可在 `.env` 中开启：
 
-```text
-v1.3.0-ocr-learning-plus
+```env
+REMOTE_OCR_ENABLED=true
+REMOTE_OCR_URL=http://100.81.208.104:8000
 ```
 
-This is the last general cloud-server stable release before the project added owner-specific Hybrid OCR features.
+## 项目介绍
 
-Do not use `v2.x` for a normal cloud-only deployment unless you also run the required owner environment:
+Telegram Card Platform 是一个可复用的 Telegram 卡密机器人框架，包含图片 OCR、PUBG/PSN 卡密解析、去重提醒、OCR 学习、记账、广播、管理员权限、缓存、状态面板、备份、回滚和 systemd 部署。
 
-- Windows RTX5070 OCR Worker
-- Tailscale network access
-- `REMOTE_OCR_URL`
-- Hybrid OCR routing
-- Local GPU-first OCR
+## 当前功能
 
-The `v2.x` releases are kept for the current owner production environment and are not recommended as the default public deployment target.
+- Telegram 图片 / 照片 / 相册卡密识别。
+- OCR.space 云端 OCR 流程。
+- `REMOTE_OCR_ENABLED=false` 默认关闭本地 RTX5070 Hybrid OCR。
+- PUBG / PSN 图片级互斥，防止 PUBG 后半段被截成 PSN。
+- 任意 `S07XXX-XXXX-XXXX-XXXXX` 识别为 PUBG。
+- PUBG 断行拼接和行序重建。
+- PSN 独立 `XXXX-XXXX-XXXX` 识别。
+- 文本消息不自动重复提取卡密，避免刷屏。
+- 输出排序、稳定去重、重复提醒。
+- OCR 学习、字体模板、今日 OCR 缓存。
+- `/状态`、`/status`、`/ocr_status` 状态面板。
+- 记账、查账、清账、暂停/开启记账。
+- Owner 广播、管理员权限、审计转发。
+- systemd 服务、备份脚本、GitHub CI。
 
-## Current Features
-
-- PUBG/PSN card OCR from images.
-- Forwarded image and batch image recognition.
-- OCR.space OCR with local OCR fallback support.
-- OCR correction learning and persistent correction rules.
-- Duplicate card reminders with first-seen source.
-- Optional secondary audit bot forwarding.
-- Ledger/accounting for RMB income and USDT payout.
-- Ledger bill buttons, clear, pause/open, daily cutover, and group owner permissions.
-- OKX USDT/CNY price query.
-- USDT-TRC20 verification image generation.
-- Owner-only group broadcast.
-- Runtime cleanup, rate limiting, systemd service, and backup scripts.
-
-## Documents
-
-- `ARCHITECTURE.md`: current architecture scan and proposed module split.
-- `ROADMAP.md`: phased refactor plan.
-- `DEPLOY.md`: new server deployment guide.
-- `MAINTENANCE.md`: routine maintenance and rollback guide.
-- `ROLLBACK.md`: stable release rollback guide.
-- `docs/STABLE_RELEASES.md`: stable release selection guide.
-- `docs/CURRENT_FEATURES.md`: detailed feature inventory.
-- `docs/REBUILD_GUIDE.md`: rebuild notes.
-- `feature_backups/v120_stable/ROLLBACK.md`: restore guide for the last stable v120 version.
-
-## Directory Structure
+## 目录结构
 
 ```text
-bot.py                  # Application startup and handler registration
-config/                 # Settings, logging, constants
-handlers/               # Telegram Update handlers
-services/               # OCR, ledger, broadcast, forward, price services
-storage/                # Database/session/repositories
-utils/                  # Shared utilities
-tests/                  # Regression tests
-scripts/                # Backup, deploy, restore helpers
-systemd/                # Linux service templates
-docs/                   # Feature and rebuild documentation
-feature_backups/        # Stable rollback and feature backup files
+bot.py                  # 启动入口和 handler 注册
+config/                 # 配置、日志、常量
+handlers/               # Telegram Update handler
+services/               # OCR、记账、广播、转发、价格等服务
+storage/                # 数据库与 repository
+utils/                  # 通用工具
+tests/                  # 自动化测试
+scripts/                # 备份、部署、恢复脚本
+systemd/                # systemd 服务模板
+docs/                   # 项目文档
+feature_backups/        # 历史稳定备份
 ```
 
-## Quick Deploy
+## 快速部署
 
 ```bash
 export APP_DIR=/opt/telegram-card-platform
 sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR"
 cd "$APP_DIR"
-git checkout v1.3.0-ocr-learning-plus
+git checkout v2.8.0-cloud-deploy
+
 sudo apt-get update
 sudo apt-get install -y python3 python3-venv python3-pip git tesseract-ocr
 python3 -m venv .venv
+.venv/bin/python3 -m pip install --upgrade pip
 .venv/bin/python3 -m pip install -r requirements.txt
+
 cp .env.example .env
 nano .env
+```
+
+最少需要配置：
+
+```env
+BOT_TOKEN=
+OWNER_CHAT_ID=
+OCR_SPACE_API_KEY=
+# 或 OCR_SPACE_API_KEYS=
+REMOTE_OCR_ENABLED=false
+```
+
+安装 systemd：
+
+```bash
 sudo mkdir -p /etc/telegram-card-platform
 printf 'APP_DIR=%s\nPYTHON_BIN=.venv/bin/python3\n' "$APP_DIR" | sudo tee /etc/telegram-card-platform/service.env
 sudo cp systemd/telegram-card-platform.service /etc/systemd/system/telegram-card-platform.service
 sudo systemctl daemon-reload
 sudo systemctl enable telegram-card-platform
 sudo systemctl start telegram-card-platform
-sudo systemctl is-active telegram-card-platform
+sudo systemctl status telegram-card-platform --no-pager
 ```
 
-## Backup
+## 更新
 
-Linux:
+```bash
+cd /opt/telegram-card-platform
+git fetch --tags
+git checkout v2.8.0-cloud-deploy
+.venv/bin/python3 -m pip install -r requirements.txt
+.venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
+sudo systemctl restart telegram-card-platform
+```
+
+## 日志查看
+
+```bash
+journalctl -u telegram-card-platform -f
+journalctl -u telegram-card-platform -n 100 --no-pager
+```
+
+## 重启服务
+
+```bash
+sudo systemctl restart telegram-card-platform
+sudo systemctl status telegram-card-platform --no-pager
+```
+
+## 备份
+
+Linux：
 
 ```bash
 bash scripts/backup_data.sh
 ```
 
-Windows PowerShell:
+Windows PowerShell：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
 ```
 
-To include local `.env` in a private backup:
+## 回滚
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1 -IncludeEnv
+普通云服务器推荐回滚到：
+
+```bash
+cd /opt/telegram-card-platform
+sudo systemctl stop telegram-card-platform
+git fetch --tags
+git checkout v2.8.0-cloud-deploy
+.venv/bin/python3 -m pip install -r requirements.txt
+sudo systemctl start telegram-card-platform
 ```
 
-## Restore
-
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/restore.ps1 -BackupDir .\backups\telegram-card-platform-YYYYMMDD-HHMMSS
-```
-
-To restore `.env` from a private backup:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/restore.ps1 -BackupDir .\backups\telegram-card-platform-YYYYMMDD-HHMMSS -IncludeEnv
-```
-
-On Linux, restore `.env` from a secure copy, restore `outputs/` if historical data is needed, then restart the service.
-
-## Rollback
-
-For ordinary cloud-server deployments, roll back to:
+历史归档版本：
 
 ```bash
 git checkout v1.3.0-ocr-learning-plus
 ```
 
-Do not treat v120 as the newest stable baseline. v120 is only the historical pre-modular backup. The current recommended general stable release is `v1.3.0-ocr-learning-plus`.
+`v1.3.0-ocr-learning-plus` 仅作为旧稳定归档，不再是最新推荐通用部署版本。
 
-See `ROLLBACK.md` and `docs/STABLE_RELEASES.md` for details.
+## 文档
 
-## Update
-
-```bash
-cd "$APP_DIR"
-git pull --ff-only
-.venv/bin/python3 -m pip install -r requirements.txt
-.venv/bin/python3 -m py_compile bot.py services/ledger/ledger_commands.py storage/repositories/ledger_storage.py
-sudo systemctl restart telegram-card-platform
-```
-
-## Logs
-
-```bash
-journalctl -u telegram-card-platform -f
-journalctl -u telegram-card-platform --since "1 hour ago"
-```
-
-## Restart Service
-
-```bash
-sudo systemctl restart telegram-card-platform
-sudo systemctl is-active telegram-card-platform
-```
-
-## Local Checks
-
-```bash
-python -m pytest
-python -m py_compile bot.py services/runtime.py services/ledger/ledger_commands.py storage/repositories/ledger_storage.py
-```
+- `DEPLOY.md`：部署指南。
+- `ROLLBACK.md`：回滚说明。
+- `docs/STABLE_RELEASES.md`：稳定版本选择。
+- `docs/RELEASE_POLICY.md`：发布规范。
+- `docs/OCR_CORRECTION.md`：OCR 纠错和学习说明。

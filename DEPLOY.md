@@ -1,162 +1,183 @@
-# Deploy Guide
+# 部署指南
 
-Current framework version: `telegram-card-platform-modular`
+## 推荐部署版本
 
-Cloud Stable / 通用云服务器稳定版 / 最后通用稳定版: `v1.3.0-ocr-learning-plus`
+普通云服务器部署：`v2.8.0-cloud-deploy`
 
-Owner Hybrid OCR line: `v2.x-hybrid-ocr` and later releases.
+我本人 RTX5070 专用：`owner-hybrid` 最新版
 
-## Release Selection
+旧稳定版：`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
 
-Use `v1.3.0-ocr-learning-plus` for ordinary cloud-server deployment:
+## 版本选择
 
-- Ubuntu 22.04, Ubuntu 24.04, or Debian 12.
-- OCR.space / original OCR flow.
-- No local Windows GPU OCR worker.
-- No Tailscale dependency.
-- No `REMOTE_OCR_URL` requirement.
+### 普通云服务器
 
-Do not deploy `v2.x` on a normal cloud-only server unless you intentionally run the owner-specific Hybrid OCR environment:
+请选择：
 
-- Windows RTX5070 OCR Worker.
-- Tailscale connectivity.
-- `REMOTE_OCR_URL`.
-- Hybrid OCR routing.
-- Local GPU-first OCR.
+```text
+v2.8.0-cloud-deploy
+```
 
-## Server Requirements
-
-- Ubuntu 22.04 LTS, Ubuntu 24.04 LTS, or Debian 12.
-- Python 3 with `venv`.
-- Git.
-- Tesseract OCR when local fallback is enabled.
-- Systemd.
-
-Supported release targets:
+适用环境：
 
 - Ubuntu 22.04
 - Ubuntu 24.04
 - Debian 12
+- 普通 2C/1G 或以上云服务器
+- 只使用 OCR.space / 云端 OCR
+- 没有本地 Windows GPU
+- 没有 Tailscale
+- 不依赖 `REMOTE_OCR_URL`
 
-## Install
+默认配置：
 
-Choose an application directory first:
+```env
+REMOTE_OCR_ENABLED=false
+```
+
+### Owner Hybrid OCR
+
+只有我本人当前环境才需要开启：
+
+```env
+REMOTE_OCR_ENABLED=true
+REMOTE_OCR_URL=http://100.81.208.104:8000
+```
+
+该模式依赖：
+
+- Windows RTX5070 OCR Worker
+- Tailscale
+- Remote OCR API
+- 本地显卡优先识别
+
+普通用户不要直接部署 `owner-hybrid` 版本。
+
+## 服务器准备
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3 python3-venv python3-pip git tesseract-ocr
+```
+
+## 拉取代码
 
 ```bash
 export APP_DIR=/opt/telegram-card-platform
 sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR"
 cd "$APP_DIR"
-git checkout v1.3.0-ocr-learning-plus
+git fetch --tags
+git checkout v2.8.0-cloud-deploy
 ```
 
-Install dependencies:
+## 安装依赖
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip git tesseract-ocr
 python3 -m venv .venv
 .venv/bin/python3 -m pip install --upgrade pip
 .venv/bin/python3 -m pip install -r requirements.txt
 ```
 
-## Configure
+## 配置 `.env`
 
 ```bash
 cp .env.example .env
 nano .env
 ```
 
-Required:
+必填：
 
-- `BOT_TOKEN`
-- `OCR_SPACE_API_KEY` or `OCR_SPACE_API_KEYS`
+```env
+BOT_TOKEN=
+OCR_SPACE_API_KEY=
+```
 
-Recommended:
+推荐：
 
-- `OWNER_CHAT_ID`
-- `AUDIT_BOT_TOKEN`
-- `AUDIT_CHAT_ID`
-- `LEDGER_DB_PATH`
-- `PROXY_URL` when the server requires a proxy.
+```env
+OWNER_CHAT_ID=
+OCR_SPACE_API_KEYS=
+LEDGER_DB_PATH=outputs/ledger.sqlite3
+REMOTE_OCR_ENABLED=false
+```
 
-## Systemd
+不要把生产 `.env` 提交到 GitHub。
 
-Create the service environment file:
+## 安装 systemd
 
 ```bash
 sudo mkdir -p /etc/telegram-card-platform
 printf 'APP_DIR=%s\nPYTHON_BIN=.venv/bin/python3\n' "$APP_DIR" | sudo tee /etc/telegram-card-platform/service.env
-```
-
-Install and start the service:
-
-```bash
 sudo cp systemd/telegram-card-platform.service /etc/systemd/system/telegram-card-platform.service
 sudo systemctl daemon-reload
 sudo systemctl enable telegram-card-platform
 sudo systemctl start telegram-card-platform
-sudo systemctl is-active telegram-card-platform
+sudo systemctl status telegram-card-platform --no-pager
 ```
 
-## Logs
+## 验证
+
+```bash
+cd /opt/telegram-card-platform
+.venv/bin/python3 -m pytest
+.venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
+```
+
+机器人内可以发送：
+
+```text
+/状态
+/status
+/ocr_status
+```
+
+普通云部署时状态面板中 Remote OCR 应显示未启用或离线，但 OCR.space 备用仍可用。
+
+## 查看日志
 
 ```bash
 journalctl -u telegram-card-platform -f
-journalctl -u telegram-card-platform --since "1 hour ago"
+journalctl -u telegram-card-platform -n 100 --no-pager
 ```
 
-## Update
+## 更新
 
 ```bash
-cd "$APP_DIR"
-git pull --ff-only
-.venv/bin/python3 -m pip install -r requirements.txt
-.venv/bin/python3 -m py_compile bot.py services/runtime.py services/ledger/ledger_commands.py storage/repositories/ledger_storage.py
-sudo systemctl restart telegram-card-platform
-sudo systemctl is-active telegram-card-platform
-```
-
-## Backup
-
-Linux:
-
-```bash
-bash scripts/backup_data.sh
-```
-
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
-
-## Restore
-
-1. Deploy the code.
-2. Restore `.env` from a secure copy.
-3. Restore `outputs/` or the SQLite database when historical data is needed.
-4. Restart the service.
-
-```bash
-sudo systemctl restart telegram-card-platform
-```
-
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/restore.ps1 -BackupDir .\backups\telegram-card-platform-YYYYMMDD-HHMMSS
-```
-
-## Rollback To Cloud Stable
-
-If you do not use local RTX5070 / Tailscale / Remote OCR, roll back to:
-
-```bash
-cd "$APP_DIR"
+cd /opt/telegram-card-platform
+sudo systemctl stop telegram-card-platform
 git fetch --tags
-git checkout v1.3.0-ocr-learning-plus
+git checkout v2.8.0-cloud-deploy
 .venv/bin/python3 -m pip install -r requirements.txt
-sudo systemctl restart telegram-card-platform
+.venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
+sudo systemctl start telegram-card-platform
 ```
 
-Do not use v120 as the newest stable baseline. v120 remains a historical pre-modular backup only.
+## 备份
+
+部署前建议备份：
+
+```bash
+ts=$(date +%Y%m%d_%H%M%S)
+backup=/root/backups/before_deploy_$ts
+mkdir -p "$backup"
+cp -a /opt/telegram-card-platform "$backup/project"
+cp -a /etc/systemd/system/telegram-card-platform.service "$backup/telegram-card-platform.service"
+```
+
+## 回滚
+
+```bash
+cd /opt/telegram-card-platform
+sudo systemctl stop telegram-card-platform
+git fetch --tags
+git checkout v2.8.0-cloud-deploy
+.venv/bin/python3 -m pip install -r requirements.txt
+sudo systemctl start telegram-card-platform
+```
+
+如果需要回到旧归档版本：
+
+```bash
+git checkout v1.3.0-ocr-learning-plus
+sudo systemctl restart telegram-card-platform
+```
