@@ -3263,6 +3263,111 @@ async def handle_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TY
     return True
 
 
+def broadcast_all_targets() -> list[int]:
+    targets: list[int] = []
+    seen: set[int] = set()
+    for row in ledger_store.list_known_users_for_broadcast():
+        user_id = int(row["user_id"])
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        targets.append(user_id)
+    return targets
+
+
+def extract_broadcast_all_text(text: str, command: str) -> str:
+    stripped = text.strip()
+    if stripped == command:
+        return ""
+    if stripped.startswith(command):
+        return stripped[len(command) :].lstrip(" \t\r\n")
+    return stripped
+
+
+def format_broadcast_preview(text: str, target_count: int) -> str:
+    return (
+        "广播预览\n\n"
+        f"目标用户：{target_count}\n"
+        "内容：\n"
+        f"{text}\n\n"
+        "发送“通知所有人”将发送当前预览内容。\n"
+        "发送 /broadcast_cancel 可取消。"
+    )
+
+
+async def broadcast_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "/broadcast_preview")
+    if not text:
+        text = str(context.user_data.get("broadcast_all_pending_text") or "")
+    if not text:
+        await update.message.reply_text("请在 /broadcast_preview 后面填写要预览的通知内容。")
+        return
+    context.user_data["broadcast_all_pending_text"] = text
+    await update.message.reply_text(
+        format_broadcast_preview(text, len(broadcast_all_targets())),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+async def broadcast_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    context.user_data.pop("broadcast_all_pending_text", None)
+    context.user_data.pop("broadcast_selected", None)
+    context.user_data.pop("broadcast_waiting_text", None)
+    await update.message.reply_text("已取消广播任务。")
+
+
+async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "通知所有人")
+    if not text:
+        text = str(context.user_data.get("broadcast_all_pending_text") or "")
+    if not text:
+        await update.message.reply_text("请发送：通知所有人\\n通知内容，或先使用 /broadcast_preview 预览。")
+        return
+    targets = broadcast_all_targets()
+    if not targets:
+        await update.message.reply_text("没有可广播的用户。")
+        return
+    started_at = time.monotonic()
+    success = 0
+    failed = 0
+    for user_id in targets:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            success += 1
+        except Exception:
+            logger.exception("Broadcast to user %s failed", user_id)
+            failed += 1
+    context.user_data.pop("broadcast_all_pending_text", None)
+    elapsed = time.monotonic() - started_at
+    await update.message.reply_text(
+        "通知所有人完成\n\n"
+        f"成功数量：{success}\n"
+        f"失败数量：{failed}\n"
+        f"耗时：{elapsed:.2f} 秒"
+    )
+
+
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat or not update.effective_user:
         return
@@ -3629,6 +3734,9 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_LEDGER)}$"), handle_ledger_menu))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_ADD_GROUP)}$"), handle_add_group_menu))
     app.add_handler(MessageHandler(filters.Regex(r"^广播$") & filters.ChatType.PRIVATE, start_broadcast))
+    app.add_handler(CommandHandler("broadcast_preview", broadcast_preview_command))
+    app.add_handler(CommandHandler("broadcast_cancel", broadcast_cancel_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.PRIVATE, notify_all_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(

@@ -10,6 +10,10 @@
 
 ## 版本选择
 
+Cloud Deploy 是唯一标准版。新服务器部署完成后，默认应该具备当前所有通用功能，不需要额外补丁、手工添加脚本或额外 `git pull`。
+
+Cloud Deploy 必须包含最新 OCR 修复、PUBG/PSN 互斥、S07 任意前缀、换行拼接、文本忽略、排序、去重、Validator、学习流程、缓存、状态面板、`/remote_ocr_status`、`通知所有人`、`/broadcast_preview`、`/broadcast_cancel` 和所有管理员命令。
+
 ### 普通云服务器
 
 请选择：
@@ -68,6 +72,12 @@ sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR
 cd "$APP_DIR"
 git fetch --tags
 git checkout v2.8.0-cloud-deploy
+```
+
+也可以直接运行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vvocao666/telegram-card-platform/main/install.sh | sudo bash
 ```
 
 ## 安装依赖
@@ -129,6 +139,15 @@ cd /opt/telegram-card-platform
 /状态
 /status
 /ocr_status
+/remote_ocr_status
+```
+
+owner 可以使用广播命令：
+
+```text
+/broadcast_preview
+/broadcast_cancel
+通知所有人
 ```
 
 普通云部署时状态面板中 Remote OCR 应显示未启用或离线，但 OCR.space 备用仍可用。
@@ -150,6 +169,12 @@ git checkout v2.8.0-cloud-deploy
 .venv/bin/python3 -m pip install -r requirements.txt
 .venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
 sudo systemctl start telegram-card-platform
+```
+
+或者：
+
+```bash
+sudo bash deploy.sh
 ```
 
 ## 备份

@@ -3,6 +3,8 @@ from __future__ import annotations
 from services.runtime import (
     is_owner_update,
     auto_learn_cards_text,
+    broadcast_cancel_command,
+    broadcast_preview_command,
     learn_cancel_command,
     learn_cards_command,
     learn_confirm_command,

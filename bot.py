@@ -29,7 +29,13 @@ from handlers.admin_handler import (
     show_version,
     status_panel_command,
 )
-from handlers.broadcast_handler import handle_broadcast_callback, start_broadcast
+from handlers.broadcast_handler import (
+    broadcast_cancel_command,
+    broadcast_preview_command,
+    handle_broadcast_callback,
+    notify_all_command,
+    start_broadcast,
+)
 from handlers.card_ocr_handler import handle_photo
 from handlers.ledger_handler import (
     handle_ledger_callback,
@@ -103,6 +109,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_LEDGER)}$"), handle_ledger_menu))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_ADD_GROUP)}$"), handle_add_group_menu))
     app.add_handler(MessageHandler(filters.Regex(r"^广播$") & filters.ChatType.PRIVATE, start_broadcast))
+    app.add_handler(CommandHandler("broadcast_preview", broadcast_preview_command))
+    app.add_handler(CommandHandler("broadcast_cancel", broadcast_cancel_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.PRIVATE, notify_all_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(

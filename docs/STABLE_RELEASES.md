@@ -22,6 +22,50 @@ v1.3.0-ocr-learning-plus
 
 `v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
 
+## 永久版本定义
+
+### Cloud Deploy
+
+Cloud Deploy 是唯一标准版。它永远代表当前最新、当前功能最完整、普通用户拿到源码即可直接部署的版本。
+
+Cloud Deploy 必须同步所有通用能力：
+
+- PUBG/PSN 识别
+- OCR.space
+- OCR.space fallback
+- OpenCV 增强
+- 缓存
+- 去重
+- 学习流程
+- Validator
+- 状态面板
+- `/remote_ocr_status`
+- `通知所有人`
+- `/broadcast_preview`
+- `/broadcast_cancel`
+- 所有管理员命令
+- 所有 OCR 修复
+- 所有 bug 修复
+- 所有文本识别优化
+- 所有排序优化
+- 所有换行拼接优化
+- 所有 S07 识别优化
+
+Cloud Deploy 不允许出现“功能只在最新版 main 有”或“部署后需要手工补丁”的情况。
+
+### owner-hybrid
+
+owner-hybrid 是作者私人版本。
+
+owner-hybrid = Cloud Deploy * RTX5070 本地混合识别。
+
+只有以下能力可以只属于 owner-hybrid：
+
+- Windows RTX5070 OCR Worker
+- `REMOTE_OCR_URL`
+- Tailscale
+- 本地 GPU 混合识别
+
 ## v2.8.0-cloud-deploy
 
 这是当前最新版功能整理出的通用云服务器部署版。
@@ -44,6 +88,10 @@ v1.3.0-ocr-learning-plus
 - 去重、排序、Validator
 - OCR 学习功能
 - 状态面板
+- `/remote_ocr_status`
+- `通知所有人`
+- `/broadcast_preview`
+- `/broadcast_cancel`
 - 记账、广播、管理员权限
 - 今日统计和缓存逻辑
 
@@ -69,6 +117,16 @@ owner-hybrid 是我本人生产环境专用版本。
 - `REMOTE_OCR_URL=http://100.81.208.104:8000`
 
 普通云服务器不要默认部署 owner-hybrid。
+
+## GitHub Release 保留列表
+
+- `v2.8.0-cloud-deploy`
+- `v2.1-final-hybrid-ocr`
+- `v1.3.0-ocr-learning-plus`
+
+## GitHub Release 归档列表
+
+除保留列表外，其余旧 Release 统一视为归档版本，命名记录为 `archive-*`。归档版本只用于历史追溯，不作为部署推荐。
 
 ## 历史版本
 

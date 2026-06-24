@@ -26,6 +26,11 @@ v2.8.0-cloud-deploy
 - 去重、排序、Validator
 - OCR 学习、今日缓存、状态面板
 - 记账、广播、管理员权限
+- `通知所有人`、`/broadcast_preview`、`/broadcast_cancel`
+
+## 永久规则
+
+以后不要再维护多个“稳定版”。Cloud Deploy 是唯一标准版，代表当前最新功能完整版本。owner-hybrid 只是在 Cloud Deploy 基础上额外开启 RTX5070 本地混合识别。
 
 ## 回滚到通用云服务器版
 

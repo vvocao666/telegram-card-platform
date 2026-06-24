@@ -4,9 +4,42 @@
 
 减少无意义 Release，避免每个小 bug 都生成正式版本。`main` 保持可用，Release 只用于明确可部署的稳定节点。
 
+以后不要再出现多个稳定版。Cloud Deploy 是唯一标准版，owner-hybrid 是作者私人版本。
+
+## 永久版本定义
+
+### Cloud Deploy
+
+当前版本：`v2.8.0-cloud-deploy`
+
+Cloud Deploy 永远代表当前最新、功能最完整、普通用户拿到源码即可直接部署的版本。
+
+所有通用功能和 bug 修复默认第一时间同步进入 Cloud Deploy，包括：
+
+- OCR 修复
+- 管理员命令
+- 通知所有人
+- 状态面板
+- 文本优化
+- 排序优化
+- 换行拼接优化
+- S07 识别优化
+- 文档更新
+
+### owner-hybrid
+
+owner-hybrid = Cloud Deploy * RTX5070 本地混合识别。
+
+只有以下能力允许只存在于 owner-hybrid：
+
+- Windows RTX5070 OCR Worker
+- `REMOTE_OCR_URL`
+- Tailscale
+- 本地 GPU 混合识别
+
 ## 什么时候不创建 Release
 
-小 bug 修复只提交到 `main`，不创建 Release。
+小 bug、OCR 修复、管理员命令、通知所有人、状态面板、文本优化、README 更新、文档修改，只提交到 `main`，不创建 Release。
 
 例如：
 
@@ -20,11 +53,11 @@
 
 只有以下情况才创建 Release：
 
-- 大功能完成
-- 稳定版确认
-- 可部署版本更新
-- 重要 bug 批量修复完成
-- 需要给服务器或其他人明确部署的版本
+- OCR 引擎替换
+- 数据库结构变化
+- 部署方式变化
+- 重大重构
+- 版本路线调整
 
 ## 命名规则
 

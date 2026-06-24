@@ -12,6 +12,12 @@
 
 普通 Ubuntu / Debian 云服务器默认只走 OCR.space / 云端 OCR，不需要本地电脑。
 
+## 永久版本规则
+
+Cloud Deploy 是唯一标准版，永远代表当前最新、功能最完整、普通用户拿到源码即可直接部署的版本。以后新增任何通用功能、OCR 修复、管理员命令、通知能力、文本优化、排序优化、换行拼接优化、S07 识别优化和 bug 修复，默认必须进入 Cloud Deploy。
+
+owner-hybrid 是作者私人版本，等于 Cloud Deploy 乘以 RTX5070 本地混合识别。唯一允许只存在于 owner-hybrid 的能力是 Windows RTX5070 OCR Worker、`REMOTE_OCR_URL`、Tailscale、本地 GPU 混合识别。
+
 如果以后需要我本人环境的 Hybrid OCR，可在 `.env` 中开启：
 
 ```env
@@ -36,6 +42,10 @@ Telegram Card Platform 是一个可复用的 Telegram 卡密机器人框架，�
 - 输出排序、稳定去重、重复提醒。
 - OCR 学习、字体模板、今日 OCR 缓存。
 - `/状态`、`/status`、`/ocr_status` 状态面板。
+- `/remote_ocr_status` 远程 OCR 状态，Cloud Deploy 默认显示远程未启用。
+- `通知所有人` owner-only 用户广播，支持文本、emoji、HTML、换行。
+- `/broadcast_preview` 广播预览。
+- `/broadcast_cancel` 取消广播任务。
 - 记账、查账、清账、暂停/开启记账。
 - Owner 广播、管理员权限、审计转发。
 - systemd 服务、备份脚本、GitHub CI。
@@ -57,6 +67,14 @@ feature_backups/        # 历史稳定备份
 ```
 
 ## 快速部署
+
+一键安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vvocao666/telegram-card-platform/main/install.sh | sudo bash
+```
+
+手动部署：
 
 ```bash
 export APP_DIR=/opt/telegram-card-platform
@@ -105,6 +123,12 @@ git checkout v2.8.0-cloud-deploy
 .venv/bin/python3 -m pip install -r requirements.txt
 .venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
 sudo systemctl restart telegram-card-platform
+```
+
+也可以使用：
+
+```bash
+sudo bash deploy.sh
 ```
 
 ## 日志查看

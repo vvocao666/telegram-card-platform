@@ -364,6 +364,19 @@ class LedgerStore:
             (chat_id, username),
         ).fetchone()
 
+    def list_known_users_for_broadcast(self) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                """
+                SELECT user_id, username, display_name, MAX(updated_at) AS updated_at
+                FROM known_users
+                WHERE user_id != 0
+                GROUP BY user_id
+                ORDER BY updated_at DESC
+                """
+            )
+        )
+
     def is_operator(self, chat_id: int, user_id: int, owner_ids: Iterable[int]) -> bool:
         if user_id in set(owner_ids):
             return True
