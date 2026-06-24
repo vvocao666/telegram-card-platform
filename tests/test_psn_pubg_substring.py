@@ -9,6 +9,7 @@ PUBG_PREFIXES = [
     "S07303",
     "S07240",
     "S07292",
+    "S07298",
     "S07213",
     "S07291",
     "S07205",
@@ -84,6 +85,30 @@ def test_s07234_four_char_tail_is_pubg_trace_only():
     assert bot.extract_cards(text) == []
     assert bot.extract_psn_cards(text) == []
     assert bot.extract_psn_ordered(text) == []
+
+
+def test_any_s07_prefix_with_five_char_tail_is_pubg():
+    text = "S07999-ABCD-EFGH-IJKLM"
+
+    assert bot.is_pubg_image_text(text) is True
+    assert bot.extract_cards(text) == [text]
+    assert bot.extract_psn_cards(text) == []
+    assert bot.extract_psn_ordered(text, force=True) == []
+
+
+def test_any_s07_prefix_tail_fragment_is_not_psn():
+    text = "7999-ABCD-EFGH"
+
+    assert bot.is_pubg_image_text(text) is True
+    assert bot.extract_psn_cards(text, force=True) == []
+    assert bot.extract_psn_ordered(text, force=True) == []
+
+
+def test_any_missing_s0_pubg_prefix_is_repaired_when_complete():
+    text = "7999-ABCD-EFGH-IJKLM"
+
+    assert bot.extract_cards(text) == ["S07999-ABCD-EFGH-IJKLM"]
+    assert bot.extract_psn_ordered(text, force=True) == []
 
 
 def test_pubg_prefix_trace_without_complete_card_blocks_psn():
@@ -370,6 +395,12 @@ def test_s07_pubg_requires_five_char_tail():
     assert bot.extract_cards(incomplete) == []
     assert bot.extract_psn_ordered(incomplete, force=True) == []
     assert bot.extract_cards(complete) == [complete]
+
+
+def test_s07298_prefix_is_valid_pubg():
+    assert bot.extract_cards("S07298-SF9Y-BEYJ-PXYHZ") == ["S07298-SF9Y-BEYJ-PXYHZ"]
+    assert bot.extract_cards("S07298-YH8G-HJT3-KQ2L3") == ["S07298-YH8G-HJT3-KQ2L3"]
+    assert bot.extract_psn_ordered("S07298-SF9Y-BEYJ-PXYHZ", force=True) == []
 
 
 def test_remote_worker_pubg_tail_fragment_does_not_output_psn(monkeypatch, tmp_path):

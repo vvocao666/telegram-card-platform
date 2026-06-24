@@ -382,6 +382,7 @@ PUBG_PREFIXES = {
     "S07303",
     "S07240",
     "S07292",
+    "S07298",
     "S07213",
     "S07291",
     "S07205",
@@ -389,9 +390,8 @@ PUBG_PREFIXES = {
     "S07228",
     "S07286",
 }
-PUBG_PREFIX_RE = re.compile(r"(?:" + "|".join(sorted(PUBG_PREFIXES)) + r")")
-PUBG_PREFIX_TAILS = {prefix[2:] for prefix in PUBG_PREFIXES}
-PUBG_PREFIX_TAIL_RE = re.compile(r"(?:" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")")
+PUBG_PREFIX_RE = re.compile(r"S07[A-Z0-9]{3}")
+PUBG_PREFIX_TAIL_RE = re.compile(r"7[A-Z0-9]{3}")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
@@ -487,7 +487,6 @@ def repair_first_group(group: str) -> str:
 def valid_card(card: str) -> bool:
     return bool(
         re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card)
-        and card[:6] in PUBG_PREFIXES
     )
 
 
@@ -549,9 +548,9 @@ def text_without_s07_lines(text: str) -> str:
 def is_pubg_image_text(text: str) -> bool:
     normalized = normalize_text(text)
     compact = re.sub(r"[^A-Z0-9$]", "", normalized)
-    if any(prefix in normalized or f"{prefix}-" in normalized for prefix in PUBG_PREFIXES):
+    if PUBG_PREFIX_RE.search(normalized):
         return True
-    if re.search(r"(?<![A-Z0-9])(?:" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}", normalized):
+    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}", normalized):
         return True
     if "S07" in normalized:
         return True
@@ -610,7 +609,7 @@ def extract_cards(text: str) -> list[str]:
 
     missing_s0_pattern = (
         r"(?<![A-Z0-9])"
-        r"(" + "|".join(sorted(PUBG_PREFIX_TAILS)) + r")"
+        r"(7[A-Z0-9]{3})"
         + sep
         + r"([A-Z0-9]{4})"
         + sep
