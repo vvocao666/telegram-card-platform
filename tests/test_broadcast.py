@@ -1,8 +1,124 @@
 from pathlib import Path
 
 import asyncio
+
 import bot
+import pytest
 from services.broadcast import broadcast_service
+
+
+@pytest.fixture(autouse=True)
+def clear_notify_cooldowns():
+    bot.notify_all_cooldowns.clear()
+    yield
+    bot.notify_all_cooldowns.clear()
+
+
+class FakeRow(dict):
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key)
+
+
+class FakeLedgerStore:
+    def __init__(self):
+        self.groups = [
+            FakeRow(chat_id=-1001, title="群A", chat_type="supergroup", updated_at="2026-06-24"),
+            FakeRow(chat_id=-1002, title="群B", chat_type="supergroup", updated_at="2026-06-24"),
+        ]
+        self.members_by_chat = {
+            -1001: [
+                FakeRow(user_id=1, username="user1", display_name="User One", is_bot=0, updated_at="2026-06-24"),
+                FakeRow(user_id=2, username="", display_name="No Username", is_bot=0, updated_at="2026-06-24"),
+            ],
+            -1002: [
+                FakeRow(user_id=3, username="other_group", display_name="Other", is_bot=0, updated_at="2026-06-24"),
+            ],
+        }
+        self.operator_ids = {123}
+
+    def list_active_bot_groups(self):
+        return self.groups
+
+    def remember_bot_chat(self, *args, **kwargs):
+        return None
+
+    def remember_user(self, *args, **kwargs):
+        return None
+
+    def is_operator(self, chat_id, user_id, owner_ids):
+        return user_id in owner_ids or user_id in self.operator_ids
+
+    def list_active_known_members(self, chat_id, days=30):
+        return list(self.members_by_chat.get(chat_id, []))
+
+    def count_active_known_members(self, chat_id, days=None):
+        return len(self.members_by_chat.get(chat_id, []))
+
+    def get_chat_owner_id(self, chat_id):
+        return None
+
+
+class LargeMemberStore(FakeLedgerStore):
+    def __init__(self, total):
+        super().__init__()
+        self.members_by_chat[-1001] = [
+            FakeRow(user_id=1000 + index, username=f"user{index}", display_name=f"User {index}", is_bot=0, updated_at="2026-06-24")
+            for index in range(total)
+        ]
+
+
+class FakeMessage:
+    def __init__(self, text, chat_id=123, chat_type="private"):
+        self.text = text
+        self.chat_id = chat_id
+        self.replies = []
+
+    async def reply_text(self, text, **kwargs):
+        self.replies.append((text, kwargs))
+
+
+class FakeCallbackQuery:
+    def __init__(self, data, user_id=123):
+        self.data = data
+        self.from_user = type("User", (), {"id": user_id})()
+        self.edits = []
+        self.markups = []
+
+    async def answer(self):
+        return None
+
+    async def edit_message_text(self, text, **kwargs):
+        self.edits.append((text, kwargs))
+
+    async def edit_message_reply_markup(self, **kwargs):
+        self.markups.append(kwargs)
+
+
+class FakeBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kwargs):
+        self.sent.append((chat_id, text, kwargs))
+
+
+class FakeContext:
+    def __init__(self):
+        self.bot = FakeBot()
+        self.user_data = {}
+
+
+def fake_update(text, user_id=123, chat_id=123, chat_type="private"):
+    user = type("User", (), {"id": user_id, "username": "owner", "first_name": "Owner", "last_name": "", "is_bot": False})()
+    chat = type("Chat", (), {"id": chat_id, "type": chat_type, "title": "Test Group"})()
+    message = FakeMessage(text, chat_id=chat_id, chat_type=chat_type)
+    return type("Update", (), {"message": message, "effective_user": user, "effective_chat": chat})()
+
+
+def fake_callback_update(data, user_id=123):
+    user = type("User", (), {"id": user_id})()
+    query = FakeCallbackQuery(data, user_id=user_id)
+    return type("Update", (), {"callback_query": query, "effective_user": user, "effective_chat": None})()
 
 
 def test_broadcast_service_exports_flow_functions():
@@ -15,121 +131,125 @@ def test_broadcast_service_exports_flow_functions():
     assert broadcast_service.handle_broadcast_text is bot.handle_broadcast_text
 
 
-def test_broadcast_targets_are_sorted_like_current_service():
-    assert bot.BroadcastService.normalize_targets({3, 1, 2}) == [1, 2, 3] if hasattr(bot, "BroadcastService") else [1, 2, 3]
-
-
-class FakeRow(dict):
-    def __getitem__(self, key):
-        return dict.__getitem__(self, key)
-
-
-class FakeLedgerStore:
-    def list_known_users_for_broadcast(self):
-        return [
-            FakeRow(user_id=1001, username="a", display_name="A"),
-            FakeRow(user_id=1002, username="b", display_name="B"),
-            FakeRow(user_id=1001, username="a2", display_name="A2"),
-        ]
-
-
-class FakeMessage:
-    def __init__(self, text):
-        self.text = text
-        self.replies = []
-
-    async def reply_text(self, text, **kwargs):
-        self.replies.append((text, kwargs))
-
-
-class FakeBot:
-    def __init__(self, fail_chat_id=None):
-        self.fail_chat_id = fail_chat_id
-        self.sent = []
-
-    async def send_message(self, chat_id, text, **kwargs):
-        if chat_id == self.fail_chat_id:
-            raise RuntimeError("send failed")
-        self.sent.append((chat_id, text, kwargs))
-
-
-class FakeContext:
-    def __init__(self, bot_instance=None):
-        self.bot = bot_instance or FakeBot()
-        self.user_data = {}
-
-
-def fake_update(text, user_id=123, chat_id=123):
-    user = type("User", (), {"id": user_id})()
-    chat = type("Chat", (), {"id": chat_id, "type": "private"})()
-    message = FakeMessage(text)
-    return type("Update", (), {"message": message, "effective_user": user, "effective_chat": chat})()
-
-
-def test_broadcast_all_targets_dedupes_known_users(monkeypatch):
-    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
-
-    assert bot.broadcast_all_targets() == [1001, 1002]
-
-
-def test_broadcast_preview_stores_pending_text(monkeypatch):
+def test_private_broadcast_returns_group_selection(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
     monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
-    update = fake_update("/broadcast_preview\n<b>维护通知</b>\n今晚更新 ✅")
+    update = fake_update("/broadcast")
     context = FakeContext()
 
-    asyncio.run(bot.broadcast_preview_command(update, context))
+    asyncio.run(bot.start_broadcast(update, context))
 
-    assert context.user_data["broadcast_all_pending_text"] == "<b>维护通知</b>\n今晚更新 ✅"
-    assert "广播预览" in update.message.replies[0][0]
-    assert "目标用户：2" in update.message.replies[0][0]
+    assert "请选择要广播的群" in update.message.replies[0][0]
+    assert update.message.replies[0][1]["reply_markup"].inline_keyboard
 
 
-def test_broadcast_cancel_clears_pending_text(monkeypatch):
+def test_group_broadcast_does_not_start(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
-    update = fake_update("/broadcast_cancel")
+    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+    update = fake_update("/broadcast", chat_id=-1001, chat_type="supergroup")
     context = FakeContext()
-    context.user_data["broadcast_all_pending_text"] = "hello"
-    context.user_data["broadcast_selected"] = {1}
-    context.user_data["broadcast_waiting_text"] = True
 
-    asyncio.run(bot.broadcast_cancel_command(update, context))
+    asyncio.run(bot.start_broadcast(update, context))
 
+    assert update.message.replies == []
     assert context.user_data == {}
-    assert update.message.replies[0][0] == "已取消广播任务。"
 
 
-def test_notify_all_sends_html_to_known_users_and_reports(monkeypatch):
+def test_broadcast_text_previews_then_confirm_sends_to_selected_groups(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
     monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
-    context = FakeContext(FakeBot(fail_chat_id=1002))
-    update = fake_update("通知所有人\n<b>通知</b>\n今晚更新 ✅")
+    context = FakeContext()
+    context.user_data["broadcast_selected"] = {-1001, -1002}
+    context.user_data["broadcast_waiting_text"] = True
+    update = fake_update("今晚维护10分钟 ✅")
+
+    handled = asyncio.run(bot.handle_broadcast_text(update, context))
+
+    assert handled is True
+    assert "广播目标" in update.message.replies[0][0]
+    assert "群A" in update.message.replies[0][0]
+    assert "确认发送" in update.message.replies[0][1]["reply_markup"].inline_keyboard[0][0].text
+
+    callback_update = fake_callback_update("broadcast:confirm")
+    asyncio.run(bot.handle_broadcast_callback(callback_update, context))
+
+    assert context.bot.sent == [(-1002, "今晚维护10分钟 ✅", {}), (-1001, "今晚维护10分钟 ✅", {})]
+    assert "广播完成" in callback_update.callback_query.edits[0][0]
+
+
+def test_group_notify_all_mentions_current_group_members(monkeypatch):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
+    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+    monkeypatch.setattr(bot.asyncio, "sleep", lambda delay: asyncio.sleep(0))
+    update = fake_update("通知所有人 今晚维护10分钟", chat_id=-1001, chat_type="supergroup")
+    context = FakeContext()
 
     asyncio.run(bot.notify_all_command(update, context))
 
-    assert context.bot.sent[0][0] == 1001
-    assert context.bot.sent[0][1] == "<b>通知</b>\n今晚更新 ✅"
-    assert context.bot.sent[0][2]["parse_mode"] == bot.ParseMode.HTML
-    report = update.message.replies[0][0]
-    assert "成功数量：1" in report
-    assert "失败数量：1" in report
-    assert "耗时：" in report
+    reply = update.message.replies[0][0]
+    assert "📢 通知所有人" in reply
+    assert "今晚维护10分钟" in reply
+    assert "@user1" in reply
+    assert 'tg://user?id=2' in reply
+    assert "other_group" not in reply
 
 
-def test_notify_all_rejects_non_owner(monkeypatch):
+def test_private_notify_all_does_not_trigger(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
-    update = fake_update("通知所有人\nhello", user_id=456)
+    update = fake_update("通知所有人 今晚维护")
+    context = FakeContext()
+
+    asyncio.run(bot.notify_all_command(update, context))
+
+    assert update.message.replies == []
+
+
+def test_notify_all_rejects_normal_user(monkeypatch):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
+    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+    update = fake_update("通知所有人", user_id=456, chat_id=-1001, chat_type="supergroup")
     context = FakeContext()
 
     asyncio.run(bot.notify_all_command(update, context))
 
     assert update.message.replies[0][0] == "无权限。"
-    assert context.bot.sent == []
 
 
-def test_broadcast_commands_are_registered():
+def test_notify_all_splits_more_than_50_members(monkeypatch):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
+    monkeypatch.setattr(bot, "ledger_store", LargeMemberStore(51))
+
+    async def no_sleep(delay):
+        return None
+
+    monkeypatch.setattr(bot.asyncio, "sleep", no_sleep)
+    update = fake_update("通知所有人", chat_id=-1001, chat_type="supergroup")
+    context = FakeContext()
+
+    asyncio.run(bot.notify_all_command(update, context))
+
+    assert len(update.message.replies) == 2
+    assert update.message.replies[0][0].count("@user") == 50
+    assert update.message.replies[1][0].count("@user") == 1
+
+
+def test_notify_members_shows_cached_counts(monkeypatch):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
+    monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+    update = fake_update("/notify_members", chat_id=-1001, chat_type="supergroup")
+    context = FakeContext()
+
+    asyncio.run(bot.notify_members_command(update, context))
+
+    text = update.message.replies[0][0]
+    assert "缓存人数：2" in text
+    assert "最近7天活跃：2" in text
+    assert "最近30天活跃：2" in text
+
+
+def test_broadcast_and_notify_commands_are_registered():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
-    assert 'CommandHandler("broadcast_preview", broadcast_preview_command)' in bot_py
-    assert 'CommandHandler("broadcast_cancel", broadcast_cancel_command)' in bot_py
-    assert "notify_all_command" in bot_py
+    assert 'CommandHandler("broadcast", start_broadcast)' in bot_py
+    assert 'CommandHandler(["notify_all", "at_all"], notify_all_command)' in bot_py
+    assert 'CommandHandler("notify_members", notify_members_command)' in bot_py

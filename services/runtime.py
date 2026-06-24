@@ -3015,6 +3015,7 @@ def remember_ledger_user(update: Update) -> None:
         actor.user_id,
         actor.username,
         actor.display_name,
+        bool(getattr(update.effective_user, "is_bot", False)),
     )
 
 
@@ -3698,6 +3699,259 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_tasks[chat_id] = asyncio.create_task(flush_chat_batch(chat_id, context, wait_seconds))
 
 
+notify_all_cooldowns: dict[int, float] = {}
+
+
+def is_group_update(update: Update | None) -> bool:
+    if not update or not update.effective_chat:
+        return False
+    return getattr(update.effective_chat, "type", "") in {"group", "supergroup"}
+
+
+def can_use_group_notify(update: Update | None) -> bool:
+    if not update or not update.effective_chat or not update.effective_user:
+        return False
+    if is_owner_update(update):
+        return True
+    return ledger_store.is_operator(
+        update.effective_chat.id,
+        update.effective_user.id,
+        ledger_owner_ids(update.effective_chat.id),
+    )
+
+
+def broadcast_group_keyboard(selected: set[int] | None = None) -> InlineKeyboardMarkup:
+    selected = selected or set()
+    rows: list[list[InlineKeyboardButton]] = []
+    for row in ledger_store.list_active_bot_groups():
+        chat_id = int(row["chat_id"])
+        title = row["title"] or str(chat_id)
+        prefix = "[x]" if chat_id in selected else "[ ]"
+        rows.append([InlineKeyboardButton(f"{prefix} {title}", callback_data=f"broadcast:toggle:{chat_id}")])
+    rows.append(
+        [
+            InlineKeyboardButton("下一步", callback_data="broadcast:next"),
+            InlineKeyboardButton("取消", callback_data="broadcast:cancel"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    groups = ledger_store.list_active_bot_groups()
+    if not groups:
+        await update.message.reply_text("还没有记录到可广播的群。请先让机器人加入群，并让群里产生一条消息。")
+        return
+    context.user_data["broadcast_selected"] = set()
+    context.user_data["broadcast_waiting_text"] = False
+    context.user_data.pop("broadcast_pending_text", None)
+    await update.message.reply_text("请选择要广播的群：", reply_markup=broadcast_group_keyboard(set()))
+
+
+async def broadcast_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set) or not selected:
+        await update.message.reply_text("请先使用 /broadcast 或“广播”选择要广播的群。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "/broadcast_preview")
+    if text:
+        context.user_data["broadcast_pending_text"] = text
+    text = str(context.user_data.get("broadcast_pending_text") or "")
+    if not text:
+        await update.message.reply_text("当前没有可预览的广播内容。")
+        return
+    titles = "\n".join(f"- {html.escape(title)}" for title in selected_broadcast_titles(selected))
+    await update.message.reply_text(
+        f"广播目标：\n{titles}\n\n广播内容：\n{html.escape(text)}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def broadcast_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    context.user_data.pop("broadcast_selected", None)
+    context.user_data.pop("broadcast_waiting_text", None)
+    context.user_data.pop("broadcast_pending_text", None)
+    await update.message.reply_text("已取消广播。")
+
+
+def selected_broadcast_titles(selected: set[int]) -> list[str]:
+    groups = {int(row["chat_id"]): (row["title"] or str(row["chat_id"])) for row in ledger_store.list_active_bot_groups()}
+    return [groups.get(chat_id, str(chat_id)) for chat_id in sorted(selected)]
+
+
+async def handle_broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    if not is_owner_update(update):
+        await query.edit_message_text("无权限。")
+        return
+    data = query.data or ""
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set):
+        selected = set()
+    if data == "broadcast:cancel":
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await query.edit_message_text("已取消广播。")
+        return
+    if data == "broadcast:next":
+        if not selected:
+            await query.edit_message_text("请至少选择一个群。", reply_markup=broadcast_group_keyboard(selected))
+            return
+        context.user_data["broadcast_selected"] = selected
+        context.user_data["broadcast_waiting_text"] = True
+        await query.edit_message_text("请输入要广播的内容。")
+        return
+    if data == "broadcast:confirm":
+        text = str(context.user_data.get("broadcast_pending_text") or "")
+        if not selected or not text:
+            await query.edit_message_text("广播任务已失效，请重新发送 /broadcast。")
+            return
+        started_at = time.monotonic()
+        success = 0
+        failed = 0
+        for chat_id in sorted(selected):
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=text)
+                success += 1
+            except Exception:
+                logger.exception("Broadcast to chat %s failed", chat_id)
+                failed += 1
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await query.edit_message_text(f"广播完成\n成功：{success}\n失败：{failed}\n耗时：{time.monotonic() - started_at:.2f}秒")
+        return
+    match = re.fullmatch(r"broadcast:toggle:(-?\d+)", data)
+    if match:
+        chat_id = int(match.group(1))
+        if chat_id in selected:
+            selected.remove(chat_id)
+        else:
+            selected.add(chat_id)
+        context.user_data["broadcast_selected"] = selected
+        await query.edit_message_reply_markup(reply_markup=broadcast_group_keyboard(selected))
+
+
+async def handle_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not update.message or not update_is_private_chat(update) or not is_owner_update(update):
+        return False
+    if not context.user_data.get("broadcast_waiting_text"):
+        return False
+    text = update.message.text or ""
+    if text.strip() in {"取消", "取消广播", "/broadcast_cancel"}:
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await update.message.reply_text("已取消广播。")
+        return True
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set) or not selected:
+        context.user_data.pop("broadcast_waiting_text", None)
+        await update.message.reply_text("没有选择群，请重新发送 /broadcast。")
+        return True
+    context.user_data["broadcast_pending_text"] = text
+    titles = "\n".join(f"- {html.escape(title)}" for title in selected_broadcast_titles(selected))
+    preview = f"广播目标：\n{titles}\n\n广播内容：\n{html.escape(text)}"
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("确认发送", callback_data="broadcast:confirm"), InlineKeyboardButton("取消", callback_data="broadcast:cancel")]]
+    )
+    await update.message.reply_text(preview, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    return True
+
+
+def extract_notify_all_text(text: str) -> str:
+    stripped = text.strip()
+    for command in ("通知所有人", "/notify_all", "/at_all"):
+        if stripped == command:
+            return ""
+        if stripped.startswith(command):
+            return stripped[len(command) :].strip()
+    return ""
+
+
+def html_mention_for_member(row) -> str:
+    username = (row["username"] or "").strip()
+    if username:
+        return "@" + html.escape(username.lstrip("@"))
+    display_name = html.escape((row["display_name"] or "").strip() or str(row["user_id"]))
+    return f'<a href="tg://user?id={int(row["user_id"])}">{display_name}</a>'
+
+
+def chunked(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_group_update(update):
+        return
+    remember_bot_chat(update)
+    remember_ledger_user(update)
+    if not can_use_group_notify(update):
+        await update.message.reply_text("无权限。")
+        return
+    chat_id = update.effective_chat.id
+    now = time.monotonic()
+    last_sent_at = notify_all_cooldowns.get(chat_id, 0)
+    if now - last_sent_at < 300:
+        await update.message.reply_text(f"通知所有人冷却中，请 {int(300 - (now - last_sent_at))} 秒后再试。")
+        return
+    members = ledger_store.list_active_known_members(chat_id, days=30)
+    mentions = [html_mention_for_member(row) for row in members]
+    if not mentions:
+        await update.message.reply_text("当前群没有最近30天活跃成员缓存。")
+        return
+    content = extract_notify_all_text(update.message.text or "")
+    notify_all_cooldowns[chat_id] = now
+    chunks = chunked(mentions, 50)
+    for index, mention_chunk in enumerate(chunks):
+        parts = ["📢 通知所有人"]
+        if content and index == 0:
+            parts.extend(["", html.escape(content)])
+        parts.extend(["", " ".join(mention_chunk)])
+        await update.message.reply_text("\n".join(parts), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        if index < len(chunks) - 1:
+            await asyncio.sleep(1)
+
+
+async def notify_members_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_group_update(update):
+        return
+    remember_bot_chat(update)
+    remember_ledger_user(update)
+    if not can_use_group_notify(update):
+        await update.message.reply_text("无权限。")
+        return
+    chat_id = update.effective_chat.id
+    total = ledger_store.count_active_known_members(chat_id)
+    recent_7 = ledger_store.count_active_known_members(chat_id, days=7)
+    recent_30 = ledger_store.count_active_known_members(chat_id, days=30)
+    await update.message.reply_text(
+        "当前群成员缓存\n"
+        f"缓存人数：{total}\n"
+        f"最近7天活跃：{recent_7}\n"
+        f"最近30天活跃：{recent_30}"
+    )
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("Please set BOT_TOKEN in .env first")
@@ -3733,10 +3987,13 @@ def main() -> None:
     )
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_LEDGER)}$"), handle_ledger_menu))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_ADD_GROUP)}$"), handle_add_group_menu))
+    app.add_handler(CommandHandler("broadcast", start_broadcast))
     app.add_handler(MessageHandler(filters.Regex(r"^广播$") & filters.ChatType.PRIVATE, start_broadcast))
     app.add_handler(CommandHandler("broadcast_preview", broadcast_preview_command))
     app.add_handler(CommandHandler("broadcast_cancel", broadcast_cancel_command))
-    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.PRIVATE, notify_all_command))
+    app.add_handler(CommandHandler(["notify_all", "at_all"], notify_all_command))
+    app.add_handler(CommandHandler("notify_members", notify_members_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.GROUPS, notify_all_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(

@@ -18,7 +18,8 @@ Cloud Deploy 永远代表当前最新、功能最完整、普通用户拿到源�
 
 - OCR 修复
 - 管理员命令
-- 通知所有人
+- Broadcast 群组广播
+- Notify All 当前群通知所有人
 - 状态面板
 - 文本优化
 - 排序优化
@@ -39,7 +40,7 @@ owner-hybrid = Cloud Deploy * RTX5070 本地混合识别。
 
 ## 什么时候不创建 Release
 
-小 bug、OCR 修复、管理员命令、通知所有人、状态面板、文本优化、README 更新、文档修改，只提交到 `main`，不创建 Release。
+小 bug、OCR 修复、管理员命令、Broadcast、Notify All、状态面板、文本优化、README 更新、文档修改，只提交到 `main`，不创建 Release。
 
 例如：
 

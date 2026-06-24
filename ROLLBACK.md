@@ -26,7 +26,7 @@ v2.8.0-cloud-deploy
 - 去重、排序、Validator
 - OCR 学习、今日缓存、状态面板
 - 记账、广播、管理员权限
-- `通知所有人`、`/broadcast_preview`、`/broadcast_cancel`
+- Broadcast 群组广播、Notify All 当前群 @ 活跃成员、`/broadcast_preview`、`/broadcast_cancel`、`/notify_members`
 
 ## 永久规则
 

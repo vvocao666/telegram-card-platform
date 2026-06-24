@@ -40,9 +40,11 @@ Cloud Deploy 必须同步所有通用能力：
 - Validator
 - 状态面板
 - `/remote_ocr_status`
-- `通知所有人`
+- Broadcast 群组广播
+- Notify All 当前群 @ 活跃成员
 - `/broadcast_preview`
 - `/broadcast_cancel`
+- `/notify_members`
 - 所有管理员命令
 - 所有 OCR 修复
 - 所有 bug 修复
@@ -89,9 +91,11 @@ owner-hybrid = Cloud Deploy * RTX5070 本地混合识别。
 - OCR 学习功能
 - 状态面板
 - `/remote_ocr_status`
-- `通知所有人`
+- Broadcast 群组广播
+- Notify All 当前群 @ 活跃成员
 - `/broadcast_preview`
 - `/broadcast_cancel`
+- `/notify_members`
 - 记账、广播、管理员权限
 - 今日统计和缓存逻辑
 

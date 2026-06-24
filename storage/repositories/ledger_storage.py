@@ -128,6 +128,7 @@ class LedgerStore:
                 user_id INTEGER NOT NULL,
                 username TEXT NOT NULL DEFAULT '',
                 display_name TEXT NOT NULL DEFAULT '',
+                is_bot INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (chat_id, user_id)
             );
@@ -197,6 +198,7 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
+        self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
         self.conn.commit()
 
     def _add_column_if_missing(self, table: str, column: str, definition: str) -> None:
@@ -338,17 +340,18 @@ class LedgerStore:
         self.conn.commit()
         return cursor.rowcount > 0
 
-    def remember_user(self, chat_id: int, user_id: int, username: str, display_name: str) -> None:
+    def remember_user(self, chat_id: int, user_id: int, username: str, display_name: str, is_bot: bool = False) -> None:
         self.conn.execute(
             """
-            INSERT INTO known_users (chat_id, user_id, username, display_name, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO known_users (chat_id, user_id, username, display_name, is_bot, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(chat_id, user_id) DO UPDATE SET
                 username = excluded.username,
                 display_name = excluded.display_name,
+                is_bot = excluded.is_bot,
                 updated_at = excluded.updated_at
             """,
-            (chat_id, user_id, username.lstrip("@"), display_name, self._now()),
+            (chat_id, user_id, username.lstrip("@"), display_name, 1 if is_bot else 0, self._now()),
         )
         self.conn.commit()
 
@@ -368,14 +371,50 @@ class LedgerStore:
         return list(
             self.conn.execute(
                 """
-                SELECT user_id, username, display_name, MAX(updated_at) AS updated_at
+                SELECT user_id, username, display_name, is_bot, MAX(updated_at) AS updated_at
                 FROM known_users
-                WHERE user_id != 0
+                WHERE user_id != 0 AND is_bot = 0
                 GROUP BY user_id
                 ORDER BY updated_at DESC
                 """
             )
         )
+
+    def list_active_known_members(self, chat_id: int, days: int = 30) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                """
+                SELECT user_id, username, display_name, is_bot, updated_at
+                FROM known_users
+                WHERE chat_id = ?
+                  AND user_id != 0
+                  AND is_bot = 0
+                  AND updated_at >= datetime('now', ?)
+                ORDER BY updated_at DESC
+                """,
+                (chat_id, f"-{days} days"),
+            )
+        )
+
+    def count_active_known_members(self, chat_id: int, days: int | None = None) -> int:
+        if days is None:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS total FROM known_users WHERE chat_id = ? AND user_id != 0 AND is_bot = 0",
+                (chat_id,),
+            ).fetchone()
+        else:
+            row = self.conn.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM known_users
+                WHERE chat_id = ?
+                  AND user_id != 0
+                  AND is_bot = 0
+                  AND updated_at >= datetime('now', ?)
+                """,
+                (chat_id, f"-{days} days"),
+            ).fetchone()
+        return int(row["total"] if row else 0)
 
     def is_operator(self, chat_id: int, user_id: int, owner_ids: Iterable[int]) -> bool:
         if user_id in set(owner_ids):

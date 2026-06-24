@@ -7,5 +7,6 @@ from services.runtime import (
     handle_broadcast_callback,
     handle_broadcast_text,
     notify_all_command,
+    notify_members_command,
     start_broadcast,
 )

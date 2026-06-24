@@ -43,9 +43,9 @@ Telegram Card Platform 是一个可复用的 Telegram 卡密机器人框架，�
 - OCR 学习、字体模板、今日 OCR 缓存。
 - `/状态`、`/status`、`/ocr_status` 状态面板。
 - `/remote_ocr_status` 远程 OCR 状态，Cloud Deploy 默认显示远程未启用。
-- `通知所有人` owner-only 用户广播，支持文本、emoji、HTML、换行。
-- `/broadcast_preview` 广播预览。
-- `/broadcast_cancel` 取消广播任务。
+- Broadcast：OWNER 私聊发送 `/broadcast` 或“广播”，选择一个或多个群组，预览后确认发送。
+- Notify All：OWNER/admin 在群内发送“通知所有人”、`/notify_all` 或 `/at_all`，只 @ 当前群最近30天活跃成员。
+- `/broadcast_preview` 广播预览，`/broadcast_cancel` 取消广播任务，`/notify_members` 查看当前群成员缓存。
 - 记账、查账、清账、暂停/开启记账。
 - Owner 广播、管理员权限、审计转发。
 - systemd 服务、备份脚本、GitHub CI。
