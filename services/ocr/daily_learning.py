@@ -39,11 +39,13 @@ class DailyLearningReport:
     template_sample_total: int
     template_accuracy: float
     ocr_cache_found: bool = False
+    ocr_window_found: bool = False
 
 
 @dataclass(frozen=True)
 class LearnDebugReport:
     ocr_count: int
+    ocr_cache_total_count: int
     human_count: int
     intersection_count: int
     missing_count: int
@@ -51,6 +53,8 @@ class LearnDebugReport:
     human_missing_list: tuple[str, ...]
     ocr_missing_list: tuple[str, ...]
     ocr_cache_found: bool
+    ocr_window_found: bool
+    window_start_index: int
 
 
 def extract_ground_truth_cards(text: str) -> list[str]:
@@ -87,9 +91,10 @@ def learn_today(
     font_repository = font_repository or FontRepository(base / "outputs" / "font_profiles.json")
     template_repository = template_repository or FontTemplateRepository(base / "outputs" / "font_templates.json")
     truth_cards = extract_ground_truth_cards(ground_truth_text)
-    ocr_cards = load_today_ocr_results(base)
-    ocr_cache_found = bool(ocr_cards)
-    if not ocr_cache_found:
+    all_ocr_cards = load_today_ocr_results(base)
+    ocr_cache_found = bool(all_ocr_cards)
+    ocr_cards, window_start_index = select_learning_ocr_window(all_ocr_cards, truth_cards)
+    if not ocr_cache_found or not ocr_cards:
         stats = template_repository.stats()
         return DailyLearningReport(
             extracted_card_count=len(truth_cards),
@@ -99,7 +104,8 @@ def learn_today(
             new_learning_count=0,
             template_sample_total=int(stats["sample_count"]),
             template_accuracy=template_accuracy(template_repository),
-            ocr_cache_found=False,
+            ocr_cache_found=ocr_cache_found,
+            ocr_window_found=window_start_index >= 0,
         )
     diff = diff_ocr_with_truth(ocr_cards, truth_cards)
     new_learning_count = 0
@@ -119,6 +125,7 @@ def learn_today(
         template_sample_total=int(stats["sample_count"]),
         template_accuracy=template_accuracy(template_repository),
         ocr_cache_found=True,
+        ocr_window_found=True,
     )
 
 
@@ -127,19 +134,23 @@ def learn_today_debug(
     base_path: Path | str = Path("."),
 ) -> LearnDebugReport:
     human_cards = extract_ground_truth_cards(ground_truth_text)
-    ocr_cards = load_today_ocr_results(base_path)
+    all_ocr_cards = load_today_ocr_results(base_path)
+    ocr_cards, window_start_index = select_learning_ocr_window(all_ocr_cards, human_cards)
     ocr_values = [item.card for item in ocr_cards]
     human_set = set(human_cards)
     ocr_set = set(ocr_values)
     return LearnDebugReport(
         ocr_count=len(ocr_values),
+        ocr_cache_total_count=len(all_ocr_cards),
         human_count=len(human_cards),
         intersection_count=len(human_set & ocr_set),
         missing_count=len(human_set - ocr_set) if ocr_values else 0,
         error_count=len(ocr_set - human_set) if ocr_values else 0,
         human_missing_list=tuple(card for card in human_cards if card not in ocr_set) if ocr_values else tuple(),
         ocr_missing_list=tuple(card for card in ocr_values if card not in human_set) if ocr_values else tuple(),
-        ocr_cache_found=bool(ocr_values),
+        ocr_cache_found=bool(all_ocr_cards),
+        ocr_window_found=bool(ocr_values),
+        window_start_index=window_start_index,
     )
 
 
@@ -184,6 +195,20 @@ def load_today_ocr_results(base_path: Path | str = Path(".")) -> list[OcrCardRes
         if cards:
             return _dedupe_ocr_cards(cards)
     return []
+
+
+def select_learning_ocr_window(
+    ocr_cards: list[OcrCardResult],
+    truth_cards: list[str],
+) -> tuple[list[OcrCardResult], int]:
+    if not ocr_cards or not truth_cards:
+        return [], -1
+    ocr_cards = _dedupe_ocr_cards(ocr_cards)
+    first_truth = truth_cards[0]
+    start_index = _find_learning_start_index(ocr_cards, first_truth)
+    if start_index < 0:
+        return [], -1
+    return ocr_cards[start_index:start_index + len(truth_cards)], start_index
 
 
 def _load_today_cache(path: Path) -> list[OcrCardResult]:
@@ -352,6 +377,22 @@ def _dedupe_ocr_cards(cards: list[OcrCardResult]) -> list[OcrCardResult]:
         seen.add(card.card)
         result.append(card)
     return result
+
+
+def _find_learning_start_index(cards: list[OcrCardResult], first_truth: str) -> int:
+    for index, item in enumerate(cards):
+        if item.card == first_truth:
+            return index
+    first_compact = first_truth.replace("-", "")
+    best: tuple[int, int] | None = None
+    for index, item in enumerate(cards):
+        candidate_compact = item.card.replace("-", "")
+        if len(candidate_compact) != len(first_compact):
+            continue
+        distance = sum(left != right for left, right in zip(candidate_compact, first_compact))
+        if 0 < distance <= 2 and (best is None or distance < best[0]):
+            best = (distance, index)
+    return best[1] if best else -1
 
 
 def _closest_confusion(truth: str, candidates: list[OcrCardResult], used_ocr: set[str]) -> OcrCardResult | None:

@@ -23,7 +23,17 @@ def build_learning_preview(text: str, base_path: Path | str = Path(".")) -> Lear
         return LearningPreview(
             card_count=len(cards),
             ocr_cache_found=False,
-            message="未找到今日OCR缓存，请先发送图片识别，或使用 /ocr_cache_today 查看。",
+            message="未找到最近24小时OCR缓存，请先发送图片识别，或使用 /ocr_cache_today 查看。",
+            preview_cards=tuple(cards[:10]),
+        )
+    if cards and not debug.ocr_window_found:
+        return LearningPreview(
+            card_count=len(cards),
+            ocr_cache_found=False,
+            message=(
+                "已找到最近24小时OCR缓存，但没有匹配到你发出的第一张人工卡密。\n"
+                "请确认这批卡密对应的图片已经识别过，或使用 /ocr_cache_today 查看。"
+            ),
             preview_cards=tuple(cards[:10]),
         )
     preview_lines = "\n".join(cards[:10]) if cards else "-"
@@ -46,7 +56,12 @@ def build_learning_preview(text: str, base_path: Path | str = Path(".")) -> Lear
 def execute_learning(text: str, base_path: Path | str = Path(".")) -> str:
     debug = learn_today_debug(text, base_path=base_path)
     if not debug.ocr_cache_found:
-        return "未找到今日OCR缓存，请先发送图片识别，或使用 /ocr_cache_today 查看。"
+        return "未找到最近24小时OCR缓存，请先发送图片识别，或使用 /ocr_cache_today 查看。"
+    if not debug.ocr_window_found:
+        return (
+            "已找到最近24小时OCR缓存，但没有匹配到你发出的第一张人工卡密。\n"
+            "请确认这批卡密对应的图片已经识别过，或使用 /ocr_cache_today 查看。"
+        )
     report = learn_today(text, base_path=base_path)
     font_repository = FontRepository(Path(base_path) / "outputs" / "font_profiles.json")
     template_repository = FontTemplateRepository(Path(base_path) / "outputs" / "font_templates.json")
@@ -168,7 +183,8 @@ def _top_missing(repository: FontRepository) -> list[tuple[str, int]]:
         for key, count in profile.error_pairs.items():
             if not key.startswith("missing:"):
                 continue
-            values[key.removeprefix("missing:")] = values.get(key.removeprefix("missing:"), 0) + count
+            card = key.removeprefix("missing:")
+            values[card] = values.get(card, 0) + count
     return sorted(values.items(), key=lambda item: item[1], reverse=True)
 
 

@@ -30,8 +30,31 @@ def test_today_ocr_cache_resets_across_days(tmp_path):
     data = read_today_ocr_cache(path, now=second)
 
     assert data["date"] == "2026-06-22"
-    assert data["images"] == 1
-    assert data["ocr_cards"] == ["S07304-DDDD-EEEE-FFFFF"]
+    assert data["ocr_cards"] == ["S07304-AAAA-BBBB-CCCCC", "S07304-DDDD-EEEE-FFFFF"]
+
+
+def test_today_ocr_cache_keeps_only_recent_twenty_four_hours(tmp_path):
+    path = tmp_path / "outputs" / "today_ocr_cache.json"
+    old = datetime(2026, 6, 21, 21, 0, tzinfo=TZ)
+    now = datetime(2026, 6, 22, 22, 0, tzinfo=TZ)
+
+    append_today_ocr_cache(["S07304-OLD1-BBBB-CCCCC"], path=path, now=old)
+    append_today_ocr_cache(["S07304-NEWW-BBBB-CCCCC"], path=path, now=now)
+    data = read_today_ocr_cache(path, now=now)
+
+    assert data["ocr_cards"] == ["S07304-NEWW-BBBB-CCCCC"]
+
+
+def test_today_ocr_cache_duplicate_cards_do_not_participate_twice(tmp_path):
+    path = tmp_path / "outputs" / "today_ocr_cache.json"
+    now = datetime(2026, 6, 22, 22, 0, tzinfo=TZ)
+
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=path, now=now)
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=path, now=now)
+    data = read_today_ocr_cache(path, now=now)
+
+    assert data["ocr_cards"] == ["S07304-AAAA-BBBB-CCCCC"]
+    assert len(data["ocr_entries"]) == 1
 
 
 def test_today_ocr_cache_summary_missing(tmp_path):
