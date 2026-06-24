@@ -12,7 +12,7 @@
 
 Cloud Deploy 是唯一标准版。新服务器部署完成后，默认应该具备当前所有通用功能，不需要额外补丁、手工添加脚本或额外 `git pull`。
 
-Cloud Deploy 必须包含最新 OCR 修复、PUBG/PSN 互斥、S07 任意前缀、换行拼接、文本忽略、排序、去重、Validator、学习流程、缓存、状态面板、`/remote_ocr_status`、Broadcast、Notify All、`/broadcast_preview`、`/broadcast_cancel`、`/notify_members` 和所有管理员命令。
+Cloud Deploy 必须包含最新 OCR 修复、PUBG/PSN 互斥、S07 任意前缀、换行拼接、文本忽略、排序、去重、Validator、学习流程、中文“学习卡密”入口、缓存、状态面板、`/remote_ocr_status`、Broadcast、Notify All、`/broadcast_preview`、`/broadcast_cancel`、`/notify_members` 和所有管理员命令。
 
 ### 普通云服务器
 

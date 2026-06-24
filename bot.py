@@ -98,6 +98,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler(["status", "ocr_status"], status_panel_command))
     app.add_handler(MessageHandler(filters.Regex(r"^/状态(?:@\w+)?(?:\s|$)"), status_panel_command))
     app.add_handler(CommandHandler("learn_cards", learn_cards_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^/?学习卡密(?:\s|$)") & filters.ChatType.PRIVATE, learn_cards_command))
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
     app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))
     app.add_handler(CommandHandler("ocr_learning_stats", ocr_learning_stats_command))

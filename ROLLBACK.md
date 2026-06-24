@@ -24,7 +24,7 @@ v2.8.0-cloud-deploy
 - PUBG 断行拼接
 - 文本消息忽略
 - 去重、排序、Validator
-- OCR 学习、今日缓存、状态面板
+- OCR 学习、中文“学习卡密”入口、今日缓存、状态面板
 - 记账、广播、管理员权限
 - Broadcast 群组广播、Notify All 当前群 @ 活跃成员、`/broadcast_preview`、`/broadcast_cancel`、`/notify_members`
 

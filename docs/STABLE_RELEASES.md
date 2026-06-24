@@ -37,6 +37,7 @@ Cloud Deploy 必须同步所有通用能力：
 - 缓存
 - 去重
 - 学习流程
+- 中文“学习卡密”入口
 - Validator
 - 状态面板
 - `/remote_ocr_status`

@@ -40,7 +40,7 @@ Telegram Card Platform 是一个可复用的 Telegram 卡密机器人框架，�
 - PSN 独立 `XXXX-XXXX-XXXX` 识别。
 - 文本消息不自动重复提取卡密，避免刷屏。
 - 输出排序、稳定去重、重复提醒。
-- OCR 学习、字体模板、今日 OCR 缓存。
+- OCR 学习、字体模板、今日 OCR 缓存，OWNER 私聊可直接发送“学习卡密”粘贴人工真值。
 - `/状态`、`/status`、`/ocr_status` 状态面板。
 - `/remote_ocr_status` 远程 OCR 状态，Cloud Deploy 默认显示远程未启用。
 - Broadcast：OWNER 私聊发送 `/broadcast` 或“广播”，选择一个或多个群组，预览后确认发送。

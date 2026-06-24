@@ -2929,12 +2929,23 @@ def command_body(update: Update, command: str) -> str:
     return "\n".join(values).strip()
 
 
+def learn_cards_body(update: Update) -> str:
+    text = command_body(update, "learn_cards")
+    stripped = text.strip()
+    chinese_command = stripped[1:] if stripped.startswith("/") else stripped
+    if chinese_command == "学习卡密":
+        return ""
+    if chinese_command.startswith("学习卡密"):
+        return chinese_command[len("学习卡密") :].lstrip(" \t\r\n")
+    return text
+
+
 async def learn_cards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not is_owner_update(update):
         return
-    text = command_body(update, "learn_cards")
+    text = learn_cards_body(update)
     if not text:
-        await update.message.reply_text("请在 /learn_cards 后粘贴人工确认的卡密列表。")
+        await update.message.reply_text("请在“学习卡密”后粘贴人工确认的卡密列表。")
         return
     preview = build_learning_preview(text)
     if not preview.ocr_cache_found:

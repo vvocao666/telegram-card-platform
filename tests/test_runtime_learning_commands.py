@@ -50,6 +50,19 @@ def test_owner_can_start_learn_cards_confirmation(monkeypatch, tmp_path):
     assert runtime.pending_learning_texts[1] == HUMAN_TEXT
 
 
+def test_owner_can_start_chinese_learn_cards_confirmation(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(runtime, "OWNER_CHAT_ID", "1")
+    runtime.pending_learning_texts.clear()
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=tmp_path / "outputs" / "today_ocr_cache.json")
+    update = FakeUpdate("学习卡密\n" + HUMAN_TEXT, user_id=1)
+
+    asyncio.run(runtime.learn_cards_command(update, FakeContext()))
+
+    assert "检测到 5 条人工正确卡密" in update.message.replies[-1]
+    assert runtime.pending_learning_texts[1] == HUMAN_TEXT
+
+
 def test_non_owner_cannot_start_learning(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(runtime, "OWNER_CHAT_ID", "1")
