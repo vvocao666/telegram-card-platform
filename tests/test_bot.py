@@ -538,9 +538,11 @@ class BotFormattingTests(unittest.TestCase):
     def test_card_correction_learning_persists_and_applies(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             bot.ledger_store = store
             try:
+                bot.OWNER_CHAT_ID = "111"
                 update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
                 reply_message = type(
                     "ReplyMessage",
@@ -572,11 +574,46 @@ class BotFormattingTests(unittest.TestCase):
                 )
             finally:
                 bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
+                store.close()
+
+    def test_non_owner_cannot_learn_card_correction_from_reply(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            bot.ledger_store = store
+            try:
+                bot.OWNER_CHAT_ID = "999"
+                update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
+                reply_message = type(
+                    "ReplyMessage",
+                    (),
+                    {"text": "PSN卡密\nRJTR-PTMQ-2H1C", "caption": None},
+                )()
+                update.message = type(
+                    "Message",
+                    (),
+                    {
+                        "message_id": 20,
+                        "text": "FK4L-D7MP-2GQX",
+                        "reply_to_message": reply_message,
+                    },
+                )()
+
+                learned = bot.learn_card_corrections_from_reply(update)
+
+                self.assertIsNone(learned)
+                self.assertIsNone(store.get_card_correction(-1001, "PSN", "RJTR-PTMQ-2H1C"))
+            finally:
+                bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
                 store.close()
 
     def test_ocr_sample_learning_persists_and_applies(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
             old_download = bot.download_message_photo
             old_run_ocr = bot.run_ocr
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
@@ -593,6 +630,7 @@ class BotFormattingTests(unittest.TestCase):
             bot.download_message_photo = fake_download
             bot.run_ocr = fake_run_ocr
             try:
+                bot.OWNER_CHAT_ID = "111"
                 update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
                 photo = type("Photo", (), {"file_id": "file", "file_unique_id": "unique"})()
                 reply_message = type("ReplyMessage", (), {"photo": [photo]})()
@@ -617,6 +655,7 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), corrected.cards)
             finally:
                 bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
                 bot.download_message_photo = old_download
                 bot.run_ocr = old_run_ocr
                 store.close()

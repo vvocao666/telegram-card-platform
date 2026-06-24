@@ -2216,7 +2216,7 @@ def apply_card_corrections(chat_id: int, result: OcrResult) -> OcrResult:
 
 
 def learn_card_corrections_from_reply(update: Update) -> str | None:
-    if not update.message or not update.effective_chat:
+    if not update.message or not update.effective_chat or not is_owner_update(update):
         return None
     reply_message = update.message.reply_to_message
     if not reply_message:
@@ -2279,7 +2279,7 @@ def unlearnable_correction_feedback(update: Update) -> str | None:
 
 
 async def learn_ocr_sample_from_replied_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
-    if not update.message or not update.effective_chat:
+    if not update.message or not update.effective_chat or not is_owner_update(update):
         return None
     reply_message = update.message.reply_to_message
     if not reply_message or not getattr(reply_message, "photo", None):
