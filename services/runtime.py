@@ -2479,7 +2479,8 @@ def calculate_expression(text: str) -> str | None:
         value = _eval_calc_node(tree.body)
     except (SyntaxError, ValueError, InvalidOperation, DivisionByZero, OverflowError):
         return None
-    return _format_calc_result(value)
+    display_expression = re.sub(r"\s+", "", expression)
+    return f"{display_expression}={_format_calc_result(value)}"
 
 
 def normalize_calc_expression(text: str) -> str:
