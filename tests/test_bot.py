@@ -168,16 +168,16 @@ class BotFormattingTests(unittest.TestCase):
                 store.close()
 
     def test_calculator_expression(self):
-        self.assertEqual("60*3=180", bot.calculate_expression("60*3"))
-        self.assertEqual("80*6.8=544", bot.calculate_expression("80*6.8"))
-        self.assertEqual("(10+30)/2=20", bot.calculate_expression("(10 + 30) / 2"))
-        self.assertEqual("100-25=75", bot.calculate_expression("100-25"))
-        self.assertEqual("5*1.5=7.5", bot.calculate_expression("5*1.5"))
-        self.assertEqual("1+2*3+2*6=19", bot.calculate_expression("1+2x3+2x6"))
-        self.assertEqual("1+2*3+2*6=19", bot.calculate_expression("1+2×3+2×6"))
-        self.assertEqual("60/3=20", bot.calculate_expression("60÷3"))
-        self.assertEqual("1+2*3+2*6=19", bot.calculate_expression("１＋２×３＋２×６"))
-
+        self.assertEqual("60*3=180.00", bot.calculate_expression("60*3"))
+        self.assertEqual("80*6.8=544.00", bot.calculate_expression("80*6.8"))
+        self.assertEqual("61075/8978=6.80", bot.calculate_expression("61075/8978"))
+        self.assertEqual("(10+30)/2=20.00", bot.calculate_expression("(10 + 30) / 2"))
+        self.assertEqual("100-25=75.00", bot.calculate_expression("100-25"))
+        self.assertEqual("5*1.5=7.50", bot.calculate_expression("5*1.5"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("1+2x3+2x6"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("1+2×3+2×6"))
+        self.assertEqual("60/3=20.00", bot.calculate_expression("60÷3"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("１＋２×３＋２×６"))
     def test_calculator_ignores_non_expressions(self):
         self.assertIsNone(bot.calculate_expression("+100"))
         self.assertIsNone(bot.calculate_expression("账单"))

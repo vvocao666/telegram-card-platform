@@ -2522,11 +2522,7 @@ def _eval_calc_node(node: ast.AST) -> Decimal:
 
 
 def _format_calc_result(value: Decimal) -> str:
-    normalized = value.normalize()
-    if normalized == normalized.to_integral():
-        return format(normalized.quantize(Decimal("1")), "f")
-    text = format(normalized, "f")
-    return text.rstrip("0").rstrip(".")
+    return format(value.quantize(Decimal("0.01")), "f")
 
 
 TRC20_ADDRESS_RE = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
