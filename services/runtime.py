@@ -702,6 +702,11 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
     return cards
 
 
+def extract_source_anchored_pubg_cards(raw_text: str) -> list[str]:
+    """Keep PUBG candidates tied to one OCR line or an adjacent line wrap."""
+    return extract_cards_from_ordered_lines(ordered_ocr_text_lines(raw_text.splitlines()))
+
+
 def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
     parts = card.split("-")
     if len(parts) != 4 or not valid_card(card):
@@ -1126,8 +1131,17 @@ def run_ocrspace(
                 if raw_text:
                     raw_chunks.append(raw_text)
 
-                legacy_cards = extract_cards(raw_text)
-                enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
+                if is_pubg_image_text(raw_text):
+                    legacy_cards = extract_source_anchored_pubg_cards(raw_text)
+                    enhanced_cards, enhanced_stats = [], {
+                        "ocr_fixed_count": 0,
+                        "ocr_missing_count": 0,
+                        "ocr_false_negative": 0,
+                        "ocr_character_confusion": 0,
+                    }
+                else:
+                    legacy_cards = extract_cards(raw_text)
+                    enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
                 ocr_stats = merge_ocr_stats(ocr_stats, enhanced_stats)
                 cards, uncertain, card_corrections = settle_and_correct_pubg_cards(enhanced_cards + legacy_cards)
                 psn_ordered = psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint)

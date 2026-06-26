@@ -303,6 +303,28 @@ def test_remote_worker_drops_pubg_candidate_without_text_line_evidence(monkeypat
     assert "PUBG WORKER CARD DROPPED: S07304-JUCN-HS07-304L9 reason=missing_text_evidence" in caplog.text
 
 
+def test_ocrspace_pubg_extraction_never_crosses_independent_card_lines():
+    raw_text = "\n".join(
+        [
+            "密码：S07304-BFL9-ZLVJ-JUCNH",
+            "卡号：",
+            "密码：S07304-L985-HEBC-N9P4B",
+            "卡号：",
+            "密码：S07304-PDGA-MM2J-9QBJ4",
+        ]
+    )
+
+    cards = bot.extract_source_anchored_pubg_cards(raw_text)
+
+    assert cards == [
+        "S07304-BFL9-ZLVJ-JUCNH",
+        "S07304-L985-HEBC-N9P4B",
+        "S07304-PDGA-MM2J-9QBJ4",
+    ]
+    assert "S07304-JUCN-HS07-304L9" not in cards
+    assert "S07304-PDGA-FREN-TEMM2" not in cards
+
+
 def test_remote_worker_without_rebuilt_pubg_text_falls_back(monkeypatch, tmp_path, caplog):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
