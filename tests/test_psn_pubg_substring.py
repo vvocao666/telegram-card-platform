@@ -277,6 +277,53 @@ def test_remote_worker_uses_ordered_text_lines_for_wrapped_pubg(monkeypatch, tmp
     assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_line_wrap" in caplog.text
 
 
+def test_remote_worker_drops_pubg_candidate_without_text_line_evidence(monkeypatch, tmp_path, caplog):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07304-BFL9-ZLVJ-JUCNH", "score": 0.99},
+            {"text": "S07304-JUCN-HS07-304L9", "score": 0.99},
+            {"text": "S07304-PDGA-FREN-TEMM2", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "S07304-BFL9-ZLVJ-JUCNH", "rec_box": [20, 10, 360, 30]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    with caplog.at_level("INFO"):
+        result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == ("S07304-BFL9-ZLVJ-JUCNH",)
+    assert "S07304-JUCN-HS07-304L9" not in result.cards
+    assert "S07304-PDGA-FREN-TEMM2" not in result.cards
+    assert "PUBG WORKER CARD DROPPED: S07304-JUCN-HS07-304L9 reason=missing_text_evidence" in caplog.text
+
+
+def test_remote_worker_without_rebuilt_pubg_text_falls_back(monkeypatch, tmp_path, caplog):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [{"text": "S07304-JUCN-HS07-304L9", "score": 0.99}],
+        "texts": [
+            {"text": "卡号：", "rec_box": [20, 10, 80, 30]},
+            {"text": "密码：", "rec_box": [20, 40, 80, 60]},
+            {"text": "S07304", "rec_box": [20, 70, 130, 90]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    with caplog.at_level("INFO"):
+        result = bot.run_remote_ocr(image_path)
+
+    assert result is None
+    assert "PUBG WORKER CARD DROPPED: S07304-JUCN-HS07-304L9 reason=missing_text_evidence" in caplog.text
+
+
 def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")

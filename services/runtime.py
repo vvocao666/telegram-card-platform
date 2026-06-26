@@ -710,8 +710,6 @@ def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
 
 
 def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: list[str]) -> list[str]:
-    if not text_cards:
-        return worker_cards
     result: list[str] = []
     seen: set[str] = set()
     text_keys = {key for card in text_cards if (key := pubg_card_prefix_key(card))}
@@ -722,13 +720,10 @@ def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: lis
         result.append(card)
     for card in worker_cards:
         key = pubg_card_prefix_key(card)
-        if key in text_keys and card not in seen:
-            logger.info("PUBG WORKER CARD DROPPED: %s reason=conflict_with_line_wrap", card)
-            continue
         if card in seen:
             continue
-        seen.add(card)
-        result.append(card)
+        reason = "conflict_with_line_wrap" if key in text_keys else "missing_text_evidence"
+        logger.info("PUBG WORKER CARD DROPPED: %s reason=%s", card, reason)
     return result
 
 
