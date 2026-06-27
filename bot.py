@@ -39,6 +39,7 @@ from handlers.ledger_handler import (
     handle_priority_ledger_text,
 )
 from handlers.start_handler import handle_add_group_menu, start
+from handlers.support_relay_handler import handle_support_relay
 import services.runtime as runtime
 from services.runtime import *  # noqa: F403,F401 - compatibility exports for existing tests and external scripts.
 from services.runtime import start_background_tasks, stop_background_tasks
@@ -94,6 +95,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))
     app.add_handler(CommandHandler("learn_cancel", learn_cancel_command))
     app.add_handler(CommandHandler("ocr_learning_stats", ocr_learning_stats_command))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_support_relay), group=-2)
     app.add_handler(
         MessageHandler(
             filters.Regex(f"^({re.escape(TEXT_LEDGER_ADD_GROUP)}|记账拉机器人进群)$"),
