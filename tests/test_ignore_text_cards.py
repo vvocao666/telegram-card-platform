@@ -115,6 +115,19 @@ def test_learn_cards_command_still_works(monkeypatch, tmp_path):
     assert bot.pending_learning_texts[1] == TEXT_CARDS
 
 
+def test_chinese_learn_cards_command_still_works(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "1")
+    bot.pending_learning_texts.clear()
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=tmp_path / "outputs" / "today_ocr_cache.json")
+    update = FakeUpdate("学习卡密\n" + TEXT_CARDS, user_id=1, chat_id=1)
+
+    asyncio.run(bot.learn_cards_command(update, FakeContext()))
+
+    assert update.message.replies
+    assert bot.pending_learning_texts[1] == TEXT_CARDS
+
+
 def test_photo_and_status_handlers_remain_registered():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
@@ -122,4 +135,5 @@ def test_photo_and_status_handlers_remain_registered():
     assert 'CommandHandler(["status", "ocr_status"], status_panel_command)' in bot_py
     assert r'^/状态' in bot_py
     assert 'CommandHandler("learn_cards", learn_cards_command)' in bot_py
+    assert r"^/?学习卡密" in bot_py
     assert "auto_learn_cards_text" not in bot_py

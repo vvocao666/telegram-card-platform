@@ -1,8 +1,20 @@
 from pathlib import Path
 
 import bot
+import pytest
 from services.ocr.font_repository import FontRepository
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections, correct_pubg_card
+
+
+@pytest.fixture(autouse=True)
+def enable_remote_ocr_for_remote_tests():
+    old_enabled = bot.REMOTE_OCR_ENABLED
+    old_url = bot.REMOTE_OCR_URL
+    bot.REMOTE_OCR_ENABLED = True
+    bot.REMOTE_OCR_URL = "http://100.81.208.104:8000"
+    yield
+    bot.REMOTE_OCR_ENABLED = old_enabled
+    bot.REMOTE_OCR_URL = old_url
 
 
 def test_wjb9_corrects_to_wjbs():

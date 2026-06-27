@@ -759,8 +759,6 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
                 )
             break
     return cards, unresolved
-
-
 def extract_source_anchored_pubg_cards(raw_text: str) -> tuple[list[str], bool]:
     """Keep PUBG candidates tied to one OCR line or an adjacent line wrap."""
     return extract_cards_from_ordered_lines(ordered_ocr_text_lines(raw_text.splitlines()))
