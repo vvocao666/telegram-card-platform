@@ -48,16 +48,16 @@ def test_psn_is_not_changed():
 
 
 def test_without_rule_does_not_aggressively_change():
-    corrected, reason = correct_pubg_card("S07304-ABCD-EFGH-IJKL")
+    corrected, reason = correct_pubg_card("S07304-ABCD-EFGH-IJKLM")
 
-    assert corrected == "S07304-ABCD-EFGH-IJKL"
+    assert corrected == "S07304-ABCD-EFGH-IJKLM"
     assert reason == "unchanged"
 
 
 def test_learned_position_rule_applies_for_same_font(tmp_path: Path):
     repository = FontRepository(tmp_path / "font_profiles.json")
     repository.learn_sample(
-        "S07304-TEST-AAAA-BBBB",
+        "S07304-TEST-AAAA-BBBBB",
         card_type="PUBG",
         error_pairs={"9>S": 1},
         position_rules={"10:9>S": 1},
@@ -73,6 +73,8 @@ def test_learned_position_rule_applies_for_same_font(tmp_path: Path):
 def test_remote_ocr_returns_corrections_debug(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
+    monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
+    bot.close_remote_http_client()
 
     class FakeResponse:
         status_code = 200
@@ -97,6 +99,7 @@ def test_remote_ocr_returns_corrections_debug(monkeypatch, tmp_path):
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient())
 
     result = bot.run_remote_ocr(image_path)
+    bot.close_remote_http_client()
 
     assert result is not None
     assert result.cards == ("S07304-WJBS-VPEZ-MUFWK",)

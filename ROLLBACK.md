@@ -1,48 +1,49 @@
-# Rollback Guide
+# 回滚说明
 
-## Recommended Cloud Stable
+## 当前标准
 
-The recommended general cloud-server stable release is:
+当前唯一推荐部署版本是：
 
 ```text
-v1.3.0-ocr-learning-plus
+Cloud Deploy / v2.8.0-cloud-deploy / 当前 main
 ```
 
-This is the last general stable version before owner-specific Hybrid OCR features were added.
+Cloud Deploy 代表当前最新通用功能和全部通用 Bug 修复。
 
-Use this version when the server does not have:
+## 优先回滚方式
 
-- Windows RTX5070 OCR Worker
-- Tailscale
-- `REMOTE_OCR_URL`
-- Hybrid OCR routing
-- Local GPU-first OCR
-
-Do not treat `strict-v120-owner-broadcast-no-trx` or the v120 backup as the newest stable release. v120 is only a historical pre-modular rollback point.
-
-## Roll Back To v1.3.0
+生产回滚优先使用服务器备份，而不是旧 tag：
 
 ```bash
-cd /opt/telegram-card-platform
 sudo systemctl stop telegram-card-platform
-git fetch --tags
-git checkout v1.3.0-ocr-learning-plus
-.venv/bin/python3 -m pip install -r requirements.txt
-.venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
+rsync -a /root/backups/backup_name/project/ /opt/telegram-card-platform/
+cp /root/backups/backup_name/.env /opt/telegram-card-platform/.env
+cp /root/backups/backup_name/ledger.sqlite3 /opt/telegram-card-platform/outputs/ledger.sqlite3
 sudo systemctl start telegram-card-platform
-sudo systemctl status telegram-card-platform --no-pager
 ```
 
-Keep the existing production `.env`, `outputs/`, and `ledger.sqlite3` unless you intentionally restore them from a backup.
+## Cloud Deploy 与 owner-hybrid
 
-## Owner Hybrid OCR Line
+普通云服务器：
 
-The `v2.x` releases are for the owner production environment with:
+```env
+REMOTE_OCR_ENABLED=false
+REMOTE_OCR_URL=
+```
 
-- Windows RTX5070 OCR Worker
-- Tailscale
-- `REMOTE_OCR_URL`
-- Hybrid OCR
-- Local GPU-first OCR
+作者本人环境：
 
-Do not use `v2.x` as the default cloud-only deployment target.
+```env
+REMOTE_OCR_ENABLED=true
+REMOTE_OCR_URL=http://100.81.208.104:8000
+```
+
+如果不使用本地 RTX5070 / Tailscale / Remote OCR，只需要关闭 `.env` 中的 Remote OCR，不需要回退到旧版本。
+
+## 历史版本
+
+`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
+
+`strict-v120-owner-broadcast-no-trx` / `feature_backups/v120_stable` 只作为历史重构前备份。
+
+只有在需要回到旧行为做事故排查时，才使用历史 tag。

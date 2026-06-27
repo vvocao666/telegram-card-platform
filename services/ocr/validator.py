@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 
-PUBG_CARD_RE = re.compile(r"^S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}$")
+PUBG_CARD_RE = re.compile(r"^S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$")
 PSN_CARD_RE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
 
@@ -48,7 +48,7 @@ def validator_reject_reason(candidate: str, card_type: str | None = None) -> str
         if len(parts) != 4:
             return "pubg_group_count_invalid"
         lengths = [len(part) for part in parts]
-        if lengths[:3] != [6, 4, 4] or lengths[3] not in {4, 5}:
+        if lengths != [6, 4, 4, 5]:
             return "pubg_group_length_invalid"
         if not all(part.isalnum() for part in parts):
             return "pubg_charset_invalid"

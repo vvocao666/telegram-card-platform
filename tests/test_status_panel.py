@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import bot
@@ -37,7 +38,7 @@ def test_status_commands_are_registered():
 
 def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     cache_path = tmp_path / "today_ocr_cache.json"
-    today = bot.remote_ocr_now().date().isoformat()
+    today = datetime.now().strftime("%Y-%m-%d")
     cache_path.write_text(
         f"""
         {{

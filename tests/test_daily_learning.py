@@ -5,7 +5,9 @@ from services.ocr.daily_learning import (
     learn_today,
     learn_today_debug,
     load_today_ocr_results,
+    select_learning_ocr_window,
     strict_extraction_missing_cards,
+    OcrCardResult,
 )
 from services.ocr.font_repository import FontRepository
 from services.ocr.font_templates import FontTemplateRepository
@@ -200,6 +202,51 @@ def test_learn_today_prefers_today_ocr_cache(tmp_path):
     assert report.intersection_count == 1
     assert report.missing_count == 1
     assert report.error_count == 1
+
+
+def test_learning_uses_cache_window_starting_from_first_human_card(tmp_path):
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    append_today_ocr_cache(
+        [
+            "S07304-BEFO-RE00-00000",
+            "S07304-AAAA-BBBB-CCCCC",
+            "S07304-DDDD-EEEE-FFFFF",
+            "S07304-AFTE-R000-00000",
+        ],
+        path=output_dir / "today_ocr_cache.json",
+    )
+
+    report = learn_today_debug(
+        "S07304-AAAA-BBBB-CCCCC\nS07304-DDDD-EEEE-FFFFF",
+        base_path=tmp_path,
+    )
+
+    assert report.ocr_cache_total_count == 4
+    assert report.ocr_count == 2
+    assert report.window_start_index == 1
+    assert report.intersection_count == 2
+    assert report.error_count == 0
+
+
+def test_learning_window_ignores_duplicate_ocr_cache_entries():
+    ocr_cards = [
+        OcrCardResult("S07304-AAAA-BBBB-CCCCC"),
+        OcrCardResult("S07304-DDDD-EEEE-FFFFF"),
+        OcrCardResult("S07304-DDDD-EEEE-FFFFF"),
+        OcrCardResult("S07304-1111-2222-33333"),
+    ]
+
+    window, start = select_learning_ocr_window(
+        ocr_cards,
+        ["S07304-DDDD-EEEE-FFFFF", "S07304-1111-2222-33333"],
+    )
+
+    assert start == 1
+    assert [item.card for item in window] == [
+        "S07304-DDDD-EEEE-FFFFF",
+        "S07304-1111-2222-33333",
+    ]
 
 
 def test_extract_one_hundred_five_human_cards_with_notes_and_dash_variants():

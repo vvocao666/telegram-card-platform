@@ -68,9 +68,10 @@ MULTI_BATCH_WAIT_SECONDS = max(
     2.0,
 )
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "ocrspace").strip().lower()
-REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "1").strip() == "1"
+REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
 REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
+REMOTE_OCR_HEALTH_CACHE_SECONDS = float(os.getenv("REMOTE_OCR_HEALTH_CACHE_SECONDS", "10"))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
@@ -155,6 +156,7 @@ class OcrResult:
     ocr_false_negative: int = 0
     ocr_character_confusion: int = 0
     corrections_applied: tuple[dict[str, str], ...] = tuple()
+    has_unresolved_pubg_fragment: bool = False
 
 
 @dataclass(frozen=True)
@@ -204,6 +206,9 @@ remote_ocr_status = {
     "today_enhanced_used": 0,
     "today_cache_hits": 0,
 }
+remote_ocr_health_cache: dict[str, object] = {"checked_at": 0.0, "result": None}
+remote_http_client: httpx.Client | None = None
+remote_http_client_timeout: float | None = None
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
@@ -381,6 +386,7 @@ PUBG_PREFIXES = {
     "S07303",
     "S07240",
     "S07292",
+    "S07298",
     "S07213",
     "S07291",
     "S07205",
@@ -388,6 +394,8 @@ PUBG_PREFIXES = {
     "S07228",
     "S07286",
 }
+PUBG_PREFIX_RE = re.compile(r"S07[A-Z0-9]{3}")
+PUBG_PREFIX_TAIL_RE = re.compile(r"7[A-Z0-9]{3}")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
@@ -482,8 +490,7 @@ def repair_first_group(group: str) -> str:
 
 def valid_card(card: str) -> bool:
     return bool(
-        re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}", card)
-        and card[:6] in PUBG_PREFIXES
+        re.fullmatch(r"S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}", card)
     )
 
 
@@ -545,7 +552,9 @@ def text_without_s07_lines(text: str) -> str:
 def is_pubg_image_text(text: str) -> bool:
     normalized = normalize_text(text)
     compact = re.sub(r"[^A-Z0-9$]", "", normalized)
-    if any(prefix in normalized or f"{prefix}-" in normalized for prefix in PUBG_PREFIXES):
+    if PUBG_PREFIX_RE.search(normalized):
+        return True
+    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}", normalized):
         return True
     if "S07" in normalized:
         return True
@@ -556,6 +565,30 @@ def is_pubg_image_text(text: str) -> bool:
     if any(trace in compact for trace in pubg_traces):
         return True
     return bool(re.search(r"S0[A-Z0-9]304", compact))
+
+
+def line_has_pubg_prefix(text: str) -> bool:
+    return bool(PUBG_PREFIX_RE.search(normalize_text(text)))
+
+
+def clean_pubg_fragment(text: str, *, from_prefix: bool) -> str:
+    normalized = normalize_text(text)
+    if from_prefix:
+        match = PUBG_PREFIX_RE.search(normalized)
+        if not match:
+            return ""
+        normalized = normalized[match.start() :]
+    return re.sub(r"[^A-Z0-9-]", "", normalized)
+
+
+def join_pubg_fragments(left: str, right: str) -> str:
+    if not left:
+        return right
+    if not right:
+        return left
+    if left.endswith("-") or right.startswith("-"):
+        return left + right
+    return left + right
 
 
 def extract_cards(text: str) -> list[str]:
@@ -569,7 +602,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{4,5})"
+        + r"([A-Z0-9]{5})"
         + r"(?![A-Z0-9])"
     )
 
@@ -577,6 +610,20 @@ def extract_cards(text: str) -> list[str]:
     seen: set[str] = set()
     for first, second, third, fourth in re.findall(shaped_pattern, text):
         add_card_candidate(cards, seen, first, second, third, fourth)
+
+    missing_s0_pattern = (
+        r"(?<![A-Z0-9])"
+        r"(7[A-Z0-9]{3})"
+        + sep
+        + r"([A-Z0-9]{4})"
+        + sep
+        + r"([A-Z0-9]{4})"
+        + sep
+        + r"([A-Z0-9]{5})"
+        + r"(?![A-Z0-9])"
+    )
+    for tail, second, third, fourth in re.findall(missing_s0_pattern, text):
+        add_card_candidate(cards, seen, f"S0{tail}", second, third, fourth)
 
     noisy_shaped_pattern = (
         r"(?<![A-Z])"
@@ -586,7 +633,7 @@ def extract_cards(text: str) -> list[str]:
         + sep
         + r"([A-Z0-9]{4})"
         + sep
-        + r"([A-Z0-9]{4,5})"
+        + r"([A-Z0-9]{5})"
     )
     for match in re.finditer(noisy_shaped_pattern, text):
         matched_text = match.group(0)
@@ -599,7 +646,7 @@ def extract_cards(text: str) -> list[str]:
         r"([SP5$][0ODQU][7TIL/?][0-9ODQUILTZEA$SGB]{3})"
         r"([A-Z0-9]{4})"
         r"([A-Z0-9]{4})"
-        r"([A-Z0-9]{4,5})"
+        r"([A-Z0-9]{5})"
         r"(?![A-Z0-9])"
     )
     for first, second, third, fourth in re.findall(compact_pattern, text):
@@ -672,9 +719,10 @@ def ordered_ocr_text_lines(items: list | tuple) -> list[OcrTextLine]:
     return sorted(lines, key=lambda line: (line.y, line.x, line.index))
 
 
-def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
+def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str], bool]:
     cards: list[str] = []
     seen: set[str] = set()
+    unresolved = False
     for index, line in enumerate(lines):
         for card in extract_cards(line.text):
             if card not in seen:
@@ -684,25 +732,36 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> list[str]:
             continue
         if not line.text.strip().endswith("-") and len(re.findall(r"-", line.text)) >= 3:
             continue
+        current = clean_pubg_fragment(line.text, from_prefix=True)
+        if not current:
+            continue
         for end in range(index + 1, min(index + 4, len(lines))):
-            joined = "\n".join(part.text for part in lines[index : end + 1])
-            joined_cards = extract_cards(joined)
-            if not joined_cards:
+            next_line = lines[end]
+            if line_has_pubg_prefix(next_line.text):
+                unresolved = True
+                logger.info(
+                    "PUBG LINE WRAP UNRESOLVED: %s reason=next_pubg_prefix",
+                    " + ".join(part.text for part in lines[index:end]),
+                )
+                break
+            next_fragment = clean_pubg_fragment(next_line.text, from_prefix=False)
+            current = join_pubg_fragments(current, next_fragment)
+            card = apply_builtin_pubg_correction(current)
+            if not valid_card(card):
                 continue
-            for card in joined_cards:
-                if card not in seen:
-                    seen.add(card)
-                    cards.append(card)
-                    logger.info(
-                        "PUBG LINE WRAP MERGED: %s => %s",
-                        " + ".join(part.text for part in lines[index : end + 1]),
-                        card,
-                    )
+            if card not in seen:
+                seen.add(card)
+                cards.append(card)
+                logger.info(
+                    "PUBG LINE WRAP MERGED: %s => %s",
+                    " + ".join(part.text for part in lines[index : end + 1]),
+                    card,
+                )
             break
-    return cards
+    return cards, unresolved
 
 
-def extract_source_anchored_pubg_cards(raw_text: str) -> list[str]:
+def extract_source_anchored_pubg_cards(raw_text: str) -> tuple[list[str], bool]:
     """Keep PUBG candidates tied to one OCR line or an adjacent line wrap."""
     return extract_cards_from_ordered_lines(ordered_ocr_text_lines(raw_text.splitlines()))
 
@@ -715,20 +774,20 @@ def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
 
 
 def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: list[str]) -> list[str]:
+    if not text_cards:
+        for card in worker_cards:
+            logger.info("PUBG WORKER CARD DROPPED: %s reason=missing_text_evidence", card)
+        return []
     result: list[str] = []
     seen: set[str] = set()
-    text_keys = {key for card in text_cards if (key := pubg_card_prefix_key(card))}
     for card in text_cards:
         if card in seen:
             continue
         seen.add(card)
         result.append(card)
     for card in worker_cards:
-        key = pubg_card_prefix_key(card)
-        if card in seen:
-            continue
-        reason = "conflict_with_line_wrap" if key in text_keys else "missing_text_evidence"
-        logger.info("PUBG WORKER CARD DROPPED: %s reason=%s", card, reason)
+        if card not in seen:
+            logger.info("PUBG WORKER CARD DROPPED: %s reason=conflict_with_line_wrap", card)
     return result
 
 
@@ -1132,13 +1191,14 @@ def run_ocrspace(
                     raw_chunks.append(raw_text)
 
                 if is_pubg_image_text(raw_text):
-                    legacy_cards = extract_source_anchored_pubg_cards(raw_text)
+                    legacy_cards, unresolved = extract_source_anchored_pubg_cards(raw_text)
                     enhanced_cards, enhanced_stats = [], {
                         "ocr_fixed_count": 0,
                         "ocr_missing_count": 0,
                         "ocr_false_negative": 0,
                         "ocr_character_confusion": 0,
                     }
+                    uncertain_total += int(unresolved)
                 else:
                     legacy_cards = extract_cards(raw_text)
                     enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
@@ -1417,17 +1477,58 @@ def service_active_state() -> str:
 def remote_worker_health() -> tuple[bool, dict[str, object], str]:
     if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
         return False, {}, "disabled"
+    now = time.time()
+    cached = remote_ocr_health_cache.get("result")
+    if (
+        cached is not None
+        and REMOTE_OCR_HEALTH_CACHE_SECONDS > 0
+        and now - float(remote_ocr_health_cache.get("checked_at", 0.0)) <= REMOTE_OCR_HEALTH_CACHE_SECONDS
+    ):
+        return cached  # type: ignore[return-value]
     try:
-        with httpx.Client(timeout=1.5) as client:
-            response = client.get(f"{REMOTE_OCR_URL}/health")
+        client = get_remote_http_client(1.5)
+        response = client.get(f"{REMOTE_OCR_URL}/health")
         if response.status_code != 200:
-            return False, {}, f"status={response.status_code}"
+            result = (False, {}, f"status={response.status_code}")
+            remote_ocr_health_cache.update({"checked_at": now, "result": result})
+            return result
         payload = response.json()
     except Exception as exc:
-        return False, {}, exc.__class__.__name__
+        result = (False, {}, exc.__class__.__name__)
+        remote_ocr_health_cache.update({"checked_at": now, "result": result})
+        return result
     if not isinstance(payload, dict):
-        return False, {}, "invalid_json"
-    return True, payload, "ok"
+        result = (False, {}, "invalid_json")
+        remote_ocr_health_cache.update({"checked_at": now, "result": result})
+        return result
+    result = (True, payload, "ok")
+    remote_ocr_health_cache.update({"checked_at": now, "result": result})
+    return result
+
+
+def get_remote_http_client(timeout: float | None = None) -> httpx.Client:
+    global remote_http_client, remote_http_client_timeout
+    target_timeout = float(timeout if timeout is not None else REMOTE_OCR_TIMEOUT)
+    if remote_http_client is None or remote_http_client_timeout != target_timeout:
+        if remote_http_client is not None:
+            try:
+                remote_http_client.close()
+            except Exception:
+                pass
+        remote_http_client = httpx.Client(timeout=target_timeout)
+        remote_http_client_timeout = target_timeout
+    return remote_http_client
+
+
+def close_remote_http_client() -> None:
+    global remote_http_client, remote_http_client_timeout
+    if remote_http_client is not None:
+        try:
+            remote_http_client.close()
+        except Exception:
+            pass
+    remote_http_client = None
+    remote_http_client_timeout = None
 
 
 def today_cache_counts() -> dict[str, int]:
@@ -1589,19 +1690,32 @@ def record_remote_ocr_status(
 def remote_ocr_available() -> tuple[bool, str]:
     if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
         return False, "disabled"
+    cached = remote_ocr_health_cache.get("result")
+    now = time.time()
+    if (
+        cached is not None
+        and REMOTE_OCR_HEALTH_CACHE_SECONDS > 0
+        and now - float(remote_ocr_health_cache.get("checked_at", 0.0)) <= REMOTE_OCR_HEALTH_CACHE_SECONDS
+    ):
+        ok, _payload, reason = cached  # type: ignore[misc]
+        return bool(ok), str(reason)
     start = time.time()
     try:
-        with httpx.Client(timeout=REMOTE_OCR_TIMEOUT) as client:
-            response = client.get(f"{REMOTE_OCR_URL}/health")
+        client = get_remote_http_client(REMOTE_OCR_TIMEOUT)
+        response = client.get(f"{REMOTE_OCR_URL}/health")
         latency_ms = int((time.time() - start) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}", health_check=True)
+            remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, f"status={response.status_code}")})
             return False, f"status={response.status_code}"
         record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0), health_check=True)
+        payload = response.json()
+        remote_ocr_health_cache.update({"checked_at": start, "result": (True, payload if isinstance(payload, dict) else {}, "ok")})
         return True, "ok"
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__, health_check=True)
+        remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, type(exc).__name__)})
         return False, type(exc).__name__
 
 
@@ -1618,7 +1732,8 @@ def run_remote_ocr(
     record_remote_ocr_start()
     logger.info("REMOTE OCR START url=%s", REMOTE_OCR_URL)
     try:
-        with image_path.open("rb") as image_file, httpx.Client(timeout=REMOTE_OCR_TIMEOUT) as client:
+        client = get_remote_http_client(REMOTE_OCR_TIMEOUT)
+        with image_path.open("rb") as image_file:
             response = client.post(
                 f"{REMOTE_OCR_URL}/ocr",
                 files={"file": (image_path.name, image_file, "image/jpeg")},
@@ -1638,7 +1753,7 @@ def run_remote_ocr(
 
         text_items = payload.get("texts", []) or []
         ordered_lines = ordered_ocr_text_lines(text_items)
-        ordered_line_cards = extract_cards_from_ordered_lines(ordered_lines)
+        ordered_line_cards, has_unresolved_pubg_fragment = extract_cards_from_ordered_lines(ordered_lines)
         text_values: list[str] = []
         for item in text_items:
             if isinstance(item, dict):
@@ -1689,6 +1804,7 @@ def run_remote_ocr(
             raw_text=raw_text,
             uncertain_count=uncertain,
             corrections_applied=card_corrections,
+            has_unresolved_pubg_fragment=has_unresolved_pubg_fragment,
         )
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
@@ -1708,6 +1824,50 @@ def run_ocr(
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
     )
+    if (
+        remote is not None
+        and remote.has_unresolved_pubg_fragment
+        and OCR_PROVIDER == "ocrspace"
+        and OCR_SPACE_API_KEYS
+    ):
+        record_remote_ocr_fallback("remote unresolved pubg fragment")
+        fallback = run_ocrspace(
+            image_path,
+            psn_hint=psn_hint,
+            psn_expected_count=psn_expected_count,
+            pubg_expected_count=pubg_expected_count,
+        )
+        merged, conflict_count = merge_without_guessing(list(fallback.cards), list(remote.cards))
+        settled_cards, correction_conflicts, card_corrections = settle_and_correct_pubg_cards(merged)
+        merged_psn = exact_unique_psn(list(remote.psn_cards) + list(fallback.psn_cards))
+        merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(fallback.psn_uncertain))
+        merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(fallback.psn_ordered), psn_expected_count)
+        merged_raw_text = remote.raw_text + "\n" + fallback.raw_text
+        if settled_cards or is_pubg_image_text(merged_raw_text):
+            merged_psn = []
+            merged_psn_uncertain = []
+            merged_psn_ordered = []
+        if settled_cards or merged_psn or merged_psn_uncertain:
+            return OcrResult(
+                cards=tuple(settled_cards),
+                psn_cards=tuple(merged_psn),
+                psn_uncertain=tuple(merged_psn_uncertain),
+                psn_ordered=tuple(merged_psn_ordered),
+                pubg_expected_count=pubg_expected_count,
+                psn_expected_count=psn_expected_count,
+                raw_text=merged_raw_text,
+                uncertain_count=remote.uncertain_count + fallback.uncertain_count + conflict_count + correction_conflicts,
+                ocr_fixed_count=remote.ocr_fixed_count + fallback.ocr_fixed_count,
+                ocr_missing_count=remote.ocr_missing_count + fallback.ocr_missing_count,
+                ocr_false_negative=remote.ocr_false_negative + fallback.ocr_false_negative,
+                ocr_character_confusion=remote.ocr_character_confusion + fallback.ocr_character_confusion,
+                corrections_applied=tuple(
+                    list(remote.corrections_applied)
+                    + list(fallback.corrections_applied)
+                    + list(card_corrections)
+                ),
+            )
+
     if remote is not None:
         return remote
 
@@ -1836,6 +1996,14 @@ async def assign_photo_sequence(update: Update) -> int:
 
 def photo_sequence(update: Update) -> int:
     return photo_sequence_by_update.get(id(update), 0)
+
+
+def photo_display_order(update: Update) -> tuple[int, int]:
+    message = getattr(update, "message", None)
+    message_id = getattr(message, "message_id", None)
+    if isinstance(message_id, int):
+        return message_id, photo_sequence(update)
+    return 10**12, photo_sequence(update)
 
 
 def result_location(index: int, result: OcrResult) -> str:
@@ -2123,7 +2291,7 @@ def apply_card_corrections(chat_id: int, result: OcrResult) -> OcrResult:
 
 
 def learn_card_corrections_from_reply(update: Update) -> str | None:
-    if not update.message or not update.effective_chat:
+    if not update.message or not update.effective_chat or not is_owner_update(update):
         return None
     reply_message = update.message.reply_to_message
     if not reply_message:
@@ -2186,7 +2354,7 @@ def unlearnable_correction_feedback(update: Update) -> str | None:
 
 
 async def learn_ocr_sample_from_replied_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
-    if not update.message or not update.effective_chat:
+    if not update.message or not update.effective_chat or not is_owner_update(update):
         return None
     reply_message = update.message.reply_to_message
     if not reply_message or not getattr(reply_message, "photo", None):
@@ -2387,7 +2555,8 @@ def calculate_expression(text: str) -> str | None:
         value = _eval_calc_node(tree.body)
     except (SyntaxError, ValueError, InvalidOperation, DivisionByZero, OverflowError):
         return None
-    return _format_calc_result(value)
+    display_expression = re.sub(r"\s+", "", expression)
+    return f"{display_expression}={_format_calc_result(value)}"
 
 
 def normalize_calc_expression(text: str) -> str:
@@ -2429,11 +2598,7 @@ def _eval_calc_node(node: ast.AST) -> Decimal:
 
 
 def _format_calc_result(value: Decimal) -> str:
-    normalized = value.normalize()
-    if normalized == normalized.to_integral():
-        return format(normalized.quantize(Decimal("1")), "f")
-    text = format(normalized, "f")
-    return text.rstrip("0").rstrip(".")
+    return format(value.quantize(Decimal("0.01")), "f")
 
 
 TRC20_ADDRESS_RE = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
@@ -2837,12 +3002,23 @@ def command_body(update: Update, command: str) -> str:
     return "\n".join(values).strip()
 
 
+def learn_cards_body(update: Update) -> str:
+    text = command_body(update, "learn_cards")
+    stripped = text.strip()
+    chinese_command = stripped[1:] if stripped.startswith("/") else stripped
+    if chinese_command == "学习卡密":
+        return ""
+    if chinese_command.startswith("学习卡密"):
+        return chinese_command[len("学习卡密") :].lstrip(" \t\r\n")
+    return text
+
+
 async def learn_cards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not is_owner_update(update):
         return
-    text = command_body(update, "learn_cards")
+    text = learn_cards_body(update)
     if not text:
-        await update.message.reply_text("请在 /learn_cards 后粘贴人工确认的卡密列表。")
+        await update.message.reply_text("请在“学习卡密”后粘贴人工确认的卡密列表。")
         return
     preview = build_learning_preview(text)
     if not preview.ocr_cache_found:
@@ -2923,6 +3099,7 @@ def remember_ledger_user(update: Update) -> None:
         actor.user_id,
         actor.username,
         actor.display_name,
+        bool(getattr(update.effective_user, "is_bot", False)),
     )
 
 
@@ -3169,6 +3346,111 @@ async def handle_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop("broadcast_waiting_text", None)
     await update.message.reply_text(f"广播完成：成功 {success} 个群，失败 {failed} 个群。")
     return True
+
+
+def broadcast_all_targets() -> list[int]:
+    targets: list[int] = []
+    seen: set[int] = set()
+    for row in ledger_store.list_known_users_for_broadcast():
+        user_id = int(row["user_id"])
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        targets.append(user_id)
+    return targets
+
+
+def extract_broadcast_all_text(text: str, command: str) -> str:
+    stripped = text.strip()
+    if stripped == command:
+        return ""
+    if stripped.startswith(command):
+        return stripped[len(command) :].lstrip(" \t\r\n")
+    return stripped
+
+
+def format_broadcast_preview(text: str, target_count: int) -> str:
+    return (
+        "广播预览\n\n"
+        f"目标用户：{target_count}\n"
+        "内容：\n"
+        f"{text}\n\n"
+        "发送“通知所有人”将发送当前预览内容。\n"
+        "发送 /broadcast_cancel 可取消。"
+    )
+
+
+async def broadcast_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "/broadcast_preview")
+    if not text:
+        text = str(context.user_data.get("broadcast_all_pending_text") or "")
+    if not text:
+        await update.message.reply_text("请在 /broadcast_preview 后面填写要预览的通知内容。")
+        return
+    context.user_data["broadcast_all_pending_text"] = text
+    await update.message.reply_text(
+        format_broadcast_preview(text, len(broadcast_all_targets())),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+async def broadcast_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    context.user_data.pop("broadcast_all_pending_text", None)
+    context.user_data.pop("broadcast_selected", None)
+    context.user_data.pop("broadcast_waiting_text", None)
+    await update.message.reply_text("已取消广播任务。")
+
+
+async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "通知所有人")
+    if not text:
+        text = str(context.user_data.get("broadcast_all_pending_text") or "")
+    if not text:
+        await update.message.reply_text("请发送：通知所有人\\n通知内容，或先使用 /broadcast_preview 预览。")
+        return
+    targets = broadcast_all_targets()
+    if not targets:
+        await update.message.reply_text("没有可广播的用户。")
+        return
+    started_at = time.monotonic()
+    success = 0
+    failed = 0
+    for user_id in targets:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+            success += 1
+        except Exception:
+            logger.exception("Broadcast to user %s failed", user_id)
+            failed += 1
+    context.user_data.pop("broadcast_all_pending_text", None)
+    elapsed = time.monotonic() - started_at
+    await update.message.reply_text(
+        "通知所有人完成\n\n"
+        f"成功数量：{success}\n"
+        f"失败数量：{failed}\n"
+        f"耗时：{elapsed:.2f} 秒"
+    )
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3427,17 +3709,17 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         chat_tasks.pop(chat_id, None)
         if not updates:
             return
-        updates.sort(key=photo_sequence)
+        updates.sort(key=photo_display_order)
         message = updates[-1].message
         if not message:
             return
 
         await message.chat.send_action("typing")
         results: list[OcrResult] = []
-        for update in updates:
+        for batch_index, update in enumerate(updates, start=1):
             try:
                 result = await recognize_update(update, context)
-                result = replace(result, sequence_index=photo_sequence(update))
+                result = replace(result, sequence_index=batch_index)
                 corrected = apply_card_corrections(chat_id, result)
                 corrected_pubg, corrected_psn = result_card_lines([corrected])
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
@@ -3501,6 +3783,264 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_tasks[chat_id] = asyncio.create_task(flush_chat_batch(chat_id, context, wait_seconds))
 
 
+notify_all_cooldowns: dict[int, float] = {}
+
+
+def is_group_update(update: Update | None) -> bool:
+    if not update or not update.effective_chat:
+        return False
+    return getattr(update.effective_chat, "type", "") in {"group", "supergroup"}
+
+
+def can_use_group_notify(update: Update | None) -> bool:
+    if not update or not update.effective_chat or not update.effective_user:
+        return False
+    if is_owner_update(update):
+        return True
+    return ledger_store.is_operator(
+        update.effective_chat.id,
+        update.effective_user.id,
+        ledger_owner_ids(update.effective_chat.id),
+    )
+
+
+def broadcast_group_keyboard(selected: set[int] | None = None) -> InlineKeyboardMarkup:
+    selected = selected or set()
+    rows: list[list[InlineKeyboardButton]] = []
+    for row in ledger_store.list_active_bot_groups():
+        chat_id = int(row["chat_id"])
+        title = row["title"] or str(chat_id)
+        prefix = "√" if chat_id in selected else "□"
+        rows.append([InlineKeyboardButton(f"{prefix} {title}", callback_data=f"broadcast:toggle:{chat_id}")])
+    rows.append(
+        [
+            InlineKeyboardButton("下一步", callback_data="broadcast:next"),
+            InlineKeyboardButton("取消", callback_data="broadcast:cancel"),
+        ]
+    )
+    return InlineKeyboardMarkup(rows)
+
+
+async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    groups = ledger_store.list_active_bot_groups()
+    if not groups:
+        await update.message.reply_text("还没有记录到可广播的群。请先让机器人加入群，并让群里产生一条消息。")
+        return
+    context.user_data["broadcast_selected"] = set()
+    context.user_data["broadcast_waiting_text"] = False
+    context.user_data.pop("broadcast_pending_text", None)
+    await update.message.reply_text("请选择要广播的群：", reply_markup=broadcast_group_keyboard(set()))
+
+
+async def broadcast_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set) or not selected:
+        await update.message.reply_text("请先使用 /broadcast 或“广播”选择要广播的群。")
+        return
+    text = extract_broadcast_all_text(update.message.text or "", "/broadcast_preview")
+    if text:
+        context.user_data["broadcast_pending_text"] = text
+    text = str(context.user_data.get("broadcast_pending_text") or "")
+    if not text:
+        await update.message.reply_text("当前没有可预览的广播内容。")
+        return
+    titles = "\n".join(f"- {html.escape(title)}" for title in selected_broadcast_titles(selected))
+    await update.message.reply_text(
+        f"广播目标：\n{titles}\n\n广播内容：\n{html.escape(text)}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def broadcast_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update_is_private_chat(update):
+        return
+    if not is_owner_update(update):
+        await update.message.reply_text("无权限。")
+        return
+    context.user_data.pop("broadcast_selected", None)
+    context.user_data.pop("broadcast_waiting_text", None)
+    context.user_data.pop("broadcast_pending_text", None)
+    await update.message.reply_text("已取消广播。")
+
+
+def selected_broadcast_titles(selected: set[int]) -> list[str]:
+    groups = {int(row["chat_id"]): (row["title"] or str(row["chat_id"])) for row in ledger_store.list_active_bot_groups()}
+    return [groups.get(chat_id, str(chat_id)) for chat_id in sorted(selected)]
+
+
+async def handle_broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    if not is_owner_update(update):
+        await query.edit_message_text("无权限。")
+        return
+    data = query.data or ""
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set):
+        selected = set()
+    if data == "broadcast:cancel":
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await query.edit_message_text("已取消广播。")
+        return
+    if data == "broadcast:next":
+        if not selected:
+            await query.edit_message_text("请至少选择一个群。", reply_markup=broadcast_group_keyboard(selected))
+            return
+        context.user_data["broadcast_selected"] = selected
+        context.user_data["broadcast_waiting_text"] = True
+        await query.edit_message_text("请输入要广播的内容。")
+        return
+    if data == "broadcast:confirm":
+        text = str(context.user_data.get("broadcast_pending_text") or "")
+        if not selected or not text:
+            await query.edit_message_text("广播任务已失效，请重新发送 /broadcast。")
+            return
+        started_at = time.monotonic()
+        success = 0
+        failed = 0
+        for chat_id in sorted(selected):
+            try:
+                await context.bot.send_message(chat_id=chat_id, text=text)
+                success += 1
+            except Exception:
+                logger.exception("Broadcast to chat %s failed", chat_id)
+                failed += 1
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await query.edit_message_text(f"广播完成\n成功：{success}\n失败：{failed}\n耗时：{time.monotonic() - started_at:.2f}秒")
+        return
+    match = re.fullmatch(r"broadcast:toggle:(-?\d+)", data)
+    if match:
+        chat_id = int(match.group(1))
+        if chat_id in selected:
+            selected.remove(chat_id)
+        else:
+            selected.add(chat_id)
+        context.user_data["broadcast_selected"] = selected
+        await query.edit_message_reply_markup(reply_markup=broadcast_group_keyboard(selected))
+
+
+async def handle_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    if not update.message or not update_is_private_chat(update) or not is_owner_update(update):
+        return False
+    if not context.user_data.get("broadcast_waiting_text"):
+        return False
+    text = update.message.text or ""
+    if text.strip() in {"取消", "取消广播", "/broadcast_cancel"}:
+        context.user_data.pop("broadcast_selected", None)
+        context.user_data.pop("broadcast_waiting_text", None)
+        context.user_data.pop("broadcast_pending_text", None)
+        await update.message.reply_text("已取消广播。")
+        return True
+    selected = context.user_data.get("broadcast_selected")
+    if not isinstance(selected, set) or not selected:
+        context.user_data.pop("broadcast_waiting_text", None)
+        await update.message.reply_text("没有选择群，请重新发送 /broadcast。")
+        return True
+    context.user_data["broadcast_pending_text"] = text
+    titles = "\n".join(f"- {html.escape(title)}" for title in selected_broadcast_titles(selected))
+    preview = f"广播目标：\n{titles}\n\n广播内容：\n{html.escape(text)}"
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("确认发送", callback_data="broadcast:confirm"), InlineKeyboardButton("取消", callback_data="broadcast:cancel")]]
+    )
+    await update.message.reply_text(preview, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    return True
+
+
+def extract_notify_all_text(text: str) -> str:
+    stripped = text.strip()
+    for command in ("通知所有人", "/notify_all", "/at_all"):
+        if stripped == command:
+            return ""
+        if stripped.startswith(command):
+            return stripped[len(command) :].strip()
+    return ""
+
+
+def html_mention_for_member(row) -> str:
+    username = (row["username"] or "").strip()
+    if username:
+        return "@" + html.escape(username.lstrip("@"))
+    display_name = html.escape((row["display_name"] or "").strip() or str(row["user_id"]))
+    return f'<a href="tg://user?id={int(row["user_id"])}">{display_name}</a>'
+
+
+def chunked(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_group_update(update):
+        return
+    remember_bot_chat(update)
+    remember_ledger_user(update)
+    if not can_use_group_notify(update):
+        await update.message.reply_text("无权限。")
+        return
+    chat_id = update.effective_chat.id
+    now = time.monotonic()
+    last_sent_at = notify_all_cooldowns.get(chat_id, 0)
+    if now - last_sent_at < 300:
+        await update.message.reply_text(f"通知所有人冷却中，请 {int(300 - (now - last_sent_at))} 秒后再试。")
+        return
+    members = ledger_store.list_active_known_members(chat_id, days=30)
+    mentions = [html_mention_for_member(row) for row in members]
+    if not mentions:
+        await update.message.reply_text("当前群没有最近30天活跃成员缓存。")
+        return
+    content = extract_notify_all_text(update.message.text or "")
+    notify_all_cooldowns[chat_id] = now
+    chunks = chunked(mentions, 50)
+    for index, mention_chunk in enumerate(chunks):
+        parts = ["📢 通知所有人"]
+        if content and index == 0:
+            parts.extend(["", html.escape(content)])
+        parts.extend(["", " ".join(mention_chunk)])
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(parts),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+        if index < len(chunks) - 1:
+            await asyncio.sleep(1)
+
+
+async def notify_members_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not is_group_update(update):
+        return
+    remember_bot_chat(update)
+    remember_ledger_user(update)
+    if not can_use_group_notify(update):
+        await update.message.reply_text("无权限。")
+        return
+    chat_id = update.effective_chat.id
+    total = ledger_store.count_active_known_members(chat_id)
+    recent_7 = ledger_store.count_active_known_members(chat_id, days=7)
+    recent_30 = ledger_store.count_active_known_members(chat_id, days=30)
+    await update.message.reply_text(
+        "当前群成员缓存\n"
+        f"缓存人数：{total}\n"
+        f"最近7天活跃：{recent_7}\n"
+        f"最近30天活跃：{recent_30}"
+    )
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("Please set BOT_TOKEN in .env first")
@@ -3536,7 +4076,13 @@ def main() -> None:
     )
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_LEDGER)}$"), handle_ledger_menu))
     app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_ADD_GROUP)}$"), handle_add_group_menu))
+    app.add_handler(CommandHandler("broadcast", start_broadcast))
     app.add_handler(MessageHandler(filters.Regex(r"^广播$") & filters.ChatType.PRIVATE, start_broadcast))
+    app.add_handler(CommandHandler("broadcast_preview", broadcast_preview_command))
+    app.add_handler(CommandHandler("broadcast_cancel", broadcast_cancel_command))
+    app.add_handler(CommandHandler(["notify_all", "at_all"], notify_all_command))
+    app.add_handler(CommandHandler("notify_members", notify_members_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.GROUPS, notify_all_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(

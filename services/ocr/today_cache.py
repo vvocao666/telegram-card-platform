@@ -8,6 +8,7 @@ from pathlib import Path
 
 DEFAULT_TODAY_OCR_CACHE_PATH = Path("outputs/today_ocr_cache.json")
 LOCAL_TZ = timezone(timedelta(hours=8))
+RETENTION_HOURS = 24
 
 
 @dataclass(frozen=True)
@@ -31,17 +32,21 @@ def append_today_ocr_cache(
     current_date = current_time.strftime("%Y-%m-%d")
     cache_path = Path(path)
     data = _read_cache(cache_path)
-    if data.get("date") != current_date:
+    if not data:
         data = {
             "date": current_date,
             "images": 0,
             "ocr_cards": [],
             "raw_candidates": [],
+            "ocr_entries": [],
             "time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
+    data["ocr_entries"] = _retained_entries(data, current_time)
     data["images"] = int(data.get("images", 0)) + image_count
-    data["ocr_cards"] = _append_unique(_string_list(data.get("ocr_cards")), ocr_cards)
+    data["ocr_entries"] = _append_entry_cards(_entry_list(data.get("ocr_entries")), ocr_cards, current_time)
+    data["ocr_cards"] = _cards_from_entries(_entry_list(data.get("ocr_entries")))
     data["raw_candidates"] = _append_unique(_string_list(data.get("raw_candidates")), raw_candidates)
+    data["date"] = current_date
     data["time"] = current_time.strftime("%Y-%m-%d %H:%M:%S")
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -56,10 +61,20 @@ def read_today_ocr_cache(
     if not cache_path.exists():
         return None
     data = _read_cache(cache_path)
-    current_date = (now or datetime.now(LOCAL_TZ)).strftime("%Y-%m-%d")
-    if data.get("date") != current_date:
+    if not data:
         return None
-    return data
+    current_time = now or datetime.now(LOCAL_TZ)
+    retained = _retained_entries(data, current_time)
+    if retained:
+        data["ocr_entries"] = retained
+        data["ocr_cards"] = _cards_from_entries(retained)
+        return data
+    cache_time = _parse_time(str(data.get("time") or ""))
+    if cache_time and current_time - cache_time <= timedelta(hours=RETENTION_HOURS):
+        return data
+    if data.get("date") == current_time.strftime("%Y-%m-%d"):
+        return data
+    return None
 
 
 def today_ocr_cache_summary(
@@ -96,6 +111,80 @@ def _read_cache(path: Path) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _retained_entries(data: dict[str, object], now: datetime) -> list[dict[str, str]]:
+    entries = _entry_list(data.get("ocr_entries"))
+    if not entries:
+        cache_time = _parse_time(str(data.get("time") or ""))
+        if cache_time and now - cache_time <= timedelta(hours=RETENTION_HOURS):
+            time_text = _format_time(cache_time)
+            return [{"card": card, "time": time_text} for card in _string_list(data.get("ocr_cards"))]
+        return []
+    retained: list[dict[str, str]] = []
+    for entry in entries:
+        entry_time = _parse_time(entry.get("time", ""))
+        if entry_time and now - entry_time <= timedelta(hours=RETENTION_HOURS):
+            retained.append(entry)
+    return retained
+
+
+def _append_entry_cards(
+    existing: list[dict[str, str]],
+    values: list[str] | tuple[str, ...],
+    now: datetime,
+) -> list[dict[str, str]]:
+    seen = {entry["card"] for entry in existing if entry.get("card")}
+    result = list(existing)
+    time_text = _format_time(now)
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append({"card": str(value), "time": time_text})
+    return result
+
+
+def _cards_from_entries(entries: list[dict[str, str]]) -> list[str]:
+    seen: set[str] = set()
+    cards: list[str] = []
+    for entry in entries:
+        card = entry.get("card")
+        if not card or card in seen:
+            continue
+        seen.add(card)
+        cards.append(card)
+    return cards
+
+
+def _entry_list(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        card = item.get("card")
+        time_text = item.get("time")
+        if isinstance(card, str) and card:
+            entries.append({"card": card, "time": str(time_text or "")})
+    return entries
+
+
+def _parse_time(value: str) -> datetime | None:
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            parsed = datetime.strptime(value, fmt)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=LOCAL_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def _format_time(value: datetime) -> str:
+    return value.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _append_unique(existing: list[str], values: list[str] | tuple[str, ...]) -> list[str]:

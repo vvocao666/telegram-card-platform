@@ -6,7 +6,9 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def reset_remote_ocr_status():
+def reset_remote_ocr_status(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
+    bot.close_remote_http_client()
     bot.remote_ocr_status.update(
         {
             "last_ok": False,
@@ -27,7 +29,9 @@ def reset_remote_ocr_status():
             "today_cache_hits": 0,
         }
     )
+    bot.remote_ocr_health_cache.update({"checked_at": 0.0, "result": None})
     yield
+    bot.close_remote_http_client()
 
 
 class FakeResponse:
@@ -152,6 +156,38 @@ def test_run_ocr_falls_back_to_ocrspace_when_remote_fails(monkeypatch, tmp_path)
         bot.LOCAL_COMPLEMENT = old_complement
 
 
+def test_run_ocr_complements_remote_when_pubg_fragment_unresolved(monkeypatch, tmp_path):
+    remote = bot.OcrResult(
+        cards=("S07304-PZA2-THGH-LPAAZ", "S07304-CDRC-ULTQ-T6JZP"),
+        raw_text="S07304-EVGM-\n/H-7CD7Q\nS07304-PZA2-THGH-LPAAZ\nS07304-CDRC-ULTQ-T6JZP",
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=("S07304-EVGM-PDWH-7CD7Q", "S07304-PZA2-THGH-LPAAZ", "S07304-CDRC-ULTQ-T6JZP"),
+        raw_text="S07304-EVGM-PDWH-7CD7Q\nS07304-PZA2-THGH-LPAAZ\nS07304-CDRC-ULTQ-T6JZP",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (
+            "S07304-EVGM-PDWH-7CD7Q",
+            "S07304-PZA2-THGH-LPAAZ",
+            "S07304-CDRC-ULTQ-T6JZP",
+        )
+        assert result.psn_cards == tuple()
+        assert bot.remote_ocr_status["today_fallback_count"] == 1
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
@@ -199,6 +235,8 @@ def test_remote_ocr_health_logs_ok_and_failed(monkeypatch, caplog):
     assert bot.remote_ocr_status["remote_health"] is True
     assert "REMOTE OCR HEALTH OK" in caplog.text
 
+    bot.remote_ocr_health_cache.update({"checked_at": 0.0, "result": None})
+    bot.close_remote_http_client()
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(status_code=500)))
     with caplog.at_level("INFO", logger="telegram-card-platform"):
         available, reason = bot.remote_ocr_available()
@@ -207,6 +245,24 @@ def test_remote_ocr_health_logs_ok_and_failed(monkeypatch, caplog):
     assert reason == "status=500"
     assert bot.remote_ocr_status["remote_health"] is False
     assert "REMOTE OCR HEALTH FAILED reason=health status 500" in caplog.text
+
+
+def test_remote_worker_health_uses_short_cache(monkeypatch):
+    calls = {"count": 0}
+
+    class CountingClient(FakeClient):
+        def get(self, *args, **kwargs):
+            calls["count"] += 1
+            return self.response
+
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: CountingClient(FakeResponse(payload={"status": "ok"})))
+
+    first = bot.remote_worker_health()
+    second = bot.remote_worker_health()
+
+    assert first[0] is True
+    assert second[0] is True
+    assert calls["count"] == 1
 
 
 def test_remote_ocr_status_command_outputs_requested_fields(monkeypatch):

@@ -168,14 +168,16 @@ class BotFormattingTests(unittest.TestCase):
                 store.close()
 
     def test_calculator_expression(self):
-        self.assertEqual("180", bot.calculate_expression("60*3"))
-        self.assertEqual("20", bot.calculate_expression("(10 + 30) / 2"))
-        self.assertEqual("7.5", bot.calculate_expression("5*1.5"))
-        self.assertEqual("19", bot.calculate_expression("1+2x3+2x6"))
-        self.assertEqual("19", bot.calculate_expression("1+2×3+2×6"))
-        self.assertEqual("20", bot.calculate_expression("60÷3"))
-        self.assertEqual("19", bot.calculate_expression("１＋２×３＋２×６"))
-
+        self.assertEqual("60*3=180.00", bot.calculate_expression("60*3"))
+        self.assertEqual("80*6.8=544.00", bot.calculate_expression("80*6.8"))
+        self.assertEqual("61075/8978=6.80", bot.calculate_expression("61075/8978"))
+        self.assertEqual("(10+30)/2=20.00", bot.calculate_expression("(10 + 30) / 2"))
+        self.assertEqual("100-25=75.00", bot.calculate_expression("100-25"))
+        self.assertEqual("5*1.5=7.50", bot.calculate_expression("5*1.5"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("1+2x3+2x6"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("1+2×3+2×6"))
+        self.assertEqual("60/3=20.00", bot.calculate_expression("60÷3"))
+        self.assertEqual("1+2*3+2*6=19.00", bot.calculate_expression("１＋２×３＋２×６"))
     def test_calculator_ignores_non_expressions(self):
         self.assertIsNone(bot.calculate_expression("+100"))
         self.assertIsNone(bot.calculate_expression("账单"))
@@ -379,10 +381,10 @@ class BotFormattingTests(unittest.TestCase):
         self.assertFalse(bot.valid_card("S07304-KVTE-JZGW-JVB41J"))
         self.assertFalse(bot.valid_card("S0734-KVTE-JZGW-JVB4U"))
         self.assertFalse(bot.valid_card("S07304-KVTE1-JZGW-JVB4U"))
-        self.assertTrue(bot.valid_card("S07304-KVTE-JZGW-JVB4"))
+        self.assertFalse(bot.valid_card("S07304-KVTE-JZGW-JVB4"))
 
         self.assertEqual(["S07304-KVTE-JZGW-JVB4U"], bot.extract_cards("S07304-KVTE-JZGW-JVB4U"))
-        self.assertEqual(["S07304-KVTE-JZGW-JVB4"], bot.extract_cards("S07304-KVTE-JZGW-JVB4"))
+        self.assertEqual([], bot.extract_cards("S07304-KVTE-JZGW-JVB4"))
         self.assertEqual([], bot.extract_cards("S07304-KVTE-JZGW-JVB41J"))
 
     def test_pubg_card_after_label_digit_is_extracted(self):
@@ -538,9 +540,11 @@ class BotFormattingTests(unittest.TestCase):
     def test_card_correction_learning_persists_and_applies(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             bot.ledger_store = store
             try:
+                bot.OWNER_CHAT_ID = "111"
                 update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
                 reply_message = type(
                     "ReplyMessage",
@@ -572,11 +576,46 @@ class BotFormattingTests(unittest.TestCase):
                 )
             finally:
                 bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
+                store.close()
+
+    def test_non_owner_cannot_learn_card_correction_from_reply(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            bot.ledger_store = store
+            try:
+                bot.OWNER_CHAT_ID = "999"
+                update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
+                reply_message = type(
+                    "ReplyMessage",
+                    (),
+                    {"text": "PSN卡密\nRJTR-PTMQ-2H1C", "caption": None},
+                )()
+                update.message = type(
+                    "Message",
+                    (),
+                    {
+                        "message_id": 20,
+                        "text": "FK4L-D7MP-2GQX",
+                        "reply_to_message": reply_message,
+                    },
+                )()
+
+                learned = bot.learn_card_corrections_from_reply(update)
+
+                self.assertIsNone(learned)
+                self.assertIsNone(store.get_card_correction(-1001, "PSN", "RJTR-PTMQ-2H1C"))
+            finally:
+                bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
                 store.close()
 
     def test_ocr_sample_learning_persists_and_applies(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
+            old_owner = bot.OWNER_CHAT_ID
             old_download = bot.download_message_photo
             old_run_ocr = bot.run_ocr
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
@@ -593,6 +632,7 @@ class BotFormattingTests(unittest.TestCase):
             bot.download_message_photo = fake_download
             bot.run_ocr = fake_run_ocr
             try:
+                bot.OWNER_CHAT_ID = "111"
                 update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
                 photo = type("Photo", (), {"file_id": "file", "file_unique_id": "unique"})()
                 reply_message = type("ReplyMessage", (), {"photo": [photo]})()
@@ -617,6 +657,7 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), corrected.cards)
             finally:
                 bot.ledger_store = old_store
+                bot.OWNER_CHAT_ID = old_owner
                 bot.download_message_photo = old_download
                 bot.run_ocr = old_run_ocr
                 store.close()

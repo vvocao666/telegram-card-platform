@@ -12,6 +12,7 @@ PUBG_PREFIXES = (
     "S07303",
     "S07240",
     "S07292",
+    "S07298",
     "S07213",
     "S07291",
     "S07205",
@@ -19,11 +20,7 @@ PUBG_PREFIXES = (
     "S07228",
     "S07286",
 )
-PUBG_RE = re.compile(
-    r"^(?:"
-    + "|".join(PUBG_PREFIXES)
-    + r")-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}$"
-)
+PUBG_RE = re.compile(r"^S07[A-Z0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$")
 DEFAULT_FONT_HASH = "unknown_font"
 
 

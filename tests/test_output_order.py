@@ -127,3 +127,16 @@ def test_output_order_duplicate_keeps_first_sequence_position():
     reply = bot.format_reply(results)
 
     assert _pubg_lines(reply) == [first, second]
+
+
+def test_photo_display_order_prefers_telegram_message_id_over_receive_sequence():
+    first_update = type("Update", (), {"message": type("Message", (), {"message_id": 5})()})()
+    second_update = type("Update", (), {"message": type("Message", (), {"message_id": 9})()})()
+    bot.photo_sequence_by_update.clear()
+    bot.photo_sequence_by_update[id(first_update)] = 2
+    bot.photo_sequence_by_update[id(second_update)] = 1
+
+    updates = [second_update, first_update]
+    updates.sort(key=bot.photo_display_order)
+
+    assert updates == [first_update, second_update]
