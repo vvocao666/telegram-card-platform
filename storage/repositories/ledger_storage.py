@@ -29,6 +29,9 @@ class LedgerEntry:
     currency: str
     rate: Decimal
     fee_percent: Decimal
+    fee_amount: Decimal
+    payable_amount: Decimal
+    payable_usdt: Decimal
     net_amount: Decimal
     note: str
     operator_id: int
@@ -43,6 +46,7 @@ class LedgerSummary:
     income: Decimal
     payout: Decimal
     fees: Decimal
+    payable_amount: Decimal
     balance: Decimal
     income_usdt: Decimal
     payout_usdt: Decimal
@@ -142,6 +146,9 @@ class LedgerStore:
                 currency TEXT NOT NULL,
                 rate TEXT NOT NULL,
                 fee_percent TEXT NOT NULL,
+                fee_amount TEXT NOT NULL DEFAULT '0.00',
+                payable_amount TEXT NOT NULL DEFAULT '0.00',
+                payable_usdt TEXT NOT NULL DEFAULT '0.00',
                 net_amount TEXT NOT NULL,
                 note TEXT NOT NULL DEFAULT '',
                 operator_id INTEGER NOT NULL,
@@ -194,17 +201,52 @@ class LedgerStore:
             """
         )
         self._add_column_if_missing("entries", "source_message_id", "INTEGER")
+        self._add_column_if_missing("entries", "fee_percent", "TEXT NOT NULL DEFAULT '0.0000'")
+        self._add_column_if_missing("entries", "net_amount", "TEXT NOT NULL DEFAULT '0.00'")
+        self._add_column_if_missing("entries", "fee_amount", "TEXT NOT NULL DEFAULT '0.00'")
+        self._add_column_if_missing("entries", "payable_amount", "TEXT NOT NULL DEFAULT '0.00'")
+        self._add_column_if_missing("entries", "payable_usdt", "TEXT NOT NULL DEFAULT '0.00'")
+        self._add_column_if_missing("chat_settings", "fee_percent", "TEXT NOT NULL DEFAULT '0.0000'")
         self._add_column_if_missing("chat_settings", "ledger_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
+        self._migrate_legacy_fee_snapshots()
         self.conn.commit()
 
     def _add_column_if_missing(self, table: str, column: str, definition: str) -> None:
         columns = {row["name"] for row in self.conn.execute(f"PRAGMA table_info({table})")}
         if column not in columns:
             self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _migrate_legacy_fee_snapshots(self) -> None:
+        self.conn.execute(
+            """
+            UPDATE entries
+            SET
+                fee_percent = COALESCE(NULLIF(fee_percent, ''), '0.0000'),
+                fee_amount = CASE
+                    WHEN fee_amount IS NULL OR fee_amount = '' THEN '0.00'
+                    ELSE fee_amount
+                END,
+                payable_amount = CASE
+                    WHEN kind = 'income' AND (payable_amount IS NULL OR payable_amount = '' OR payable_amount = '0.00') THEN amount
+                    WHEN payable_amount IS NULL OR payable_amount = '' THEN amount
+                    ELSE payable_amount
+                END,
+                payable_usdt = CASE
+                    WHEN kind = 'income' AND (payable_usdt IS NULL OR payable_usdt = '' OR payable_usdt = '0.00') AND CAST(net_amount AS REAL) = 0 THEN printf('%.2f', CAST(amount AS REAL) / CAST(rate AS REAL))
+                    WHEN payable_usdt IS NULL OR payable_usdt = '' OR payable_usdt = '0.00' THEN net_amount
+                    ELSE payable_usdt
+                END,
+                net_amount = CASE
+                    WHEN kind = 'income' AND (net_amount IS NULL OR net_amount = '' OR net_amount = '0.00') THEN printf('%.2f', CAST(amount AS REAL) / CAST(rate AS REAL))
+                    WHEN net_amount IS NULL OR net_amount = '' THEN amount
+                    ELSE net_amount
+                END
+            """
+        )
 
     def remember_bot_chat(self, chat_id: int, title: str, chat_type: str) -> None:
         self.conn.execute(
@@ -252,7 +294,7 @@ class LedgerStore:
         self.ensure_chat(chat_id)
         new_rate = rate(value)
         if new_rate <= 0:
-            raise ValueError("rate must be greater than 0")
+            raise ValueError("汇率必须大于0")
         self.conn.execute("UPDATE chat_settings SET rate = ? WHERE chat_id = ?", (str(new_rate), chat_id))
         self.conn.commit()
         return new_rate
@@ -261,7 +303,9 @@ class LedgerStore:
         self.ensure_chat(chat_id)
         new_fee = rate(value)
         if new_fee < 0:
-            raise ValueError("fee percent cannot be negative")
+            raise ValueError("费率不能为负数")
+        if new_fee >= 100:
+            raise ValueError("费率必须小于100")
         self.conn.execute("UPDATE chat_settings SET fee_percent = ? WHERE chat_id = ?", (str(new_fee), chat_id))
         self.conn.commit()
         return new_fee
@@ -451,17 +495,25 @@ class LedgerStore:
             raise ValueError("amount must be greater than 0")
 
         current_rate, fee_percent = self.get_settings(chat_id)
-        converted = money(amount_value / current_rate)
-        fee_amount = money(converted * fee_percent / Decimal("100"))
-        net = converted - fee_amount if kind == "income" else amount_value
+        if kind == "income":
+            fee_amount = money(amount_value * fee_percent / Decimal("100"))
+            payable_amount = money(amount_value - fee_amount)
+            payable_usdt = money(payable_amount / current_rate)
+            net = payable_usdt
+        else:
+            fee_amount = money("0")
+            payable_amount = money(amount_value)
+            payable_usdt = money(amount_value)
+            net = amount_value
         now = self._now()
         cursor = self.conn.execute(
             """
             INSERT INTO entries (
-                chat_id, kind, amount, currency, rate, fee_percent, net_amount, note,
+                chat_id, kind, amount, currency, rate, fee_percent, fee_amount,
+                payable_amount, payable_usdt, net_amount, note,
                 operator_id, operator_name, created_at, source_message_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -470,6 +522,9 @@ class LedgerStore:
                 currency.upper(),
                 str(current_rate),
                 str(fee_percent),
+                str(fee_amount),
+                str(payable_amount),
+                str(payable_usdt),
                 str(money(net)),
                 note,
                 operator_id,
@@ -750,26 +805,31 @@ class LedgerStore:
     def summary(self, chat_id: int) -> LedgerSummary:
         current_rate, fee_percent = self.get_settings(chat_id)
         rows = self.conn.execute(
-            "SELECT kind, net_amount, amount, rate, fee_percent FROM entries WHERE chat_id = ? AND voided_at IS NULL",
+            """
+            SELECT kind, net_amount, amount, rate, fee_percent, fee_amount, payable_amount, payable_usdt
+            FROM entries
+            WHERE chat_id = ? AND voided_at IS NULL
+            """,
             (chat_id,),
         ).fetchall()
         income = Decimal("0")
+        payable_amount = Decimal("0")
         income_usdt = Decimal("0")
         payout_usdt = Decimal("0")
         fees = Decimal("0")
         for row in rows:
-            converted = money(Decimal(row["amount"]) / Decimal(row["rate"]))
-            fee_amount = money(converted * Decimal(row["fee_percent"]) / Decimal("100"))
             if row["kind"] == "income":
                 income += Decimal(row["amount"])
-                income_usdt += Decimal(row["net_amount"])
-                fees += fee_amount
+                fees += Decimal(row["fee_amount"])
+                payable_amount += Decimal(row["payable_amount"])
+                income_usdt += Decimal(row["payable_usdt"])
             else:
                 payout_usdt += Decimal(row["net_amount"])
         return LedgerSummary(
             income=money(income),
             payout=money(payout_usdt),
             fees=money(fees),
+            payable_amount=money(payable_amount),
             balance=money(max(income_usdt - payout_usdt, Decimal("0"))),
             income_usdt=money(income_usdt),
             payout_usdt=money(payout_usdt),
@@ -793,6 +853,9 @@ class LedgerStore:
             currency=row["currency"],
             rate=rate(row["rate"]),
             fee_percent=rate(row["fee_percent"]),
+            fee_amount=money(row["fee_amount"]),
+            payable_amount=money(row["payable_amount"]),
+            payable_usdt=money(row["payable_usdt"]),
             net_amount=money(row["net_amount"]),
             note=row["note"],
             operator_id=row["operator_id"],

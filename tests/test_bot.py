@@ -919,9 +919,9 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIsNotNone(bill)
                 self.assertIn("已入款(1笔)", bill.text)
                 self.assertIn("已下发(1笔)", bill.text)
-                self.assertIn("应下发：100.00 | 100U", bill.text)
-                self.assertIn("已下发：40U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">60U</a>】', bill.text)
+                self.assertIn("应下发：100.00 | 100.00U", bill.text)
+                self.assertIn("已下发：40.00U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">60.00U</a>】', bill.text)
             finally:
                 store.close()
 
@@ -955,11 +955,11 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIsNotNone(income)
                 self.assertIsNotNone(bill)
                 self.assertIn("1000.00/10=100.00U", bill.text)
-                self.assertIn("汇率：10.0", bill.text)
+                self.assertIn("汇率：10.00", bill.text)
                 self.assertIn("总入款金额：1000.00", bill.text)
-                self.assertIn("应下发：1000.00 | 100U", bill.text)
-                self.assertIn("已下发：0U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">100U</a>】', bill.text)
+                self.assertIn("应下发：1000.00 | 100.00U", bill.text)
+                self.assertIn("已下发：0.00U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">100.00U</a>】', bill.text)
                 self.assertLess(bill.text.index("总入款金额："), bill.text.index("汇率："))
                 self.assertLess(bill.text.index("汇率："), bill.text.index("应下发："))
                 self.assertLess(bill.text.index("应下发："), bill.text.index("已下发："))
@@ -984,9 +984,9 @@ class BotFormattingTests(unittest.TestCase):
 
                 self.assertIsNotNone(bill)
                 self.assertIn("总入款金额：1000.00", bill.text)
-                self.assertIn("应下发：1000.00 | 100U", bill.text)
-                self.assertIn("已下发：1500U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">0U</a>】', bill.text)
+                self.assertIn("应下发：1000.00 | 100.00U", bill.text)
+                self.assertIn("已下发：1500.00U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">0.00U</a>】', bill.text)
             finally:
                 store.close()
 

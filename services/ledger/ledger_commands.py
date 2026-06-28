@@ -29,6 +29,7 @@ class CommandResult:
 
 
 AMOUNT_RE = re.compile(r"(?P<amount>\d+(?:\.\d+)?)")
+SIGNED_AMOUNT_RE = re.compile(r"(?P<amount>-?\d+(?:\.\d+)?)")
 ENTRY_NUMBER_RE = re.compile(r"#(?P<number>\d+)")
 LOCAL_TZ = timezone(timedelta(hours=8))
 RECENT_LIMIT = 3
@@ -49,6 +50,8 @@ HELP_TEXT = """卡密识别/记账专用
 暂停/开启 - 关闭记账/开启记账的简写
 日切1 - 每天凌晨1点账单自动归0
 汇率 1 / 设置汇率1 - 默认汇率1，入款合计按人民币原值显示，流水显示“金额/汇率=U”
+设置费率10 - 从入款中扣除10%手续费后再计算应下发金额和U，修改后仅影响后续新账单
+查看费率 - 查看当前群汇率和费率
 币价/bj/z0 - 查看欧意USDT/CNY最新5档价格
 关闭识别/开启识别 - 暂停或恢复卡密识别
 
@@ -144,8 +147,22 @@ def handle_text(
             return CommandResult("这个用户不是操作员。")
         return CommandResult(f"已删除操作员：{reply_user.label}", changed=True)
 
+    if normalized in {"查看费率", "/fee_rate"}:
+        if chat_id >= 0:
+            return CommandResult("请在群内查看费率。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("无权限查看费率。")
+        current_rate, fee_percent = store.get_settings(chat_id)
+        return CommandResult(
+            f"当前汇率：{_format_money(current_rate)}\n当前费率：{_format_percent(fee_percent)}"
+        )
+
     if normalized.startswith("汇率") or normalized.startswith("设置汇率"):
-        value = _first_decimal(normalized)
+        if chat_id >= 0:
+            return CommandResult("请在群内设置汇率。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("无权限设置汇率。")
+        value = _first_signed_decimal(normalized)
         if value is None:
             return CommandResult("格式：汇率 7.2 或 设置汇率7.2")
         try:
@@ -154,15 +171,30 @@ def handle_text(
             return CommandResult(str(exc))
         return CommandResult(f"汇率已设置为 {new_rate}", changed=True)
 
-    if normalized.startswith("费率"):
-        value = _first_decimal(normalized)
+    if normalized.startswith("设置费率") or normalized.startswith("/set_fee") or normalized.startswith("费率"):
+        if chat_id >= 0:
+            return CommandResult("请在群内设置费率。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("无权限设置费率。")
+        value = _first_signed_decimal(normalized)
         if value is None:
-            return CommandResult("格式：费率 1.5")
+            return CommandResult("格式：设置费率10 或 /set_fee 10")
         try:
             fee = store.set_fee_percent(chat_id, value)
         except ValueError as exc:
             return CommandResult(str(exc))
-        return CommandResult(f"费率已设置为 {fee}%", changed=True)
+        current_rate, current_fee = store.get_settings(chat_id)
+        return CommandResult(
+            "\n".join(
+                [
+                    f"✅ 已设置本群费率：{_format_percent(fee)}",
+                    "",
+                    f"当前汇率：{_format_money(current_rate)}",
+                    f"当前费率：{_format_percent(current_fee)}",
+                ]
+            ),
+            changed=True,
+        )
 
     if normalized in {"撤销", "撤销账单", "回滚", "/undo"}:
         entry = store.entry_for_source_message(chat_id, reply_message_id) if reply_message_id is not None else None
@@ -230,8 +262,10 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "full", show_all_
         "--------------------------------",
         title,
         f"总入款金额：{summary.income}",
-        f"汇率：{_format_summary_rate(summary.rate)}",
-        f"应下发：{summary.income} | {_format_usdt(summary.income_usdt)}U",
+        f"汇率：{_format_money(summary.rate)}",
+        f"费率：{_format_percent(summary.fee_percent)}",
+        f"手续费：{summary.fees}",
+        f"应下发：{summary.payable_amount} | {_format_usdt(summary.income_usdt)}U",
         f"已下发：{_format_usdt(summary.payout_usdt)}U",
         f"未下发：【{_blue(f'{_format_usdt(summary.balance_usdt)}U')}】",
     ]
@@ -298,8 +332,15 @@ def _format_summary_rate(value: Decimal) -> str:
 
 
 def _format_usdt(value: Decimal) -> str:
-    text = _format_rate(value)
-    return text.rstrip("0").rstrip(".") if "." in text else text
+    return _format_money(value)
+
+
+def _format_money(value: Decimal) -> str:
+    return f"{money(value):.2f}"
+
+
+def _format_percent(value: Decimal) -> str:
+    return f"{money(value):.2f}%"
 
 
 def _blue(value: object) -> str:
@@ -362,17 +403,15 @@ def _format_local_date(value: date) -> str:
 def _summarize_entries(store: LedgerStore, chat_id: int, entries: list[LedgerEntry]) -> LedgerSummary:
     current_rate, fee_percent = store.get_settings(chat_id)
     income_rmb = sum((entry.amount for entry in entries if entry.kind == "income"), Decimal("0"))
-    income_usdt = sum((entry.net_amount for entry in entries if entry.kind == "income"), Decimal("0"))
+    payable_rmb = sum((entry.payable_amount for entry in entries if entry.kind == "income"), Decimal("0"))
+    income_usdt = sum((entry.payable_usdt for entry in entries if entry.kind == "income"), Decimal("0"))
     payout_usdt = sum((entry.net_amount for entry in entries if entry.kind == "payout"), Decimal("0"))
-    fees = Decimal("0")
-    for entry in entries:
-        if entry.kind == "income":
-            converted = money(entry.amount / entry.rate)
-            fees += money(converted * entry.fee_percent / Decimal("100"))
+    fees = sum((entry.fee_amount for entry in entries if entry.kind == "income"), Decimal("0"))
     return LedgerSummary(
         income=money(income_rmb),
         payout=money(payout_usdt),
         fees=money(fees),
+        payable_amount=money(payable_rmb),
         balance=money(max(income_usdt - payout_usdt, Decimal("0"))),
         income_usdt=money(income_usdt),
         payout_usdt=money(payout_usdt),
@@ -439,6 +478,16 @@ def _amount_after_prefix(text: str, prefix: str) -> tuple[Decimal | None, str]:
 
 def _first_decimal(text: str) -> Decimal | None:
     match = AMOUNT_RE.search(text)
+    if not match:
+        return None
+    try:
+        return Decimal(match.group("amount"))
+    except InvalidOperation:
+        return None
+
+
+def _first_signed_decimal(text: str) -> Decimal | None:
+    match = SIGNED_AMOUNT_RE.search(text)
     if not match:
         return None
     try:
