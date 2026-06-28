@@ -2754,18 +2754,20 @@ async def set_realtime_ledger_rate(update: Update) -> bool:
         prices, source = await fetch_okx_usdt_cny_prices()
     except Exception:
         logger.exception("OKX realtime ledger rate fetch failed")
-        await update.message.reply_text(f"实时汇率获取失败，已保留旧汇率：{old_rate}")
+        await update.message.reply_text(f"❌ 获取欧意实时汇率失败，已保留当前群原汇率：{_format_calc_result(old_rate)}")
         return True
     if not prices:
-        await update.message.reply_text(f"实时汇率获取失败，已保留旧汇率：{old_rate}")
+        await update.message.reply_text(f"❌ 获取欧意实时汇率失败，已保留当前群原汇率：{_format_calc_result(old_rate)}")
         return True
     new_rate = ledger_store.set_rate(update.effective_chat.id, prices[0])
     updated_at = datetime.now(LEDGER_TZ).strftime("%Y-%m-%d %H:%M:%S")
     await update.message.reply_text(
         "\n".join(
             [
-                f"当前群实时汇率已更新为：{_format_calc_result(new_rate)}",
-                f"数据来源：欧意 USDT/CNY 最新 1 档（{source}）",
+                "✅ 当前群实时汇率已更新",
+                "",
+                f"汇率：{_format_calc_result(new_rate)}",
+                f"来源：欧意 USDT/CNY 最新 1 档（{source}）",
                 f"更新时间：{updated_at}",
             ]
         )
@@ -2779,15 +2781,29 @@ def start_help_text() -> str:
         "<b>卡密识别</b>\n"
         "发送 PUBG/PSN 卡密图片，机器人会自动识别并输出卡密；重复卡密会提示首次出现时间和来源。\n"
         "发送 <code>关闭识别</code> / <code>开启识别</code> 可暂停或恢复卡密识别。\n\n"
-        "<b>记账功能</b>\n"
+        "<b>【记账】</b>\n"
         "<code>+10000</code>：入款 10000\n"
         "<code>-100 备注</code>：下发 100\n"
-        "<code>设置汇率 10</code>：设置本群固定汇率\n"
-        "<code>设置费率 10</code>：设置本群费率为 10%\n"
-        "<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新本群汇率\n"
-        "费率从入款金额中扣除；修改汇率或费率只影响后续新建账单，不影响历史账单。\n\n"
-        "<b>价格查询</b>\n"
-        "发送 <code>币价</code>、<code>bj</code> 或 <code>z0</code> 查看 OKX USDT/CNY 最新 5 档价格；只查询，不修改群汇率。\n\n"
+        "<code>入款 100 备注</code>：新增入款\n"
+        "<code>下发 100 备注</code>：新增下发\n"
+        "<code>账单</code>：查看总额和最近流水\n"
+        "<code>撤销</code>：撤销最后一笔或回复指定流水撤销\n"
+        "<code>清空</code>：清空当前群账单\n"
+        "<code>昨日账单</code>：查看昨日账单\n"
+        "<code>今日账单</code>：查看今日账单\n"
+        "<code>完整账单</code>：查看完整账单\n\n"
+        "<b>【汇率与费率】</b>\n"
+        "<code>设置汇率 10</code>：设置当前群固定汇率\n"
+        "<code>设置费率 10</code>：设置当前群费率为 10%\n"
+        "<code>查看费率</code>：查看当前群汇率和费率\n"
+        "<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率\n"
+        "<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格，只查询，不修改群汇率\n\n"
+        "<b>【说明】</b>\n"
+        "默认新群汇率为 1。\n"
+        "默认新群费率为 0%。\n"
+        "费率从入款金额中扣除。\n"
+        "修改汇率和费率只影响后续新建账单。\n"
+        "历史账单使用创建时的汇率与费率快照，不会改变。\n\n"
         "<b>地址防篡改</b>\n"
         "发送 USDT-TRC20 地址，会生成带时间的防篡改核对图片。\n\n"
         "<b>群发广播</b>\n"
@@ -3507,6 +3523,13 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
     for member in update.message.new_chat_members or []:
         if member.id == bot_user.id:
             ledger_store.set_chat_owner(update.effective_chat.id, update.effective_user.id)
+            await update.message.reply_text(
+                "✅ 记账机器人已启用。\n"
+                "默认汇率：1\n"
+                "默认费率：0%\n"
+                "发送 <code>帮助</code> 或点击“使用说明”查看命令。",
+                parse_mode=ParseMode.HTML,
+            )
             logger.info(
                 "Set ledger owner for chat %s to inviter %s.",
                 update.effective_chat.id,

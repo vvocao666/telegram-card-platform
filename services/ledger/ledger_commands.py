@@ -36,32 +36,43 @@ RECENT_LIMIT = 3
 BLUE_LINK = "https://t.me/"
 
 
-HELP_TEXT = """卡密识别/记账专用
+HELP_TEXT = """<b>使用说明</b>
 
-常用命令：
-+100 备注 - 入款 100
--100 备注 - 下发 100
-入款 100 备注 - 入款
-下发 100 备注 - 下发
-账单 - 查看汇总和最近流水
-撤销 - 回复消息撤销最后一笔
-清空 - 清空当前所有账单
-关闭记账/开启记账 - 暂停或恢复记账
-暂停/开启 - 关闭记账/开启记账的简写
-日切1 - 每天凌晨1点账单自动归0
+<b>【记账】</b>
 <code>+10000</code>：入款 10000
 <code>-100 备注</code>：下发 100
-<code>设置汇率 10</code>：设置本群固定汇率
-<code>设置费率 10</code>：设置本群费率为 10%
-<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新本群汇率
-<code>币价</code> / <code>bj</code> / <code>z0</code>：只查询欧意 USDT/CNY 最新 5 档价格，不修改账本配置
-费率从入款金额中扣除。修改汇率或费率只影响后续新建账单，不影响历史账单。
-关闭识别/开启识别 - 暂停或恢复卡密识别
+<code>入款 100 备注</code>：新增入款
+<code>下发 100 备注</code>：新增下发
+<code>账单</code>：查看总额和最近流水
+<code>撤销</code>：撤销最后一笔或回复指定流水撤销
+<code>清空</code>：清空当前群账单
+<code>昨日账单</code>：查看昨日账单
+<code>今日账单</code>：查看今日账单
+<code>完整账单</code>：查看完整账单
+<code>关闭记账</code> / <code>开启记账</code>：暂停或恢复记账
+<code>日切1</code>：每天凌晨1点账单自动归0
 
-权限命令：
-添加权限 - 回复某人消息后发送
-删除权限 - 回复某人消息后发送
-操作员 - 查看操作员
+<b>【汇率与费率】</b>
+<code>设置汇率 10</code>：设置当前群固定汇率
+<code>设置费率 10</code>：设置当前群费率为 10%
+<code>查看费率</code>：查看当前群汇率和费率
+<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率
+<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格，只查询，不修改群汇率
+
+<b>【说明】</b>
+默认新群汇率为 1。
+默认新群费率为 0%。
+费率从入款金额中扣除。
+修改汇率和费率只影响后续新建账单。
+历史账单使用创建时的汇率与费率快照，不会改变。
+
+<b>【权限】</b>
+<code>添加权限</code>：回复某人消息后发送
+<code>删除权限</code>：回复某人消息后发送
+<code>操作员</code>：查看操作员
+
+<b>【识别】</b>
+<code>关闭识别</code> / <code>开启识别</code>：暂停或恢复卡密识别
 """
 
 
@@ -172,7 +183,7 @@ def handle_text(
             new_rate = store.set_rate(chat_id, value)
         except ValueError as exc:
             return CommandResult(str(exc))
-        return CommandResult(f"汇率已设置为 {new_rate}", changed=True)
+        return CommandResult(f"✅ 当前群汇率已设置为：{_format_money(new_rate)}", changed=True)
 
     if normalized.startswith("设置费率") or normalized.startswith("/set_fee") or normalized.startswith("费率"):
         if chat_id >= 0:
@@ -190,7 +201,7 @@ def handle_text(
         return CommandResult(
             "\n".join(
                 [
-                    f"✅ 已设置本群费率：{_format_percent(fee)}",
+                    f"✅ 当前群费率已设置为：{_format_percent(fee)}",
                     "",
                     f"当前汇率：{_format_money(current_rate)}",
                     f"当前费率：{_format_percent(current_fee)}",

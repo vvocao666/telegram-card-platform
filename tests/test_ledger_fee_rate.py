@@ -16,7 +16,7 @@ def test_set_fee_rate_ten_success(tmp_path):
         result = ledger_commands.handle_text(store, -1001, actor(), "设置费率10", {12345})
 
         assert result is not None
-        assert "✅ 已设置本群费率：10.00%" in result.text
+        assert "✅ 当前群费率已设置为：10.00%" in result.text
         assert "当前汇率：1.00" in result.text
         assert "当前费率：10.00%" in result.text
         assert store.get_settings(-1001)[1] == Decimal("10.0000")
@@ -246,8 +246,9 @@ def test_set_realtime_rate_updates_current_group_only(monkeypatch, tmp_path):
 
         assert handled is True
         assert store.get_settings(-1001)[0] == Decimal("7.2300")
-        assert "当前群实时汇率已更新为：7.23" in update.message.replies[-1]
-        assert "数据来源：欧意 USDT/CNY 最新 1 档" in update.message.replies[-1]
+        assert "✅ 当前群实时汇率已更新" in update.message.replies[-1]
+        assert "汇率：7.23" in update.message.replies[-1]
+        assert "来源：欧意 USDT/CNY 最新 1 档" in update.message.replies[-1]
     finally:
         store.close()
 
@@ -294,8 +295,8 @@ def test_set_realtime_rate_failure_keeps_old_rate(monkeypatch, tmp_path):
 
         assert handled is True
         assert store.get_settings(-1001)[0] == Decimal("6.6600")
-        assert "实时汇率获取失败" in update.message.replies[-1]
-        assert "6.6600" in update.message.replies[-1]
+        assert "❌ 获取欧意实时汇率失败" in update.message.replies[-1]
+        assert "6.66" in update.message.replies[-1]
     finally:
         store.close()
 

@@ -51,7 +51,10 @@ class BotFormattingTests(unittest.TestCase):
         keyboard = bot.add_group_keyboard("kamibot")
 
         self.assertIn("卡密识别", help_text)
-        self.assertIn("记账功能", help_text)
+        self.assertIn("【记账】", help_text)
+        self.assertIn("<code>查看费率</code>", help_text)
+        self.assertIn("<code>设置实时汇率</code>", help_text)
+        self.assertIn("历史账单使用创建时的汇率与费率快照，不会改变", help_text)
         self.assertIn("群发广播", help_text)
         self.assertIn("币价", help_text)
         self.assertNotIn("TRX 能量租赁", help_text)
@@ -198,11 +201,12 @@ class BotFormattingTests(unittest.TestCase):
     def test_help_includes_okx_price_command(self):
         self.assertIn("<code>币价</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>设置实时汇率</code>", ledger_commands.HELP_TEXT)
-        self.assertIn("关闭记账/开启记账 - 暂停或恢复记账", ledger_commands.HELP_TEXT)
-        self.assertIn("暂停/开启 - 关闭记账/开启记账的简写", ledger_commands.HELP_TEXT)
-        self.assertIn("关闭识别/开启识别", ledger_commands.HELP_TEXT)
-        self.assertIn("日切1 - 每天凌晨1点账单自动归0", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>查看费率</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>关闭记账</code> / <code>开启记账</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>关闭识别</code> / <code>开启识别</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>日切1</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>设置汇率 10</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("默认新群汇率为 1", ledger_commands.HELP_TEXT)
 
     def test_recognition_can_be_disabled_and_enabled(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -952,7 +956,7 @@ class BotFormattingTests(unittest.TestCase):
                 bill = ledger_commands.handle_text(store, -1001, actor, "账单", {12345})
 
                 self.assertIsNotNone(rate_result)
-                self.assertIn("汇率已设置为 10.0000", rate_result.text)
+                self.assertIn("✅ 当前群汇率已设置为：10.00", rate_result.text)
                 self.assertIsNotNone(income)
                 self.assertIsNotNone(bill)
                 self.assertIn("1000.00/10=100.00U", bill.text)
