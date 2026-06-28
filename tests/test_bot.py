@@ -196,12 +196,13 @@ class BotFormattingTests(unittest.TestCase):
         self.assertNotIn("6. 6.75", text)
 
     def test_help_includes_okx_price_command(self):
-        self.assertIn("币价/bj/z0 - 查看欧意USDT/CNY最新5档价格", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>币价</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>设置实时汇率</code>", ledger_commands.HELP_TEXT)
         self.assertIn("关闭记账/开启记账 - 暂停或恢复记账", ledger_commands.HELP_TEXT)
         self.assertIn("暂停/开启 - 关闭记账/开启记账的简写", ledger_commands.HELP_TEXT)
         self.assertIn("关闭识别/开启识别", ledger_commands.HELP_TEXT)
         self.assertIn("日切1 - 每天凌晨1点账单自动归0", ledger_commands.HELP_TEXT)
-        self.assertIn("设置汇率1", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>设置汇率 10</code>", ledger_commands.HELP_TEXT)
 
     def test_recognition_can_be_disabled_and_enabled(self):
         with tempfile.TemporaryDirectory() as temp_dir:

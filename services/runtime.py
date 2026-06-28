@@ -2709,6 +2709,10 @@ def is_price_command(text: str) -> bool:
     return normalized == "币价" or lowered in {"bj", "z0"} or normalized == "/price"
 
 
+def is_realtime_rate_command(text: str) -> bool:
+    return text.strip() == "设置实时汇率"
+
+
 async def fetch_okx_usdt_cny_prices() -> tuple[list[Decimal], str]:
     async with httpx.AsyncClient(timeout=15, headers=OKX_HTTP_HEADERS) as client:
         try:
@@ -2732,6 +2736,43 @@ async def reply_okx_price(message) -> None:
     await message.reply_text(format_okx_prices(prices, source))
 
 
+async def set_realtime_ledger_rate(update: Update) -> bool:
+    if not update.message or not update.effective_chat:
+        return False
+    if not is_realtime_rate_command(update.message.text or ""):
+        return False
+    if update.effective_chat.id >= 0:
+        await update.message.reply_text("请在群内设置实时汇率。")
+        return True
+    user_id = update.effective_user.id if update.effective_user else 0
+    owner_ids = ledger_owner_ids(update.effective_chat.id)
+    if not ledger_store.is_operator(update.effective_chat.id, user_id, owner_ids):
+        await update.message.reply_text("无权限设置实时汇率。")
+        return True
+    old_rate, _fee = ledger_store.get_settings(update.effective_chat.id)
+    try:
+        prices, source = await fetch_okx_usdt_cny_prices()
+    except Exception:
+        logger.exception("OKX realtime ledger rate fetch failed")
+        await update.message.reply_text(f"实时汇率获取失败，已保留旧汇率：{old_rate}")
+        return True
+    if not prices:
+        await update.message.reply_text(f"实时汇率获取失败，已保留旧汇率：{old_rate}")
+        return True
+    new_rate = ledger_store.set_rate(update.effective_chat.id, prices[0])
+    updated_at = datetime.now(LEDGER_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    await update.message.reply_text(
+        "\n".join(
+            [
+                f"当前群实时汇率已更新为：{_format_calc_result(new_rate)}",
+                f"数据来源：欧意 USDT/CNY 最新 1 档（{source}）",
+                f"更新时间：{updated_at}",
+            ]
+        )
+    )
+    return True
+
+
 def start_help_text() -> str:
     return (
         "<b>卡密识别记账助手</b>\n\n"
@@ -2739,9 +2780,14 @@ def start_help_text() -> str:
         "发送 PUBG/PSN 卡密图片，机器人会自动识别并输出卡密；重复卡密会提示首次出现时间和来源。\n"
         "发送 <code>关闭识别</code> / <code>开启识别</code> 可暂停或恢复卡密识别。\n\n"
         "<b>记账功能</b>\n"
-        "发送 <code>+100</code>、<code>-100</code> 记账；支持账单、清账、关闭记账/开启记账、暂停/开启、日切、设置汇率、计算表达式。\n\n"
+        "<code>+10000</code>：入款 10000\n"
+        "<code>-100 备注</code>：下发 100\n"
+        "<code>设置汇率 10</code>：设置本群固定汇率\n"
+        "<code>设置费率 10</code>：设置本群费率为 10%\n"
+        "<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新本群汇率\n"
+        "费率从入款金额中扣除；修改汇率或费率只影响后续新建账单，不影响历史账单。\n\n"
         "<b>价格查询</b>\n"
-        "发送 <code>币价</code>、<code>bj</code> 或 <code>z0</code> 查看 OKX USDT/CNY 最新 5 档价格。\n\n"
+        "发送 <code>币价</code>、<code>bj</code> 或 <code>z0</code> 查看 OKX USDT/CNY 最新 5 档价格；只查询，不修改群汇率。\n\n"
         "<b>地址防篡改</b>\n"
         "发送 USDT-TRC20 地址，会生成带时间的防篡改核对图片。\n\n"
         "<b>群发广播</b>\n"
@@ -3183,6 +3229,8 @@ async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     trc20_address = extract_trc20_address(update.message.text or "") if allow_trc20 else None
     if trc20_address:
         await reply_trc20_verify_image(update.message, trc20_address)
+        return True
+    if await set_realtime_ledger_rate(update):
         return True
     if is_price_command(update.message.text or ""):
         await reply_okx_price(update.message)

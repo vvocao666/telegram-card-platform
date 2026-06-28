@@ -5,10 +5,10 @@
 普通云服务器部署只使用 Cloud Deploy：
 
 ```text
-Cloud Deploy / v2.8.0-cloud-deploy / 当前 main
+Cloud Deploy / 当前 main
 ```
 
-Cloud Deploy 是唯一标准部署版本。它包含当前全部通用功能和 Bug 修复，但默认不依赖 Windows RTX5070、Tailscale 或 Remote OCR。
+Cloud Deploy 是唯一标准部署版本，`main` 是 Cloud Deploy 的滚动最新源码。它包含当前全部通用功能和 Bug 修复，但默认不依赖 Windows RTX5070、Tailscale 或 Remote OCR。
 
 owner-hybrid 仅用于作者本人环境：
 

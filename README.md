@@ -5,7 +5,7 @@
 普通云服务器部署唯一标准版：
 
 ```text
-Cloud Deploy / v2.8.0-cloud-deploy / 当前 main
+Cloud Deploy / 当前 main
 ```
 
 作者本人专用增强版：
@@ -19,6 +19,8 @@ owner-hybrid = Cloud Deploy + RTX5070 / Tailscale / Remote OCR
 ```text
 v1.3.0-ocr-learning-plus
 ```
+
+`v2.8.0-cloud-deploy` 保留为历史里程碑 Release，不代表后续最新代码。
 
 `v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。以后所有通用功能、Bug 修复、OCR 规则、管理员功能、学习流程、排序去重、广播通知、状态面板都必须先进入 Cloud Deploy。
 

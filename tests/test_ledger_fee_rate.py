@@ -1,4 +1,5 @@
 from decimal import Decimal
+import asyncio
 import sqlite3
 
 from services.ledger import ledger_commands
@@ -193,3 +194,130 @@ def test_cloud_deploy_remote_ocr_default_is_disabled():
 
     env_example = Path(".env.example").read_text(encoding="utf-8")
     assert "REMOTE_OCR_ENABLED=false" in env_example
+
+
+class FakeUser:
+    id = 12345
+    username = "boss"
+    first_name = "Boss"
+    last_name = ""
+    is_bot = False
+
+
+class FakeChat:
+    id = -1001
+    type = "supergroup"
+    title = "Test Group"
+
+
+class FakeMessage:
+    def __init__(self, text: str):
+        self.text = text
+        self.caption = None
+        self.message_id = 100
+        self.reply_to_message = None
+        self.replies: list[str] = []
+
+    async def reply_text(self, text: str, **kwargs):
+        self.replies.append(text)
+
+
+class FakeUpdate:
+    def __init__(self, text: str):
+        self.message = FakeMessage(text)
+        self.effective_chat = FakeChat()
+        self.effective_user = FakeUser()
+
+
+def test_set_realtime_rate_updates_current_group_only(monkeypatch, tmp_path):
+    import bot
+
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    monkeypatch.setattr(bot, "ledger_store", store)
+    store.set_chat_owner(-1001, 12345)
+
+    async def fake_fetch():
+        return [Decimal("7.23"), Decimal("7.24")], "OKX C2C卖单"
+
+    monkeypatch.setattr(bot, "fetch_okx_usdt_cny_prices", fake_fetch)
+    try:
+        update = FakeUpdate("设置实时汇率")
+        handled = asyncio.run(bot.handle_ledger_text(update, object(), allow_trc20=False))
+
+        assert handled is True
+        assert store.get_settings(-1001)[0] == Decimal("7.2300")
+        assert "当前群实时汇率已更新为：7.23" in update.message.replies[-1]
+        assert "数据来源：欧意 USDT/CNY 最新 1 档" in update.message.replies[-1]
+    finally:
+        store.close()
+
+
+def test_price_command_does_not_modify_group_rate(monkeypatch, tmp_path):
+    import bot
+
+    for command in ("币价", "bj", "Z0"):
+        store = LedgerStore(tmp_path / f"{command}.sqlite3")
+        monkeypatch.setattr(bot, "ledger_store", store)
+        store.set_rate(-1001, "6.66")
+
+        async def fake_fetch():
+            return [Decimal("7.23"), Decimal("7.24"), Decimal("7.25"), Decimal("7.26"), Decimal("7.27")], "OKX C2C卖单"
+
+        monkeypatch.setattr(bot, "fetch_okx_usdt_cny_prices", fake_fetch)
+        try:
+            update = FakeUpdate(command)
+            handled = asyncio.run(bot.handle_ledger_text(update, object(), allow_trc20=False))
+
+            assert handled is True
+            assert store.get_settings(-1001)[0] == Decimal("6.6600")
+            assert "欧意USDT/CNY 最新5档" in update.message.replies[-1]
+            assert "1. 7.23" in update.message.replies[-1]
+        finally:
+            store.close()
+
+
+def test_set_realtime_rate_failure_keeps_old_rate(monkeypatch, tmp_path):
+    import bot
+
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    monkeypatch.setattr(bot, "ledger_store", store)
+    store.set_chat_owner(-1001, 12345)
+    store.set_rate(-1001, "6.66")
+
+    async def fake_fetch():
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(bot, "fetch_okx_usdt_cny_prices", fake_fetch)
+    try:
+        update = FakeUpdate("设置实时汇率")
+        handled = asyncio.run(bot.handle_ledger_text(update, object(), allow_trc20=False))
+
+        assert handled is True
+        assert store.get_settings(-1001)[0] == Decimal("6.6600")
+        assert "实时汇率获取失败" in update.message.replies[-1]
+        assert "6.6600" in update.message.replies[-1]
+    finally:
+        store.close()
+
+
+def test_price_command_failure_keeps_old_rate(monkeypatch, tmp_path):
+    import bot
+
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    monkeypatch.setattr(bot, "ledger_store", store)
+    store.set_chat_owner(-1001, 12345)
+    store.set_rate(-1001, "6.66")
+
+    async def fake_fetch():
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(bot, "fetch_okx_usdt_cny_prices", fake_fetch)
+    try:
+        update = FakeUpdate("币价")
+        handled = asyncio.run(bot.handle_ledger_text(update, object(), allow_trc20=False))
+
+        assert handled is True
+        assert store.get_settings(-1001)[0] == Decimal("6.6600")
+        assert "币价获取失败" in update.message.replies[-1]
+    finally:
+        store.close()
