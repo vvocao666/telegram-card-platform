@@ -50,13 +50,12 @@ class BotFormattingTests(unittest.TestCase):
         help_text = bot.start_help_text()
         keyboard = bot.add_group_keyboard("kamibot")
 
-        self.assertIn("卡密识别", help_text)
+        self.assertEqual(ledger_commands.HELP_TEXT, help_text)
         self.assertIn("【记账】", help_text)
-        self.assertIn("<code>查看费率</code>", help_text)
-        self.assertIn("<code>设置实时汇率</code>", help_text)
-        self.assertIn("历史账单使用创建时的汇率与费率快照，不会改变", help_text)
-        self.assertIn("群发广播", help_text)
-        self.assertIn("币价", help_text)
+        self.assertIn("<code>+10000</code>：入款 10000 RMB", help_text)
+        self.assertIn("<code>日切0</code>：默认每天凌晨 0 点账单自动归 0", help_text)
+        self.assertIn("<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率", help_text)
+        self.assertIn("<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格", help_text)
         self.assertNotIn("TRX 能量租赁", help_text)
         self.assertEqual("https://t.me/kamibot?startgroup=true", keyboard.inline_keyboard[0][0].url)
 
@@ -204,8 +203,8 @@ class BotFormattingTests(unittest.TestCase):
         self.assertIn("<code>查看费率</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>关闭记账</code> / <code>开启记账</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>关闭识别</code> / <code>开启识别</code>", ledger_commands.HELP_TEXT)
-        self.assertIn("<code>日切1</code>", ledger_commands.HELP_TEXT)
-        self.assertIn("<code>设置汇率 10</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>日切0</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>设置汇率 1</code>", ledger_commands.HELP_TEXT)
         self.assertIn("默认新群汇率为 1", ledger_commands.HELP_TEXT)
 
     def test_recognition_can_be_disabled_and_enabled(self):
@@ -1077,6 +1076,12 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIn("每天 05:00", result.text)
                 self.assertIn("下一次日切时间", result.text)
                 self.assertEqual(5, store.get_ledger_reset_hour(-1001))
+
+                alias_result = ledger_commands.handle_text(store, -1001, actor, "日切0", {12345})
+
+                self.assertIsNotNone(alias_result)
+                self.assertIn("每天 00:00", alias_result.text)
+                self.assertEqual(0, store.get_ledger_reset_hour(-1001))
             finally:
                 store.close()
 

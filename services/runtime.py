@@ -2777,47 +2777,7 @@ async def set_realtime_ledger_rate(update: Update) -> bool:
 
 
 def start_help_text() -> str:
-    return (
-        "<b>卡密识别记账助手</b>\n\n"
-        "<b>卡密识别</b>\n"
-        "发送 PUBG/PSN 卡密图片，机器人会自动识别并输出卡密；重复卡密会提示首次出现时间和来源。\n"
-        "发送 <code>关闭识别</code> / <code>开启识别</code> 可暂停或恢复卡密识别。\n\n"
-        "<b>【记账】</b>\n"
-        "<code>+10000</code>：入款 10000\n"
-        "<code>-100 备注</code>：下发 100\n"
-        "<code>入款 100 备注</code>：新增入款\n"
-        "<code>下发 100 备注</code>：新增下发\n"
-        "<code>账单</code>：查看总额和最近流水\n"
-        "<code>撤销</code>：撤销最后一笔或回复指定流水撤销\n"
-        "<code>清空</code>：清空当前群账单\n"
-        "<code>昨日账单</code>：查看昨日账单\n"
-        "<code>今日账单</code>：查看今日账单\n"
-        "<code>完整账单</code>：查看完整账单\n\n"
-        "<b>【汇率与费率】</b>\n"
-        "<code>设置汇率 10</code>：设置当前群固定汇率\n"
-        "<code>设置费率 10</code>：设置当前群费率为 10%\n"
-        "<code>查看费率</code>：查看当前群汇率和费率\n"
-        "<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率\n"
-        "<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格，只查询，不修改群汇率\n\n"
-        "<b>【日切设置】</b>\n"
-        "<code>设置日切 1点</code>：设置当前群每天 01:00 日切\n"
-        "<code>查看日切</code>：查看当前群日切时间和下次日切时间\n"
-        "日切后会自动开始新的当前账期。\n"
-        "历史流水不会删除。\n"
-        "修改日切只影响后续账期，不重算历史账单。\n"
-        "所有日切时间均为北京时间。\n\n"
-        "<b>【说明】</b>\n"
-        "默认新群汇率为 1。\n"
-        "默认新群费率为 0%。\n"
-        "费率从入款金额中扣除。\n"
-        "修改汇率和费率只影响后续新建账单。\n"
-        "历史账单使用创建时的汇率与费率快照，不会改变。\n\n"
-        "<b>地址防篡改</b>\n"
-        "发送 USDT-TRC20 地址，会生成带时间的防篡改核对图片。\n\n"
-        "<b>群发广播</b>\n"
-        "老板私聊发送 <code>广播</code>，可选择机器人所在群组同步发送通知。\n\n"
-        "把机器人拉进群后，群里可以直接使用卡密识别和记账功能。"
-    )
+    return ledger_commands.HELP_TEXT
 
 
 def add_group_keyboard(bot_username: str) -> InlineKeyboardMarkup:
