@@ -1041,22 +1041,24 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_ledger_clears_previous_days_before_handling_text(self):
+    def test_ledger_preserves_history_and_today_uses_current_accounting_date(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             try:
                 actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
                 old_entry = store.add_entry(-1001, "income", "100", "USDT", "", actor.user_id, actor.label, 10)
                 today_entry = store.add_entry(-1001, "income", "200", "USDT", "", actor.user_id, actor.label, 11)
-                yesterday_start, _ = ledger_commands._day_range_utc(-1)
-                store.conn.execute("UPDATE entries SET created_at = ? WHERE id = ?", (yesterday_start, old_entry.id))
+                previous_date = store.previous_accounting_date(-1001)
+                current_date = store.current_accounting_date(-1001)
+                store.conn.execute("UPDATE entries SET accounting_date = ? WHERE id = ?", (previous_date, old_entry.id))
+                store.conn.execute("UPDATE entries SET accounting_date = ? WHERE id = ?", (current_date, today_entry.id))
                 store.conn.commit()
 
-                result = ledger_commands.handle_text(store, -1001, actor, "完整账单", {12345})
+                result = ledger_commands.handle_text(store, -1001, actor, "账单", {12345})
                 remaining = store.entries(-1001)
 
                 self.assertIsNotNone(result)
-                self.assertEqual([today_entry.id], [entry.id for entry in remaining])
+                self.assertEqual([old_entry.id, today_entry.id], [entry.id for entry in remaining])
                 self.assertIn("总入款金额：200.00", result.text)
                 self.assertNotIn("总入款金额：300.00", result.text)
             finally:
@@ -1069,10 +1071,11 @@ class BotFormattingTests(unittest.TestCase):
                 actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
                 store.set_chat_owner(-1001, actor.user_id)
 
-                result = ledger_commands.handle_text(store, -1001, actor, "日切5", {12345})
+                result = ledger_commands.handle_text(store, -1001, actor, "设置日切 5点", {12345})
 
                 self.assertIsNotNone(result)
-                self.assertIn("每天5点", result.text)
+                self.assertIn("每天 05:00", result.text)
+                self.assertIn("下一次日切时间", result.text)
                 self.assertEqual(5, store.get_ledger_reset_hour(-1001))
             finally:
                 store.close()
@@ -1093,27 +1096,53 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_ledger_clears_before_configured_reset_hour(self):
+    def test_ledger_cutoff_accounting_date_boundaries(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            try:
+                store.set_ledger_reset_hour(-1001, 1)
+                before_cutoff = datetime(2026, 6, 29, 0, 30, tzinfo=ledger_storage.LEDGER_TZ)
+                at_cutoff = datetime(2026, 6, 29, 1, 0, tzinfo=ledger_storage.LEDGER_TZ)
+
+                self.assertEqual("2026-06-28", store.accounting_date_for(before_cutoff, 1))
+                self.assertEqual("2026-06-29", store.accounting_date_for(at_cutoff, 1))
+            finally:
+                store.close()
+
+    def test_ledger_cutoff_rejects_24_and_accepts_23(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             try:
                 actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
-                store.set_ledger_reset_hour(-1001, 5)
-                old_entry = store.add_entry(-1001, "income", "100", "USDT", "", actor.user_id, actor.label, 10)
-                current_entry = store.add_entry(-1001, "income", "200", "USDT", "", actor.user_id, actor.label, 11)
-                current_start, _ = ledger_commands._ledger_day_range_utc(store, -1001, 0)
-                old_time = (datetime.fromisoformat(current_start) - timedelta(seconds=1)).isoformat(timespec="seconds")
-                store.conn.execute("UPDATE entries SET created_at = ? WHERE id = ?", (old_time, old_entry.id))
-                store.conn.execute("UPDATE entries SET created_at = ? WHERE id = ?", (current_start, current_entry.id))
-                store.conn.commit()
+                store.set_chat_owner(-1001, actor.user_id)
 
-                result = ledger_commands.handle_text(store, -1001, actor, "账单", {12345})
-                remaining = store.entries(-1001)
+                accepted = ledger_commands.handle_text(store, -1001, actor, "设置日切 23点", {12345})
+                rejected = ledger_commands.handle_text(store, -1001, actor, "设置日切 24点", {12345})
 
-                self.assertIsNotNone(result)
-                self.assertEqual([current_entry.id], [entry.id for entry in remaining])
-                self.assertIn("总入款金额：200.00", result.text)
-                self.assertNotIn("总入款金额：300.00", result.text)
+                self.assertIsNotNone(accepted)
+                self.assertIn("每天 23:00", accepted.text)
+                self.assertIsNotNone(rejected)
+                self.assertIn("日切时间必须是0到23点", rejected.text)
+                self.assertEqual(23, store.get_ledger_reset_hour(-1001))
+            finally:
+                store.close()
+
+    def test_ledger_cutoff_status_and_group_isolation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            try:
+                actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
+                store.set_chat_owner(-1001, actor.user_id)
+                store.set_chat_owner(-2002, actor.user_id)
+                ledger_commands.handle_text(store, -1001, actor, "设置日切 1点", {12345})
+
+                status = ledger_commands.handle_text(store, -1001, actor, "查看日切", {12345})
+
+                self.assertEqual(1, store.get_ledger_reset_hour(-1001))
+                self.assertEqual(0, store.get_ledger_reset_hour(-2002))
+                self.assertIsNotNone(status)
+                self.assertIn("当前群账务设置", status.text)
+                self.assertIn("日切时间：每天 01:00", status.text)
             finally:
                 store.close()
 

@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, ApplicationHandlerStop, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, ApplicationHandlerStop, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 from services.ledger import ledger_commands
@@ -213,6 +213,7 @@ ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
 pending_learning_texts: dict[int, str] = {}
+welcome_sent_at: dict[int, float] = {}
 LEDGER_TZ = timezone(timedelta(hours=8))
 LEDGER_CALLBACK_TEXT = {
     "ledger:yesterday": "昨日账单",
@@ -2798,6 +2799,13 @@ def start_help_text() -> str:
         "<code>查看费率</code>：查看当前群汇率和费率\n"
         "<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率\n"
         "<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格，只查询，不修改群汇率\n\n"
+        "<b>【日切设置】</b>\n"
+        "<code>设置日切 1点</code>：设置当前群每天 01:00 日切\n"
+        "<code>查看日切</code>：查看当前群日切时间和下次日切时间\n"
+        "日切后会自动开始新的当前账期。\n"
+        "历史流水不会删除。\n"
+        "修改日切只影响后续账期，不重算历史账单。\n"
+        "所有日切时间均为北京时间。\n\n"
         "<b>【说明】</b>\n"
         "默认新群汇率为 1。\n"
         "默认新群费率为 0%。\n"
@@ -3523,19 +3531,62 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
     for member in update.message.new_chat_members or []:
         if member.id == bot_user.id:
             ledger_store.set_chat_owner(update.effective_chat.id, update.effective_user.id)
-            await update.message.reply_text(
-                "✅ 记账机器人已启用。\n"
-                "默认汇率：1\n"
-                "默认费率：0%\n"
-                "发送 <code>帮助</code> 或点击“使用说明”查看命令。",
-                parse_mode=ParseMode.HTML,
-            )
             logger.info(
                 "Set ledger owner for chat %s to inviter %s.",
                 update.effective_chat.id,
                 update.effective_user.id,
             )
             break
+
+
+def group_welcome_message() -> str:
+    return (
+        "🎉 记账与卡密识别机器人已加入本群\n\n"
+        "主要功能：\n"
+        "• 发送图片可识别 PUBG / PSN 卡密\n"
+        "• <code>+10000</code>：新增入款\n"
+        "• <code>-100 备注</code>：新增下发\n"
+        "• <code>账单</code>：查看当前账单\n"
+        "• <code>设置汇率 10</code>：设置群汇率\n"
+        "• <code>设置费率 10</code>：设置群费率\n"
+        "• <code>设置实时汇率</code>：采用欧意 USDT/CNY 最新 1 档价格更新本群汇率\n"
+        "• <code>设置日切 1点</code>：设置每日账务日切时间\n"
+        "• <code>使用说明</code>：查看完整功能说明\n\n"
+        "当前默认设置：\n"
+        "汇率：1\n"
+        "费率：0%\n"
+        "日切：每天 00:00（北京时间）"
+    )
+
+
+async def handle_bot_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.my_chat_member or not update.effective_chat:
+        return
+    chat = update.effective_chat
+    chat_type = getattr(chat, "type", "")
+    if chat_type not in {"group", "supergroup"}:
+        return
+    old_status = getattr(update.my_chat_member.old_chat_member, "status", "")
+    new_status = getattr(update.my_chat_member.new_chat_member, "status", "")
+    if old_status not in {"left", "kicked"} or new_status not in {"member", "administrator"}:
+        return
+    now = time.monotonic()
+    if now - welcome_sent_at.get(chat.id, 0) < 300:
+        return
+    welcome_sent_at[chat.id] = now
+    title = getattr(chat, "title", "") or str(chat.id)
+    ledger_store.remember_bot_chat(chat.id, title, chat_type)
+    ledger_store.ensure_chat(chat.id)
+    inviter_id = update.effective_user.id if update.effective_user else 0
+    if inviter_id:
+        ledger_store.set_chat_owner(chat.id, inviter_id)
+    await context.bot.send_message(
+        chat_id=chat.id,
+        text=group_welcome_message(),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("使用说明", callback_data="ledger:help")]]),
+        disable_web_page_preview=True,
+    )
 
 
 def user_label(update: Update) -> str:
@@ -4156,11 +4207,12 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(
         CommandHandler(
-            ["help", "bill", "fullbill", "yesterday", "undo", "clear", "in", "income", "out", "payout"],
+            ["help", "bill", "fullbill", "yesterday", "undo", "clear", "in", "income", "out", "payout", "set_cutoff", "cutoff"],
             handle_ledger_text,
         )
     )
     app.add_handler(CallbackQueryHandler(handle_ledger_callback, pattern=r"^ledger:"))
+    app.add_handler(ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ledger_text))

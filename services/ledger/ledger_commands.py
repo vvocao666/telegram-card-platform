@@ -59,6 +59,14 @@ HELP_TEXT = """<b>使用说明</b>
 <code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率
 <code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格，只查询，不修改群汇率
 
+<b>【日切设置】</b>
+<code>设置日切 1点</code>：设置当前群每天 01:00 日切
+<code>查看日切</code>：查看当前群日切时间和下次日切时间
+日切后会自动开始新的当前账期。
+历史流水不会删除。
+修改日切只影响后续账期，不重算历史账单。
+所有日切时间均为北京时间。
+
 <b>【说明】</b>
 默认新群汇率为 1。
 默认新群费率为 0%。
@@ -92,7 +100,6 @@ def handle_text(
         return None
 
     normalized = raw.replace("：", ":").strip()
-    _clear_previous_days(store, chat_id)
 
     if normalized in {"开启记账", "打开记账", "启用记账", "开启"}:
         if not _is_owner(actor.user_id, owner_ids):
@@ -106,21 +113,34 @@ def handle_text(
         store.set_ledger_enabled(chat_id, False)
         return CommandResult("记账功能已关闭，已暂停记账，后续只识别卡密。发送“开启”可重新开启。", changed=True)
 
-    if normalized.startswith("日切"):
+    if (
+        normalized.startswith("日切")
+        or normalized.startswith("设置日切")
+        or normalized.startswith("/set_cutoff")
+    ):
         if not _is_owner(actor.user_id, owner_ids):
             return CommandResult("只有拉机器人进群的人可以设置日切时间。")
-        value = _first_decimal(normalized)
+        value = _first_signed_decimal(normalized)
         if value is None:
             hour = store.get_ledger_reset_hour(chat_id)
-            return CommandResult(f"当前日切时间：每天{hour}点。发送“日切5”可改为每天凌晨5点账单自动归0。")
+            return CommandResult(_format_cutoff_status(store, chat_id, hour))
         if value != value.to_integral_value():
-            return CommandResult("格式：日切0 到 日切23，例如：日切5")
+            return CommandResult("格式：设置日切 0 到 设置日切 23，例如：设置日切 1点")
         try:
             hour = store.set_ledger_reset_hour(chat_id, int(value))
         except ValueError as exc:
             return CommandResult(str(exc))
-        _clear_previous_days(store, chat_id)
-        return CommandResult(f"日切时间已设置为每天{hour}点，账单会按这个时间自动归0。", changed=True)
+        return CommandResult(
+            "\n".join(
+                [
+                    f"✅ 当前群日切时间已设置为：每天 {hour:02d}:00",
+                    "",
+                    "当前账期不回溯修改。",
+                    f"下一次日切时间：{store.next_cutoff_at(chat_id).strftime('%Y-%m-%d %H:%M')}（北京时间）",
+                ]
+            ),
+            changed=True,
+        )
 
     if not store.is_ledger_enabled(chat_id):
         return None
@@ -130,6 +150,9 @@ def handle_text(
 
     if normalized == "/id":
         return CommandResult(f"你的 ID：{actor.user_id}\n当前群 ID：{chat_id}")
+
+    if normalized in {"查看日切", "/cutoff"}:
+        return CommandResult(_format_cutoff_status(store, chat_id))
 
     if normalized in {"今日账单", "账单", "账目", "查账", "/bill"}:
         return CommandResult(format_bill(store, chat_id, scope="today", show_all_records=True))
@@ -370,17 +393,14 @@ def _reply_entry_number(text: str) -> int | None:
 
 def _entries_for_scope(store: LedgerStore, chat_id: int, scope: str) -> list[LedgerEntry]:
     if scope == "today":
-        start_at, end_at = _ledger_day_range_utc(store, chat_id, 0)
-        return store.entries(chat_id, start_at=start_at, end_at=end_at)
+        return store.entries(chat_id, accounting_date=store.current_accounting_date(chat_id))
     if scope == "yesterday":
-        start_at, end_at = _ledger_day_range_utc(store, chat_id, -1)
-        return store.entries(chat_id, start_at=start_at, end_at=end_at)
+        return store.entries(chat_id, accounting_date=store.previous_accounting_date(chat_id))
     return store.entries(chat_id)
 
 
 def _clear_previous_days(store: LedgerStore, chat_id: int) -> int:
-    today_start_at, _ = _ledger_day_range_utc(store, chat_id, 0)
-    return store.clear_entries_before(chat_id, today_start_at)
+    return 0
 
 
 def _ledger_day_range_utc(store: LedgerStore, chat_id: int, offset_days: int) -> tuple[str, str]:
@@ -402,12 +422,29 @@ def _day_range_utc(offset_days: int, reset_hour: int = 0) -> tuple[str, str]:
 
 
 def _bill_title(scope: str) -> str:
-    today = datetime.now(LOCAL_TZ).date()
     if scope == "today":
-        return f"今日账单({_format_local_date(today)})"
+        return "今日账单"
     if scope == "yesterday":
-        return f"昨日账单({_format_local_date(today - timedelta(days=1))})"
+        return "昨日账单"
     return "完整账单"
+
+
+def _format_cutoff_status(store: LedgerStore, chat_id: int, hour: int | None = None) -> str:
+    cutoff_hour = store.get_ledger_reset_hour(chat_id) if hour is None else hour
+    current_rate, current_fee = store.get_settings(chat_id)
+    current_period = store.current_accounting_date(chat_id)
+    next_cutoff = store.next_cutoff_at(chat_id).strftime("%Y-%m-%d %H:%M")
+    return "\n".join(
+        [
+            "📅 当前群账务设置",
+            "",
+            f"日切时间：每天 {cutoff_hour:02d}:00（北京时间）",
+            f"当前账期：{current_period}",
+            f"下次日切：{next_cutoff}",
+            f"当前汇率：{_format_money(current_rate)}",
+            f"当前费率：{_format_percent(current_fee)}",
+        ]
+    )
 
 
 def _format_local_date(value: date) -> str:

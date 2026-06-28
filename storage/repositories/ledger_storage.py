@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, time, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Iterable
@@ -10,6 +10,7 @@ from typing import Iterable
 
 MONEY_QUANT = Decimal("0.01")
 RATE_QUANT = Decimal("0.0001")
+LEDGER_TZ = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 
 def money(value: Decimal | int | float | str) -> Decimal:
@@ -37,6 +38,7 @@ class LedgerEntry:
     operator_id: int
     operator_name: str
     source_message_id: int | None
+    accounting_date: str
     created_at: str
     voided_at: str | None
 
@@ -153,6 +155,7 @@ class LedgerStore:
                 note TEXT NOT NULL DEFAULT '',
                 operator_id INTEGER NOT NULL,
                 operator_name TEXT NOT NULL DEFAULT '',
+                accounting_date TEXT,
                 created_at TEXT NOT NULL,
                 voided_at TEXT
             );
@@ -206,6 +209,7 @@ class LedgerStore:
         self._add_column_if_missing("entries", "fee_amount", "TEXT NOT NULL DEFAULT '0.00'")
         self._add_column_if_missing("entries", "payable_amount", "TEXT NOT NULL DEFAULT '0.00'")
         self._add_column_if_missing("entries", "payable_usdt", "TEXT NOT NULL DEFAULT '0.00'")
+        self._add_column_if_missing("entries", "accounting_date", "TEXT")
         self._add_column_if_missing("chat_settings", "fee_percent", "TEXT NOT NULL DEFAULT '0.0000'")
         self._add_column_if_missing("chat_settings", "ledger_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
@@ -213,6 +217,7 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
         self._migrate_legacy_fee_snapshots()
+        self._migrate_legacy_accounting_dates()
         self.conn.commit()
 
     def _add_column_if_missing(self, table: str, column: str, definition: str) -> None:
@@ -247,6 +252,25 @@ class LedgerStore:
                 END
             """
         )
+
+    def _migrate_legacy_accounting_dates(self) -> None:
+        rows = self.conn.execute(
+            """
+            SELECT id, chat_id, created_at
+            FROM entries
+            WHERE accounting_date IS NULL OR accounting_date = ''
+            ORDER BY id
+            """
+        ).fetchall()
+        if not rows:
+            return
+        cutoff_cache: dict[int, int] = {}
+        for row in rows:
+            chat_id = int(row["chat_id"])
+            if chat_id not in cutoff_cache:
+                cutoff_cache[chat_id] = self.get_ledger_reset_hour(chat_id)
+            accounting_date = self.accounting_date_for(row["created_at"], cutoff_cache[chat_id])
+            self.conn.execute("UPDATE entries SET accounting_date = ? WHERE id = ?", (accounting_date, row["id"]))
 
     def remember_bot_chat(self, chat_id: int, title: str, chat_type: str) -> None:
         self.conn.execute(
@@ -351,6 +375,37 @@ class LedgerStore:
         )
         self.conn.commit()
         return hour
+
+    def accounting_date_for(self, created_at: str | datetime | None = None, reset_hour: int | None = None) -> str:
+        if created_at is None:
+            local_time = datetime.now(LEDGER_TZ)
+        elif isinstance(created_at, datetime):
+            parsed = created_at
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            local_time = parsed.astimezone(LEDGER_TZ)
+        else:
+            parsed = datetime.fromisoformat(created_at)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=UTC)
+            local_time = parsed.astimezone(LEDGER_TZ)
+        cutoff = 0 if reset_hour is None else reset_hour
+        return (local_time - timedelta(hours=cutoff)).date().isoformat()
+
+    def current_accounting_date(self, chat_id: int) -> str:
+        return self.accounting_date_for(reset_hour=self.get_ledger_reset_hour(chat_id))
+
+    def previous_accounting_date(self, chat_id: int) -> str:
+        current = datetime.fromisoformat(self.current_accounting_date(chat_id)).date()
+        return (current - timedelta(days=1)).isoformat()
+
+    def next_cutoff_at(self, chat_id: int, now: datetime | None = None) -> datetime:
+        cutoff_hour = self.get_ledger_reset_hour(chat_id)
+        local_now = (now or datetime.now(LEDGER_TZ)).astimezone(LEDGER_TZ)
+        candidate = datetime.combine(local_now.date(), time(hour=cutoff_hour), tzinfo=LEDGER_TZ)
+        if candidate <= local_now:
+            candidate += timedelta(days=1)
+        return candidate
 
     def get_chat_owner_id(self, chat_id: int) -> int | None:
         self.ensure_chat(chat_id)
@@ -506,14 +561,15 @@ class LedgerStore:
             payable_usdt = money(amount_value)
             net = amount_value
         now = self._now()
+        accounting_date = self.accounting_date_for(now, self.get_ledger_reset_hour(chat_id))
         cursor = self.conn.execute(
             """
             INSERT INTO entries (
                 chat_id, kind, amount, currency, rate, fee_percent, fee_amount,
                 payable_amount, payable_usdt, net_amount, note,
-                operator_id, operator_name, created_at, source_message_id
+                operator_id, operator_name, accounting_date, created_at, source_message_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 chat_id,
@@ -529,6 +585,7 @@ class LedgerStore:
                 note,
                 operator_id,
                 operator_name,
+                accounting_date,
                 now,
                 source_message_id,
             ),
@@ -548,6 +605,7 @@ class LedgerStore:
         limit: int | None = None,
         start_at: str | None = None,
         end_at: str | None = None,
+        accounting_date: str | None = None,
     ) -> list[LedgerEntry]:
         conditions = ["chat_id = ?", "voided_at IS NULL"]
         params: list[object] = [chat_id]
@@ -557,6 +615,9 @@ class LedgerStore:
         if end_at is not None:
             conditions.append("created_at < ?")
             params.append(end_at)
+        if accounting_date is not None:
+            conditions.append("accounting_date = ?")
+            params.append(accounting_date)
         sql = f"""
             SELECT * FROM entries
             WHERE {" AND ".join(conditions)}
@@ -861,6 +922,7 @@ class LedgerStore:
             operator_id=row["operator_id"],
             operator_name=row["operator_name"],
             source_message_id=row["source_message_id"],
+            accounting_date=row["accounting_date"] or "",
             created_at=row["created_at"],
             voided_at=row["voided_at"],
         )
