@@ -32,9 +32,11 @@ def reset_remote_ocr_status(monkeypatch):
         }
     )
     bot.remote_ocr_health_cache.update({"checked_at": 0.0, "result": None})
+    bot.remote_ocr_offline_until = 0.0
     yield
     bot.close_remote_http_client()
     bot.REMOTE_OCR_URL = old_remote_url
+    bot.remote_ocr_offline_until = 0.0
 
 
 def test_remote_ocr_can_be_disabled_for_cloud_deploy(monkeypatch, tmp_path):
@@ -133,6 +135,40 @@ def test_remote_ocr_invalid_json_falls_back(monkeypatch, tmp_path):
     assert bot.remote_ocr_status["last_ok"] is False
     assert bot.remote_ocr_status["last_error"] == "ValueError"
     assert bot.remote_ocr_status["today_remote_failed"] == 1
+
+
+def test_remote_ocr_connection_failure_opens_circuit(monkeypatch, tmp_path):
+    calls = {"post": 0}
+
+    class FailingClient:
+        def post(self, *args, **kwargs):
+            calls["post"] += 1
+            raise TimeoutError("offline")
+
+    monkeypatch.setattr(bot, "REMOTE_OCR_OFFLINE_SECONDS", 60)
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FailingClient())
+
+    first = bot.run_remote_ocr(write_image(tmp_path))
+    second = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert first is None
+    assert second is None
+    assert calls["post"] == 1
+    assert bot.remote_ocr_is_circuit_open()
+    assert bot.remote_ocr_status["today_remote_failed"] == 1
+    assert bot.remote_ocr_fallback_reason().startswith("remote offline")
+
+
+def test_remote_ocr_health_probe_recovers_circuit(monkeypatch):
+    payload = {"ok": True, "gpu": True, "engine": "paddlex_ocr"}
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+    bot.mark_remote_ocr_offline("TimeoutError")
+
+    available, reason = bot.remote_ocr_available(force_probe=True)
+
+    assert available is True
+    assert reason == "ok"
+    assert bot.remote_ocr_is_circuit_open() is False
 
 
 def test_run_ocr_uses_remote_before_ocrspace(monkeypatch, tmp_path):

@@ -72,6 +72,8 @@ REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in
 REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
 REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 REMOTE_OCR_HEALTH_CACHE_SECONDS = float(os.getenv("REMOTE_OCR_HEALTH_CACHE_SECONDS", "10"))
+REMOTE_OCR_OFFLINE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_OFFLINE_SECONDS", "120"))))
+REMOTE_OCR_PROBE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_PROBE_SECONDS", "30"))))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
@@ -207,6 +209,7 @@ remote_ocr_status = {
     "today_cache_hits": 0,
 }
 remote_ocr_health_cache: dict[str, object] = {"checked_at": 0.0, "result": None}
+remote_ocr_offline_until = 0.0
 remote_http_client: httpx.Client | None = None
 remote_http_client_timeout: float | None = None
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
@@ -444,6 +447,8 @@ async def start_background_tasks(app: Application) -> None:
     if CLEANUP_ENABLED:
         await asyncio.to_thread(cleanup_server_files)
         app.bot_data["server_file_cleanup_task"] = asyncio.create_task(server_file_cleanup_loop())
+    if REMOTE_OCR_ENABLED and REMOTE_OCR_URL:
+        app.bot_data["remote_ocr_probe_task"] = asyncio.create_task(remote_ocr_probe_loop())
 
 
 async def stop_background_tasks(app: Application) -> None:
@@ -452,6 +457,13 @@ async def stop_background_tasks(app: Application) -> None:
         task.cancel()
         try:
             await task
+        except asyncio.CancelledError:
+            pass
+    remote_task = app.bot_data.get("remote_ocr_probe_task")
+    if isinstance(remote_task, asyncio.Task):
+        remote_task.cancel()
+        try:
+            await remote_task
         except asyncio.CancelledError:
             pass
 
@@ -1374,11 +1386,50 @@ def record_remote_ocr_fallback(reason: str) -> None:
     logger.info("OCRSPACE FALLBACK reason=%s", reason)
 
 
+def remote_ocr_is_circuit_open(now: float | None = None) -> bool:
+    current = time.time() if now is None else now
+    return current < remote_ocr_offline_until
+
+
+def remote_ocr_circuit_reason(now: float | None = None) -> str:
+    current = time.time() if now is None else now
+    remaining = max(0, int(remote_ocr_offline_until - current))
+    if remaining <= 0:
+        return "ok"
+    return f"remote offline, retry in {remaining}s"
+
+
+def mark_remote_ocr_offline(reason: str) -> None:
+    global remote_ocr_offline_until
+    remote_ocr_offline_until = max(remote_ocr_offline_until, time.time() + REMOTE_OCR_OFFLINE_SECONDS)
+    remote_ocr_health_cache.update({"checked_at": time.time(), "result": (False, {}, reason)})
+    logger.info("REMOTE OCR OFFLINE reason=%s retry_after=%ss", reason, REMOTE_OCR_OFFLINE_SECONDS)
+
+
+def mark_remote_ocr_online() -> None:
+    global remote_ocr_offline_until
+    if remote_ocr_offline_until > 0:
+        logger.info("REMOTE OCR ONLINE")
+    remote_ocr_offline_until = 0.0
+
+
+async def remote_ocr_probe_loop() -> None:
+    while True:
+        await asyncio.sleep(REMOTE_OCR_PROBE_SECONDS)
+        if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
+            continue
+        if not remote_ocr_is_circuit_open():
+            continue
+        await asyncio.to_thread(remote_ocr_available, True)
+
+
 def remote_ocr_fallback_reason() -> str:
     if not REMOTE_OCR_ENABLED:
         return "remote disabled"
     if not REMOTE_OCR_URL:
         return "remote url empty"
+    if remote_ocr_is_circuit_open():
+        return remote_ocr_circuit_reason()
     return remote_ocr_status.get("last_error") or "remote unavailable"
 
 
@@ -1686,12 +1737,16 @@ def record_remote_ocr_status(
     )
 
 
-def remote_ocr_available() -> tuple[bool, str]:
+def remote_ocr_available(force_probe: bool = False) -> tuple[bool, str]:
     if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
         return False, "disabled"
+    if remote_ocr_is_circuit_open() and not force_probe:
+        return False, remote_ocr_circuit_reason()
     cached = remote_ocr_health_cache.get("result")
     now = time.time()
     if (
+        not force_probe
+        and
         cached is not None
         and REMOTE_OCR_HEALTH_CACHE_SECONDS > 0
         and now - float(remote_ocr_health_cache.get("checked_at", 0.0)) <= REMOTE_OCR_HEALTH_CACHE_SECONDS
@@ -1705,15 +1760,18 @@ def remote_ocr_available() -> tuple[bool, str]:
         latency_ms = int((time.time() - start) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}", health_check=True)
+            mark_remote_ocr_offline(f"health status {response.status_code}")
             remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, f"status={response.status_code}")})
             return False, f"status={response.status_code}"
         record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0), health_check=True)
+        mark_remote_ocr_online()
         payload = response.json()
         remote_ocr_health_cache.update({"checked_at": start, "result": (True, payload if isinstance(payload, dict) else {}, "ok")})
         return True, "ok"
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__, health_check=True)
+        mark_remote_ocr_offline(type(exc).__name__)
         remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, type(exc).__name__)})
         return False, type(exc).__name__
 
@@ -1725,6 +1783,9 @@ def run_remote_ocr(
     pubg_expected_count: int | None = None,
 ) -> OcrResult | None:
     if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
+        return None
+    if remote_ocr_is_circuit_open():
+        logger.info("REMOTE OCR SKIP reason=%s", remote_ocr_circuit_reason())
         return None
 
     start = time.time()
@@ -1740,6 +1801,7 @@ def run_remote_ocr(
         latency_ms = int((time.time() - start) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"status {response.status_code}")
+            mark_remote_ocr_offline(f"status {response.status_code}")
             return None
         payload = response.json()
         if payload.get("ok") is not True:
@@ -1785,6 +1847,7 @@ def run_remote_ocr(
             return None
 
         card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
+        mark_remote_ocr_online()
         record_remote_ocr_status(
             True,
             latency_ms,
@@ -1808,6 +1871,7 @@ def run_remote_ocr(
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        mark_remote_ocr_offline(type(exc).__name__)
         return None
 
 
