@@ -176,7 +176,7 @@ def test_legacy_data_migrates_with_zero_fee(tmp_path):
     store = LedgerStore(db_path)
     try:
         entry = store.entries(-1001)[0]
-        bill = ledger_commands.handle_text(store, -1001, actor(), "账单", {12345})
+        bill = ledger_commands.handle_text(store, -1001, actor(), "完整账单", {12345})
 
         assert entry.fee_percent == Decimal("0.0000")
         assert entry.fee_amount == Decimal("0.00")

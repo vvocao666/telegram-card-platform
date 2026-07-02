@@ -1063,6 +1063,27 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
+    def test_ledger_auto_bill_after_cutoff_uses_current_accounting_date(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            try:
+                actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
+                old_entry = store.add_entry(-1001, "income", "100", "USDT", "", actor.user_id, actor.label, 10)
+                previous_date = store.previous_accounting_date(-1001)
+                store.conn.execute("UPDATE entries SET accounting_date = ? WHERE id = ?", (previous_date, old_entry.id))
+                store.conn.commit()
+
+                result = ledger_commands.handle_text(store, -1001, actor, "+50", {12345}, message_id=12)
+                full_result = ledger_commands.handle_text(store, -1001, actor, "完整账单", {12345})
+
+                self.assertIsNotNone(result)
+                self.assertIn("总入款金额：50.00", result.text)
+                self.assertNotIn("总入款金额：150.00", result.text)
+                self.assertIsNotNone(full_result)
+                self.assertIn("总入款金额：150.00", full_result.text)
+            finally:
+                store.close()
+
     def test_ledger_reset_hour_command_changes_daily_cutoff(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")

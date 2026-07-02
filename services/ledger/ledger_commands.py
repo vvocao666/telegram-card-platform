@@ -176,7 +176,7 @@ def handle_text(
         return CommandResult(format_bill(store, chat_id, scope="yesterday", show_all_records=True))
 
     if normalized in {"完整账单", "全部账单", "总账单", "/fullbill"}:
-        return CommandResult(format_bill(store, chat_id, show_all_records=True))
+        return CommandResult(format_bill(store, chat_id, scope="full", show_all_records=True))
 
     if normalized in {"操作员", "操作员列表"}:
         return CommandResult(format_operators(store, chat_id, owner_ids))
@@ -295,7 +295,7 @@ def handle_text(
     return None
 
 
-def format_bill(store: LedgerStore, chat_id: int, scope: str = "full", show_all_records: bool = False) -> str:
+def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all_records: bool = False) -> str:
     entries = _entries_for_scope(store, chat_id, scope)
     summary = _summarize_entries(store, chat_id, entries)
     title = _bill_title(scope)
