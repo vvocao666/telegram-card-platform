@@ -44,6 +44,7 @@ from services.ocr.font_repository import FontRepository
 from services.ocr.daily_learning import extract_ground_truth_cards
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
+from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
@@ -737,13 +738,14 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
     seen: set[str] = set()
     unresolved = False
     for index, line in enumerate(lines):
-        for card in extract_cards(line.text):
+        line_cards = extract_cards(line.text)
+        for card in line_cards:
             if card not in seen:
                 seen.add(card)
                 cards.append(card)
         if not is_pubg_image_text(line.text):
             continue
-        if not line.text.strip().endswith("-") and len(re.findall(r"-", line.text)) >= 3:
+        if line_cards:
             continue
         current = clean_pubg_fragment(line.text, from_prefix=True)
         if not current:
@@ -784,22 +786,16 @@ def pubg_card_prefix_key(card: str) -> tuple[str, str, str] | None:
     return parts[0], parts[1], parts[2]
 
 
-def merge_text_rebuilt_and_worker_cards(text_cards: list[str], worker_cards: list[str]) -> list[str]:
-    if not text_cards:
-        for card in worker_cards:
-            logger.info("PUBG WORKER CARD DROPPED: %s reason=missing_text_evidence", card)
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for card in text_cards:
-        if card in seen:
-            continue
-        seen.add(card)
-        result.append(card)
-    for card in worker_cards:
-        if card not in seen:
-            logger.info("PUBG WORKER CARD DROPPED: %s reason=conflict_with_line_wrap", card)
-    return result
+def merge_text_rebuilt_and_worker_cards(
+    text_cards: list[str],
+    worker_cards: list[str],
+    text_lines: list[str] | None = None,
+) -> list[str]:
+    blocked_prefix_keys = incomplete_pubg_prefix_keys(text_lines or [])
+    merged = merge_text_and_worker_pubg_cards(text_cards, worker_cards, blocked_prefix_keys=blocked_prefix_keys)
+    for dropped in merged.dropped:
+        logger.info("PUBG WORKER CARD DROPPED: %s reason=%s", dropped.card, dropped.reason)
+    return list(merged.cards)
 
 
 def repair_psn_group(group: str, index: int) -> tuple[str, bool]:
@@ -1835,7 +1831,11 @@ def run_remote_ocr(
         text_raw = "\n".join(line.text for line in ordered_lines)
         worker_text = "\n".join(ocr_item_text(item) for item in worker_cards)
         if ordered_lines and is_pubg_image_text(text_raw):
-            extracted_cards = merge_text_rebuilt_and_worker_cards(ordered_line_cards, extract_cards(worker_text))
+            extracted_cards = merge_text_rebuilt_and_worker_cards(
+                ordered_line_cards,
+                extract_cards(worker_text),
+                [line.text for line in ordered_lines],
+            )
         else:
             extracted_cards = ordered_line_cards or extract_cards(raw_text)
         cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extracted_cards)

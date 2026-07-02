@@ -334,7 +334,7 @@ def test_wrapped_pubg_does_not_borrow_next_card_prefix(monkeypatch, tmp_path, ca
     assert result.cards == ("S07304-UM3A-RHGF-SY5RQ",)
     assert "S07304-94VF-NG88-JES07" not in result.cards
     assert "PUBG LINE WRAP UNRESOLVED:" in caplog.text
-    assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_line_wrap" in caplog.text
+    assert "PUBG WORKER CARD DROPPED: S07304-94VF-NG88-JES07 reason=conflict_with_incomplete_text_line" in caplog.text
 
 
 def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monkeypatch, tmp_path):
@@ -365,6 +365,58 @@ def test_remote_worker_recovers_first_wrapped_card_and_keeps_complete_cards(monk
         "S07304-PZA2-THGH-LPAAZ",
         "S07304-CDRC-ULTQ-T6JZP",
     )
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
+def test_remote_worker_keeps_non_conflicting_worker_cards_when_text_rebuild_is_partial(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07336-QFTZ-BPKM-BR6LV", "score": 0.99},
+            {"text": "S07336-K88S-GD9S-FXS2U", "score": 0.99},
+            {"text": "S07336-ZMBN-5CWZ-GTRVF", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "S07336-ZMBN-5CWZ-", "rec_box": [20, 110, 150, 130]},
+            {"text": "GTRVF", "rec_box": [20, 135, 90, 155]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-ZMBN-5CWZ-GTRVF",
+        "S07336-QFTZ-BPKM-BR6LV",
+        "S07336-K88S-GD9S-FXS2U",
+    )
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
+def test_remote_worker_merges_short_tail_line_and_drops_conflicting_worker_card(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07324-JT74-WL6G-4AA27", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "S07324-JT74-WL64-AA27", "rec_box": [20, 110, 210, 130]},
+            {"text": "X", "rec_box": [20, 135, 40, 155]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == ("S07324-JT74-WL64-AA27X",)
     assert result.psn_cards == tuple()
     assert result.psn_ordered == tuple()
 
