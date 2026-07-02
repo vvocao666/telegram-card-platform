@@ -398,6 +398,37 @@ def test_remote_worker_keeps_non_conflicting_worker_cards_when_text_rebuild_is_p
     assert result.psn_ordered == tuple()
 
 
+def test_remote_worker_rebuilds_pubg_when_current_line_ends_with_two_or_three_chars(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": "S07336-Y34D-KCW7-3X5DK", "score": 0.99},
+        ],
+        "texts": [
+            {"text": "S07336-Y34D-KCW", "rec_box": [20, 10, 170, 30]},
+            {"text": "7-3X5DK", "rec_box": [20, 35, 120, 55]},
+            {"text": "S07336-6HKS-AH", "rec_box": [20, 70, 160, 90]},
+            {"text": "RX-6DXEV", "rec_box": [20, 95, 130, 115]},
+            {"text": "S07336-AGWG-CC", "rec_box": [20, 130, 160, 150]},
+            {"text": "WN-FESVH", "rec_box": [20, 155, 130, 175]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-Y34D-KCW7-3X5DK",
+        "S07336-6HKS-AHRX-6DXEV",
+        "S07336-AGWG-CCWN-FESVH",
+    )
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
 def test_remote_worker_merges_short_tail_line_and_drops_conflicting_worker_card(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
