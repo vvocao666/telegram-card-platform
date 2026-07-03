@@ -53,7 +53,7 @@ def compact_card(card: str) -> str:
 
 
 def normalize_line(text: str) -> str:
-    return text.upper().replace("—", "-").replace("–", "-").replace("_", "-")
+    return text.upper().replace("_", "-")
 
 
 def incomplete_pubg_prefix_keys(lines: list[str] | tuple[str, ...]) -> set[tuple[str, str, str]]:
@@ -95,7 +95,6 @@ def merge_text_and_worker_pubg_cards(
     worker_cards: list[str],
     blocked_prefix_keys: set[tuple[str, str, str]] | None = None,
 ) -> CandidateMergeResult:
-    """保留原始行重建结果，同时补充不冲突的 worker 完整卡。"""
     result = exact_unique_cards(text_cards)
     dropped: list[DroppedCandidate] = []
     seen = set(result)

@@ -117,9 +117,37 @@ def test_remote_ocr_empty_cards_falls_back(monkeypatch, tmp_path):
 
     assert result is None
     assert bot.remote_ocr_status["last_ok"] is False
-    assert bot.remote_ocr_status["last_error"] == "empty cards"
+    assert bot.remote_ocr_status["last_error"] == "no valid cards"
     assert bot.remote_ocr_status["today_remote_calls"] == 1
     assert bot.remote_ocr_status["today_remote_failed"] == 1
+
+
+def test_remote_ocr_rebuilds_from_texts_when_worker_cards_are_empty(monkeypatch, tmp_path):
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": [
+            {"text": "S07336-XAN8-2NDZ-", "score": 0.99},
+            {"text": "HU6Q3 复制密码", "score": 0.99},
+            {"text": "S07336-CE9Z-K74V-H", "score": 0.99},
+            {"text": "XYP3 复制密码", "score": 0.99},
+            {"text": "S07336-ZSNH-V8AP-", "score": 0.99},
+            {"text": "TG9EP 复制密码", "score": 0.99},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-XAN8-2NDZ-HU6Q3",
+        "S07336-CE9Z-K74V-HXYP3",
+        "S07336-ZSNH-V8AP-TG9EP",
+    )
+    assert bot.remote_ocr_status["last_ok"] is True
+    assert bot.remote_ocr_status["today_remote_success"] == 1
+    assert bot.remote_ocr_status["today_remote_failed"] == 0
 
 
 def test_remote_ocr_invalid_json_falls_back(monkeypatch, tmp_path):

@@ -605,6 +605,19 @@ def join_pubg_fragments(left: str, right: str) -> str:
     return left + right
 
 
+def rebuild_pubg_card_from_fragments(text: str) -> str:
+    compact = re.sub(r"[^A-Z0-9]", "", normalize_text(text))
+    match = PUBG_PREFIX_RE.search(compact)
+    if not match:
+        return ""
+    compact = compact[match.start() :]
+    if len(compact) < 19:
+        return ""
+    card = f"{compact[:6]}-{compact[6:10]}-{compact[10:14]}-{compact[14:19]}"
+    card = apply_builtin_pubg_correction(card)
+    return card if valid_card(card) else ""
+
+
 def extract_cards(text: str) -> list[str]:
     text = normalize_text(text)
     sep = r"[\s\-_|:：；;,.，。|]+"
@@ -761,8 +774,8 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
                 break
             next_fragment = clean_pubg_fragment(next_line.text, from_prefix=False)
             current = join_pubg_fragments(current, next_fragment)
-            card = apply_builtin_pubg_correction(current)
-            if not valid_card(card):
+            card = rebuild_pubg_card_from_fragments(current)
+            if not card:
                 continue
             if card not in seen:
                 seen.add(card)
@@ -1804,9 +1817,8 @@ def run_remote_ocr(
             record_remote_ocr_status(False, latency_ms, error="ok=false")
             return None
         worker_cards = payload.get("cards")
-        if not isinstance(worker_cards, list) or len(worker_cards) <= 0:
-            record_remote_ocr_status(False, latency_ms, error="empty cards")
-            return None
+        if not isinstance(worker_cards, list):
+            worker_cards = []
 
         text_items = payload.get("texts", []) or []
         ordered_lines = ordered_ocr_text_lines(text_items)

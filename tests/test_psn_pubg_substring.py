@@ -429,6 +429,35 @@ def test_remote_worker_rebuilds_pubg_when_current_line_ends_with_two_or_three_ch
     assert result.psn_ordered == tuple()
 
 
+def test_remote_worker_rebuilds_pubg_tail_before_button_text(monkeypatch, tmp_path):
+    image_path = tmp_path / "card.jpg"
+    image_path.write_bytes(b"fake-image")
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": [
+            {"text": "S07336-XAN8-2NDZ-", "rec_box": [20, 10, 170, 30]},
+            {"text": "HU6Q3 复制密码", "rec_box": [20, 35, 160, 55]},
+            {"text": "S07336-CE9Z-K74V-H", "rec_box": [20, 70, 175, 90]},
+            {"text": "XYP3 复制密码", "rec_box": [20, 95, 160, 115]},
+            {"text": "S07336-ZSNH-V8AP-", "rec_box": [20, 130, 170, 150]},
+            {"text": "TG9EP 复制密码", "rec_box": [20, 155, 160, 175]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(payload))
+
+    result = bot.run_remote_ocr(image_path)
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-XAN8-2NDZ-HU6Q3",
+        "S07336-CE9Z-K74V-HXYP3",
+        "S07336-ZSNH-V8AP-TG9EP",
+    )
+    assert result.psn_cards == tuple()
+    assert result.psn_ordered == tuple()
+
+
 def test_remote_worker_merges_short_tail_line_and_drops_conflicting_worker_card(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
