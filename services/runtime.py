@@ -1252,6 +1252,9 @@ def run_ocrspace(
                 all_cards.extend(cards)
                 all_psn_ordered.extend(psn_ordered)
                 uncertain_total += uncertain
+                if remote_ocr_is_circuit_open() and (cards or psn_ordered):
+                    logger.info("OCRSPACE FAST PATH engine=%s cards=%s psn=%s", engine, len(cards), len(psn_ordered))
+                    break
         merged_cards, conflict_count = merge_card_variants(all_cards)
         psn_ordered = limit_psn_ordered(prefer_labeled_psn_ordered(raw_chunks, all_psn_ordered), psn_expected_count)
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
@@ -3895,8 +3898,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
             return
 
         await message.chat.send_action("typing")
-        results: list[OcrResult] = []
-        for batch_index, update in enumerate(updates, start=1):
+        async def recognize_batch_update(batch_index: int, update: Update) -> tuple[int, OcrResult, OcrResult, bool]:
             try:
                 result = await recognize_update(update, context)
                 result = replace(result, sequence_index=batch_index)
@@ -3904,19 +3906,29 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
                 corrected_pubg, corrected_psn = result_card_lines([corrected])
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
                     logger.info("Unrecognized OCR raw text: %s", result.raw_text.strip().replace("\n", " | ")[:1000])
-                results.append(corrected)
+                return batch_index, corrected, result, True
+            except Exception:
+                logger.exception("Batch image OCR failed")
+                return batch_index, OcrResult(cards=tuple(), sequence_index=batch_index), OcrResult(cards=tuple()), False
+
+        batch_results = await asyncio.gather(
+            *(recognize_batch_update(batch_index, update) for batch_index, update in enumerate(updates, start=1))
+        )
+        batch_results = sorted(batch_results, key=lambda item: item[0])
+        results: list[OcrResult] = []
+        for _batch_index, corrected, raw_result, success in batch_results:
+            results.append(corrected)
+            if success:
                 try:
                     append_today_ocr_cache(
                         list(corrected.cards) + [psn_key(line) or line for line in corrected.psn_ordered],
-                        raw_candidates=exact_unique_text(list(result.cards) + list(result.psn_ordered)),
+                        raw_candidates=exact_unique_text(list(raw_result.cards) + list(raw_result.psn_ordered)),
                         image_count=1,
                         path=TODAY_OCR_CACHE_PATH,
                     )
                 except Exception:
                     logger.exception("Failed to write today OCR cache")
-            except Exception:
-                logger.exception("Batch image OCR failed")
-                results.append(OcrResult(cards=tuple()))
+            else:
                 try:
                     append_today_ocr_cache([], image_count=1, path=TODAY_OCR_CACHE_PATH)
                 except Exception:
