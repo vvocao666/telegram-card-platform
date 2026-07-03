@@ -1946,6 +1946,16 @@ def run_ocr(
     if remote is not None:
         return remote
 
+    if remote_ocr_is_circuit_open() and LOCAL_FALLBACK:
+        local = run_local_ocr(
+            image_path,
+            psn_hint=psn_hint,
+            psn_expected_count=psn_expected_count,
+            pubg_expected_count=pubg_expected_count,
+        )
+        if local.cards or local.psn_cards or local.psn_uncertain:
+            return local
+
     if OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
         record_remote_ocr_fallback(remote_ocr_fallback_reason())
         remote = run_ocrspace(

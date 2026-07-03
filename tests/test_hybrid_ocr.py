@@ -234,6 +234,30 @@ def test_run_ocr_falls_back_to_ocrspace_when_remote_fails(monkeypatch, tmp_path)
         bot.LOCAL_COMPLEMENT = old_complement
 
 
+def test_run_ocr_uses_local_before_ocrspace_when_remote_is_offline(monkeypatch, tmp_path):
+    local = bot.OcrResult(cards=("S07304-XVVB-EB4F-JRDTC",), raw_text="local")
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    old_local_fallback = bot.LOCAL_FALLBACK
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        bot.LOCAL_FALLBACK = True
+        bot.mark_remote_ocr_offline("ConnectTimeout")
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: None)
+        monkeypatch.setattr(bot, "run_local_ocr", lambda *args, **kwargs: local)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unused")))
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result is local
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+        bot.LOCAL_FALLBACK = old_local_fallback
+        bot.remote_ocr_offline_until = 0.0
+
+
 def test_run_ocr_complements_remote_when_pubg_fragment_unresolved(monkeypatch, tmp_path):
     remote = bot.OcrResult(
         cards=("S07304-PZA2-THGH-LPAAZ", "S07304-CDRC-ULTQ-T6JZP"),
