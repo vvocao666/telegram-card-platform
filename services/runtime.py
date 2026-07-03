@@ -80,7 +80,8 @@ OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
 OCR_SPACE_MIN_SIDE = int(os.getenv("OCR_SPACE_MIN_SIDE", "2600"))
 OCR_SPACE_MAX_UPLOAD_BYTES = max(300_000, int(os.getenv("OCR_SPACE_MAX_UPLOAD_BYTES", "950000")))
-OCR_SPACE_TIMEOUT = float(os.getenv("OCR_SPACE_TIMEOUT", "18"))
+OCR_SPACE_TIMEOUT = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
+OCR_SPACE_TOTAL_TIMEOUT = float(os.getenv("OCR_SPACE_TOTAL_TIMEOUT", "12"))
 OCR_SPACE_ENGINES = [engine.strip() for engine in os.getenv("OCR_SPACE_ENGINES", "2,1").split(",") if engine.strip()]
 OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "1"))
 OCR_SPACE_429_COOLDOWN_SECONDS = max(30, int(os.getenv("OCR_SPACE_429_COOLDOWN_SECONDS", "180")))
@@ -1157,8 +1158,12 @@ def run_ocrspace(
     uncertain_total = 0
     try:
         upload_path = prepare_ocrspace_image(image_path)
+        started_at = time.monotonic()
         with httpx.Client(timeout=OCR_SPACE_TIMEOUT) as client:
             for engine in OCR_SPACE_ENGINES:
+                if time.monotonic() - started_at >= OCR_SPACE_TOTAL_TIMEOUT:
+                    logger.warning("OCRSPACE FAILED reason=total_timeout")
+                    break
                 response = None
                 now = time.time()
                 available_keys = [key for key in OCR_SPACE_API_KEYS if ocrspace_key_cooldowns.get(key, 0) <= now]
@@ -1170,25 +1175,41 @@ def run_ocrspace(
                     logger.warning("All OCR.space keys are cooling down.")
                     break
                 for key_index, api_key in enumerate(available_keys, start=1):
+                    if time.monotonic() - started_at >= OCR_SPACE_TOTAL_TIMEOUT:
+                        logger.warning("OCRSPACE FAILED reason=total_timeout")
+                        break
                     with upload_path.open("rb") as image_file:
-                        response = client.post(
-                            "https://api.ocr.space/parse/image",
-                            data={
-                                "apikey": api_key,
-                                "language": "eng",
-                                "OCREngine": engine,
-                                "scale": "true",
-                                "detectOrientation": "true",
-                                "isTable": "false",
-                            },
-                            files={
-                                "file": (
-                                    upload_path.name,
-                                    image_file,
-                                    "image/png" if upload_path.suffix.lower() == ".png" else "image/jpeg",
-                                )
-                            },
-                        )
+                        request_started_at = time.monotonic()
+                        try:
+                            response = client.post(
+                                "https://api.ocr.space/parse/image",
+                                data={
+                                    "apikey": api_key,
+                                    "language": "eng",
+                                    "OCREngine": engine,
+                                    "scale": "true",
+                                    "detectOrientation": "true",
+                                    "isTable": "false",
+                                },
+                                files={
+                                    "file": (
+                                        upload_path.name,
+                                        image_file,
+                                        "image/png" if upload_path.suffix.lower() == ".png" else "image/jpeg",
+                                    )
+                                },
+                            )
+                        except httpx.TimeoutException as exc:
+                            latency_ms = int((time.monotonic() - request_started_at) * 1000)
+                            logger.warning(
+                                "OCRSPACE FAILED engine=%s key_index=%s latency_ms=%s reason=%s",
+                                engine,
+                                key_index,
+                                latency_ms,
+                                exc.__class__.__name__,
+                            )
+                            response = None
+                            break
                     if response.status_code != 429:
                         break
                     ocrspace_key_cooldowns[api_key] = time.time() + OCR_SPACE_429_COOLDOWN_SECONDS
