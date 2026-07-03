@@ -83,7 +83,7 @@ OCR_SPACE_MAX_UPLOAD_BYTES = max(300_000, int(os.getenv("OCR_SPACE_MAX_UPLOAD_BY
 OCR_SPACE_TIMEOUT = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
 OCR_SPACE_TOTAL_TIMEOUT = float(os.getenv("OCR_SPACE_TOTAL_TIMEOUT", "8"))
 OCR_SPACE_ENGINES = [engine.strip() for engine in os.getenv("OCR_SPACE_ENGINES", "2,1").split(",") if engine.strip()]
-OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "10"))
+OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "20"))
 OCR_SPACE_429_COOLDOWN_SECONDS = max(30, int(os.getenv("OCR_SPACE_429_COOLDOWN_SECONDS", "180")))
 LOCAL_FALLBACK = os.getenv("LOCAL_FALLBACK", "1").strip() == "1"
 LOCAL_COMPLEMENT = os.getenv("LOCAL_COMPLEMENT", "0").strip() == "1"
@@ -934,6 +934,19 @@ def parse_pubg_expected_count(caption: str) -> int | None:
     return None
 
 
+def count_pubg_markers(text: str) -> int | None:
+    normalized = normalize_text(text)
+    count = len(PUBG_PREFIX_RE.findall(normalized))
+    return count or None
+
+
+def merge_pubg_expected_count(configured: int | None, raw_text: str) -> int | None:
+    detected = count_pubg_markers(raw_text)
+    if configured and detected:
+        return max(configured, detected)
+    return configured or detected
+
+
 def limit_psn_ordered(cards: list[str], expected_count: int | None) -> list[str]:
     cards = unique_psn_lines(cards)
     if expected_count is None and MAX_PSN_PER_IMAGE > 0:
@@ -1263,14 +1276,15 @@ def run_ocrspace(
         corrected_merged_cards, correction_uncertain, card_corrections = settle_and_correct_pubg_cards(merged_cards)
         uncertain_total += correction_uncertain
         if corrected_merged_cards or psn_cards or psn_uncertain:
+            merged_raw_text = "\n".join(raw_chunks)
             return OcrResult(
                         cards=tuple(corrected_merged_cards),
                         psn_cards=tuple(psn_cards),
                         psn_uncertain=tuple(psn_uncertain),
                         psn_ordered=tuple(psn_ordered),
-                        pubg_expected_count=pubg_expected_count,
+                        pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, merged_raw_text),
                         psn_expected_count=psn_expected_count,
-                        raw_text="\n".join(raw_chunks),
+                        raw_text=merged_raw_text,
                         uncertain_count=uncertain_total,
                         ocr_fixed_count=ocr_stats["ocr_fixed_count"],
                         ocr_missing_count=ocr_stats["ocr_missing_count"],
@@ -1285,12 +1299,13 @@ def run_ocrspace(
         if upload_path:
             upload_path.unlink(missing_ok=True)
 
+    merged_raw_text = "\n".join(raw_chunks)
     return OcrResult(
         cards=tuple(),
         psn_cards=tuple(),
-        pubg_expected_count=pubg_expected_count,
+        pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, merged_raw_text),
         psn_expected_count=psn_expected_count,
-        raw_text="\n".join(raw_chunks),
+        raw_text=merged_raw_text,
         uncertain_count=uncertain_total,
         ocr_fixed_count=ocr_stats["ocr_fixed_count"],
         ocr_missing_count=ocr_stats["ocr_missing_count"],
@@ -1375,14 +1390,15 @@ def run_local_ocr(
             psn_uncertain.extend(card for card in ordered if card.endswith(FUZZY_SUFFIX))
 
     settled_cards, uncertain, card_corrections = settle_and_correct_pubg_cards(filter_local_ocr_cards(cards))
+    merged_raw_text = "\n".join(raw_chunks)
     return OcrResult(
         cards=tuple(settled_cards),
         psn_cards=tuple(exact_unique_psn(psn_cards)),
         psn_uncertain=tuple(exact_unique_text(psn_uncertain)),
         psn_ordered=tuple(limit_psn_ordered(prefer_labeled_psn_ordered(raw_chunks, psn_ordered), psn_expected_count)),
-        pubg_expected_count=pubg_expected_count,
+        pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, merged_raw_text),
         psn_expected_count=psn_expected_count,
-        raw_text="\n".join(raw_chunks),
+        raw_text=merged_raw_text,
         uncertain_count=uncertain,
         corrections_applied=card_corrections,
     )
@@ -1900,7 +1916,7 @@ def run_remote_ocr(
             psn_cards=tuple(psn_cards),
             psn_uncertain=tuple(psn_uncertain),
             psn_ordered=tuple(psn_ordered),
-            pubg_expected_count=pubg_expected_count,
+            pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, raw_text),
             psn_expected_count=psn_expected_count,
             raw_text=raw_text,
             uncertain_count=uncertain,

@@ -20,6 +20,38 @@ def test_today_ocr_cache_create_append_and_dedupe(tmp_path):
     assert data["raw_candidates"] == ["raw1", "raw2"]
 
 
+def test_today_ocr_cache_counts_images_separately_from_cards(tmp_path):
+    path = tmp_path / "outputs" / "today_ocr_cache.json"
+    now = datetime(2026, 6, 21, 21, 15, tzinfo=TZ)
+
+    append_today_ocr_cache(
+        ["S07304-AAAA-BBBB-CCCCC", "S07304-DDDD-EEEE-FFFFF", "S07304-GGGG-HHHH-IIIII"],
+        path=path,
+        now=now,
+    )
+    data = read_today_ocr_cache(path, now=now)
+    summary = today_ocr_cache_summary(path, now=now)
+
+    assert data["images"] == 1
+    assert summary.images == 1
+    assert summary.ocr_count == 3
+
+
+def test_today_ocr_cache_duplicate_card_still_counts_new_image(tmp_path):
+    path = tmp_path / "outputs" / "today_ocr_cache.json"
+    now = datetime(2026, 6, 21, 21, 15, tzinfo=TZ)
+
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=path, now=now)
+    append_today_ocr_cache(["S07304-AAAA-BBBB-CCCCC"], path=path, now=now)
+    data = read_today_ocr_cache(path, now=now)
+    summary = today_ocr_cache_summary(path, now=now)
+
+    assert data["images"] == 2
+    assert data["ocr_cards"] == ["S07304-AAAA-BBBB-CCCCC"]
+    assert summary.images == 2
+    assert summary.ocr_count == 1
+
+
 def test_today_ocr_cache_resets_across_days(tmp_path):
     path = tmp_path / "outputs" / "today_ocr_cache.json"
     first = datetime(2026, 6, 21, 23, 59, tzinfo=TZ)

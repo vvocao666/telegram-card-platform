@@ -129,6 +129,18 @@ def test_output_order_duplicate_keeps_first_sequence_position():
     assert _pubg_lines(reply) == [first, second]
 
 
+def test_s07_marker_count_adds_missing_review_hint():
+    result = bot.OcrResult(
+        cards=("S07336-Y34D-KCW7-3X5DK",),
+        pubg_expected_count=3,
+    )
+
+    reply = bot.format_reply([result])
+
+    assert "S07336-Y34D-KCW7-3X5DK" in reply
+    assert "2" in reply
+
+
 def test_photo_display_order_prefers_telegram_message_id_over_receive_sequence():
     first_update = type("Update", (), {"message": type("Message", (), {"message_id": 5})()})()
     second_update = type("Update", (), {"message": type("Message", (), {"message_id": 9})()})()

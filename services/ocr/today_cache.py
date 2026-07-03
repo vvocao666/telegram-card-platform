@@ -38,11 +38,13 @@ def append_today_ocr_cache(
             "images": 0,
             "ocr_cards": [],
             "raw_candidates": [],
+            "image_entries": [],
             "ocr_entries": [],
             "time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
         }
     data["ocr_entries"] = _retained_entries(data, current_time)
-    data["images"] = int(data.get("images", 0)) + image_count
+    data["image_entries"] = _append_image_entries(_retained_image_entries(data, current_time), image_count, current_time)
+    data["images"] = len(_image_entry_list(data.get("image_entries")))
     data["ocr_entries"] = _append_entry_cards(_entry_list(data.get("ocr_entries")), ocr_cards, current_time)
     data["ocr_cards"] = _cards_from_entries(_entry_list(data.get("ocr_entries")))
     data["raw_candidates"] = _append_unique(_string_list(data.get("raw_candidates")), raw_candidates)
@@ -68,6 +70,8 @@ def read_today_ocr_cache(
     if retained:
         data["ocr_entries"] = retained
         data["ocr_cards"] = _cards_from_entries(retained)
+        data["image_entries"] = _retained_image_entries(data, current_time)
+        data["images"] = len(_image_entry_list(data.get("image_entries")))
         return data
     cache_time = _parse_time(str(data.get("time") or ""))
     if cache_time and current_time - cache_time <= timedelta(hours=RETENTION_HOURS):
@@ -93,9 +97,14 @@ def today_ocr_cache_summary(
             exists=False,
         )
     cards = _string_list(data.get("ocr_cards"))
+    image_entries = _image_entry_list(data.get("image_entries"))
+    if image_entries:
+        images = len(image_entries)
+    else:
+        images = int(data.get("images", 0))
     return TodayOcrCacheSummary(
         date=str(data.get("date", "")),
-        images=int(data.get("images", 0)),
+        images=images,
         ocr_count=len(cards),
         first_cards=tuple(cards[:10]),
         path=str(cache_path),
@@ -127,6 +136,24 @@ def _retained_entries(data: dict[str, object], now: datetime) -> list[dict[str, 
         if entry_time and now - entry_time <= timedelta(hours=RETENTION_HOURS):
             retained.append(entry)
     return retained
+
+
+def _retained_image_entries(data: dict[str, object], now: datetime) -> list[dict[str, str]]:
+    entries = _image_entry_list(data.get("image_entries"))
+    retained: list[dict[str, str]] = []
+    for entry in entries:
+        entry_time = _parse_time(entry.get("time", ""))
+        if entry_time and now - entry_time <= timedelta(hours=RETENTION_HOURS):
+            retained.append(entry)
+    return retained
+
+
+def _append_image_entries(existing: list[dict[str, str]], image_count: int, now: datetime) -> list[dict[str, str]]:
+    result = list(existing)
+    time_text = _format_time(now)
+    for _ in range(max(0, int(image_count))):
+        result.append({"time": time_text})
+    return result
 
 
 def _append_entry_cards(
@@ -168,6 +195,19 @@ def _entry_list(value: object) -> list[dict[str, str]]:
         time_text = item.get("time")
         if isinstance(card, str) and card:
             entries.append({"card": card, "time": str(time_text or "")})
+    return entries
+
+
+def _image_entry_list(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    entries: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        time_text = item.get("time")
+        if isinstance(time_text, str) and time_text:
+            entries.append({"time": time_text})
     return entries
 
 
