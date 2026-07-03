@@ -73,17 +73,17 @@ REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in
 REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
 REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 REMOTE_OCR_HEALTH_CACHE_SECONDS = float(os.getenv("REMOTE_OCR_HEALTH_CACHE_SECONDS", "10"))
-REMOTE_OCR_OFFLINE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_OFFLINE_SECONDS", "120"))))
-REMOTE_OCR_PROBE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_PROBE_SECONDS", "30"))))
+REMOTE_OCR_OFFLINE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_OFFLINE_SECONDS", "180"))))
+REMOTE_OCR_PROBE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_PROBE_SECONDS", "60"))))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
 OCR_SPACE_MIN_SIDE = int(os.getenv("OCR_SPACE_MIN_SIDE", "2600"))
 OCR_SPACE_MAX_UPLOAD_BYTES = max(300_000, int(os.getenv("OCR_SPACE_MAX_UPLOAD_BYTES", "950000")))
 OCR_SPACE_TIMEOUT = float(os.getenv("OCR_SPACE_TIMEOUT", "8"))
-OCR_SPACE_TOTAL_TIMEOUT = float(os.getenv("OCR_SPACE_TOTAL_TIMEOUT", "12"))
+OCR_SPACE_TOTAL_TIMEOUT = float(os.getenv("OCR_SPACE_TOTAL_TIMEOUT", "8"))
 OCR_SPACE_ENGINES = [engine.strip() for engine in os.getenv("OCR_SPACE_ENGINES", "2,1").split(",") if engine.strip()]
-OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "1"))
+OCR_CONCURRENCY = int(os.getenv("OCR_CONCURRENCY", "10"))
 OCR_SPACE_429_COOLDOWN_SECONDS = max(30, int(os.getenv("OCR_SPACE_429_COOLDOWN_SECONDS", "180")))
 LOCAL_FALLBACK = os.getenv("LOCAL_FALLBACK", "1").strip() == "1"
 LOCAL_COMPLEMENT = os.getenv("LOCAL_COMPLEMENT", "0").strip() == "1"
@@ -1175,7 +1175,9 @@ def run_ocrspace(
                     logger.warning("All OCR.space keys are cooling down.")
                     break
                 for key_index, api_key in enumerate(available_keys, start=1):
-                    if time.monotonic() - started_at >= OCR_SPACE_TOTAL_TIMEOUT:
+                    elapsed = time.monotonic() - started_at
+                    remaining_timeout = OCR_SPACE_TOTAL_TIMEOUT - elapsed
+                    if remaining_timeout <= 0:
                         logger.warning("OCRSPACE FAILED reason=total_timeout")
                         break
                     with upload_path.open("rb") as image_file:
@@ -1198,6 +1200,7 @@ def run_ocrspace(
                                         "image/png" if upload_path.suffix.lower() == ".png" else "image/jpeg",
                                     )
                                 },
+                                timeout=max(0.5, min(OCR_SPACE_TIMEOUT, remaining_timeout)),
                             )
                         except httpx.TimeoutException as exc:
                             latency_ms = int((time.monotonic() - request_started_at) * 1000)
