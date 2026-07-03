@@ -13,6 +13,9 @@ def _card(index: int) -> str:
 
 
 def _pubg_lines(reply: str) -> list[str]:
+    quote_match = re.search(r"<blockquote>(.*?)</blockquote>", reply, flags=re.S)
+    if quote_match:
+        return html.unescape(quote_match.group(1)).splitlines()
     pre_match = re.search(r"<pre>(.*?)</pre>", reply, flags=re.S)
     if pre_match:
         return html.unescape(pre_match.group(1)).splitlines()

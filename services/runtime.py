@@ -2201,13 +2201,11 @@ def format_duplicate_lines(groups: list[tuple[int, list[int]]]) -> list[str]:
 
 
 def format_card_code(card: str) -> str:
-    return f"<code>{html.escape(card)}</code>"
+    return format_card_codes([card])
 
 
 def format_card_codes(cards: list[str]) -> str:
-    if len(cards) == 1:
-        return format_card_code(cards[0])
-    return f"<pre>{html.escape(chr(10).join(cards))}</pre>"
+    return f"<blockquote>{html.escape(chr(10).join(cards))}</blockquote>"
 
 
 def format_underlined_card_code(card: str) -> str:
@@ -2348,7 +2346,7 @@ def format_reply(results: list[OcrResult]) -> str:
 
     if uncertain_count:
         if conflict_lines:
-            sections.append(f"{UNCERTAIN_PREFIX}\n<pre>{html.escape(chr(10).join(conflict_lines))}</pre>\n{UNCERTAIN_PREFIX}{uncertain_count}{UNCERTAIN_SUFFIX}")
+            sections.append(f"{UNCERTAIN_PREFIX}\n<blockquote>{html.escape(chr(10).join(conflict_lines))}</blockquote>\n{UNCERTAIN_PREFIX}{uncertain_count}{UNCERTAIN_SUFFIX}")
         else:
             sections.append(f"{UNCERTAIN_PREFIX}{uncertain_count}{UNCERTAIN_SUFFIX}")
     if not sections:
@@ -2666,18 +2664,18 @@ def split_html_message(text: str, limit: int = TELEGRAM_SAFE_TEXT_LIMIT) -> list
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
-    in_pre = False
+    open_tag = ""
 
     def emit() -> None:
         nonlocal current, current_len
         if not current:
             return
         chunk = "\n".join(current)
-        if in_pre and not chunk.endswith("</pre>"):
-            chunk += "\n</pre>"
+        if open_tag and not chunk.endswith(f"</{open_tag}>"):
+            chunk += f"\n</{open_tag}>"
         chunks.append(chunk)
-        current = ["<pre>"] if in_pre else []
-        current_len = len("<pre>") if in_pre else 0
+        current = [f"<{open_tag}>"] if open_tag else []
+        current_len = len(f"<{open_tag}>") if open_tag else 0
 
     for line in text.splitlines():
         add_len = len(line) + (1 if current else 0)
@@ -2692,10 +2690,11 @@ def split_html_message(text: str, limit: int = TELEGRAM_SAFE_TEXT_LIMIT) -> list
             continue
         current.append(line)
         current_len += add_len
-        if "<pre>" in line and "</pre>" not in line:
-            in_pre = True
-        if "</pre>" in line:
-            in_pre = False
+        for tag in ("pre", "blockquote"):
+            if f"<{tag}>" in line and f"</{tag}>" not in line:
+                open_tag = tag
+            if f"</{tag}>" in line:
+                open_tag = ""
 
     emit()
     return chunks or [text[:limit]]

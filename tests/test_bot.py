@@ -225,7 +225,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertFalse(bot.is_price_command("bjj"))
 
     def test_long_html_messages_are_split_safely(self):
-        text = "<b>PUBG卡密</b>\n\n<pre>" + "\n".join(f"S07304-TEST-{index:04d}-ABCDE" for index in range(80)) + "</pre>"
+        text = "<b>PUBG卡密</b>\n\n<blockquote>" + "\n".join(f"S07304-TEST-{index:04d}-ABCDE" for index in range(80)) + "</blockquote>"
 
         chunks = bot.split_html_message(text, limit=500)
 
@@ -233,7 +233,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertTrue(all(len(chunk) <= 520 for chunk in chunks))
         self.assertEqual(text.count("S07304-TEST-"), sum(chunk.count("S07304-TEST-") for chunk in chunks))
         for chunk in chunks:
-            self.assertEqual(chunk.count("<pre>"), chunk.count("</pre>"))
+            self.assertEqual(chunk.count("<blockquote>"), chunk.count("</blockquote>"))
 
     def test_local_ocr_card_candidates_need_votes(self):
         cards = [
@@ -353,11 +353,11 @@ class BotFormattingTests(unittest.TestCase):
 
         self.assertIn("<b>【PUBG\u5361\u5bc6】</b>", reply)
         self.assertIn("<b>\u672c\u6b21\u8bc6\u522b\u6210\u529fPUBG\u5361\u5bc6\uff1a3\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09</b>", reply)
-        self.assertIn("<pre>S07240-EVOO-N5GW-9A2KZ", reply)
+        self.assertIn("<blockquote>S07240-EVOO-N5GW-9A2KZ", reply)
         self.assertIn("\u672c\u6b21\u8bc6\u522bPUBG\u56fe\u7247\uff1a3\u5f20", reply)
         self.assertIn("<b>【PSN\u5361\u5bc6】</b>", reply)
         self.assertIn("<b>\u672c\u6b21\u8bc6\u522b\u6210\u529fPSN\u5361\u5bc6\uff1a6\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09</b>", reply)
-        self.assertIn("<pre>MELG-BTF8-JCJN", reply)
+        self.assertIn("<blockquote>MELG-BTF8-JCJN", reply)
         self.assertIn("\u672c\u6b21\u8bc6\u522bPSN\u56fe\u7247\uff1a4\u5f20", reply)
         self.assertNotIn("\u8bc6\u522b\u6a21\u7cca", reply)
 
@@ -371,7 +371,8 @@ class BotFormattingTests(unittest.TestCase):
         )
 
         self.assertEqual(reply.count("S07304-EGWK-7K2G-4NVLH"), 1)
-        self.assertIn("<code>S07304-EGWK-7K2G-4NVLH</code>", reply)
+        self.assertIn("<blockquote>S07304-EGWK-7K2G-4NVLH</blockquote>", reply)
+        self.assertNotIn("<code>S07304-EGWK-7K2G-4NVLH</code>", reply)
         self.assertNotIn("<pre>S07304-EGWK-7K2G-4NVLH</pre>", reply)
         self.assertIn("\u672c\u6b21\u8bc6\u522b\u6210\u529fPUBG\u5361\u5bc6\uff1a1\u4e2a", reply)
         self.assertIn("\u672c\u6b21\u8bc6\u522bPUBG\u56fe\u7247\uff1a3\u5f20", reply)
