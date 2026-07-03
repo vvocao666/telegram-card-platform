@@ -107,6 +107,9 @@ PHOTO_BATCH_MAX_IMAGES = max(1, int(os.getenv("PHOTO_BATCH_MAX_IMAGES", "50")))
 PHOTO_RATE_WINDOW_SECONDS = max(10, int(os.getenv("PHOTO_RATE_WINDOW_SECONDS", "60")))
 PHOTO_RATE_LIMIT_PER_CHAT = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_CHAT", "80")))
 PHOTO_RATE_LIMIT_PER_USER = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_USER", "50")))
+OCR_PROGRESS_ENABLED = os.getenv("OCR_PROGRESS_ENABLED", "1").strip() == "1"
+OCR_PROGRESS_MIN_IMAGES = max(1, int(os.getenv("OCR_PROGRESS_MIN_IMAGES", "3")))
+OCR_PROGRESS_UPDATE_SECONDS = max(0.5, float(os.getenv("OCR_PROGRESS_UPDATE_SECONDS", "1.5")))
 OKX_C2C_USDT_CNY_URL = (
     "https://www.okx.com/v3/c2c/tradingOrders/books"
     "?quoteCurrency=cny&baseCurrency=usdt&side=sell&paymentMethod=all&userType=all&showTrade=false"
@@ -219,6 +222,64 @@ ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
 pending_learning_texts: dict[int, str] = {}
 welcome_sent_at: dict[int, float] = {}
+
+
+class OcrBatchProgress:
+    def __init__(self, message, total: int) -> None:
+        self.message = message
+        self.total = total
+        self.done = 0
+        self.progress_message = None
+        self.last_update_at = 0.0
+        self.lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        if not self.should_show:
+            return
+        try:
+            self.progress_message = await self.message.reply_text(self.text())
+            self.last_update_at = time.time()
+        except Exception:
+            logger.exception("Failed to send OCR progress message")
+
+    @property
+    def should_show(self) -> bool:
+        return OCR_PROGRESS_ENABLED and self.total >= OCR_PROGRESS_MIN_IMAGES
+
+    def text(self) -> str:
+        if self.done <= 0:
+            return f"正在识别 {self.total} 张图片，请稍候..."
+        return f"正在识别 {self.total} 张图片，请稍候...\n处理进度：{self.done}/{self.total}"
+
+    async def mark_done(self, force: bool = False) -> None:
+        if not self.should_show:
+            return
+        async with self.lock:
+            self.done = min(self.total, self.done + 1)
+            if not self.progress_message:
+                return
+            now = time.time()
+            if not force and self.done < self.total and now - self.last_update_at < OCR_PROGRESS_UPDATE_SECONDS:
+                return
+            try:
+                await self.progress_message.edit_text(self.text())
+                self.last_update_at = now
+            except Exception as exc:
+                logger.info("OCR progress update skipped: %s", exc)
+
+    async def finish(self, has_result: bool) -> None:
+        if not self.should_show or not self.progress_message:
+            return
+        if has_result:
+            try:
+                await self.progress_message.delete()
+            except Exception as exc:
+                logger.info("OCR progress delete skipped: %s", exc)
+            return
+        try:
+            await self.progress_message.edit_text(f"已完成 {self.total} 张图片识别，未识别到卡密。")
+        except Exception as exc:
+            logger.info("OCR progress finish update skipped: %s", exc)
 LEDGER_TZ = timezone(timedelta(hours=8))
 LEDGER_CALLBACK_TEXT = {
     "ledger:yesterday": "昨日账单",
@@ -3914,6 +3975,9 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
             return
 
         await message.chat.send_action("typing")
+        progress = OcrBatchProgress(message, len(updates))
+        await progress.start()
+
         async def recognize_batch_update(batch_index: int, update: Update) -> tuple[int, OcrResult, OcrResult, bool]:
             try:
                 result = await recognize_update(update, context)
@@ -3926,6 +3990,8 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
             except Exception:
                 logger.exception("Batch image OCR failed")
                 return batch_index, OcrResult(cards=tuple(), sequence_index=batch_index), OcrResult(cards=tuple()), False
+            finally:
+                await progress.mark_done()
 
         batch_results = await asyncio.gather(
             *(recognize_batch_update(batch_index, update) for batch_index, update in enumerate(updates, start=1))
@@ -3950,7 +4016,10 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
                 except Exception:
                     logger.exception("Failed to write empty today OCR cache")
 
-        if not has_card_results(results):
+        has_results = has_card_results(results)
+        await progress.finish(has_results)
+
+        if not has_results:
             return
 
         history_duplicates = register_card_history(updates, results)

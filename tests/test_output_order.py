@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html
 import re
+import time
+import asyncio
 
 import bot
 
@@ -152,3 +154,87 @@ def test_photo_display_order_prefers_telegram_message_id_over_receive_sequence()
     updates.sort(key=bot.photo_display_order)
 
     assert updates == [first_update, second_update]
+
+
+class _FakeProgressMessage:
+    def __init__(self, text: str) -> None:
+        self.texts = [text]
+        self.deleted = False
+
+    async def edit_text(self, text: str) -> None:
+        self.texts.append(text)
+
+    async def delete(self) -> None:
+        self.deleted = True
+
+
+class _FakeMessage:
+    def __init__(self) -> None:
+        self.progress_message: _FakeProgressMessage | None = None
+
+    async def reply_text(self, text: str) -> _FakeProgressMessage:
+        self.progress_message = _FakeProgressMessage(text)
+        return self.progress_message
+
+
+def test_ocr_batch_progress_edits_single_message_and_deletes_on_success():
+    async def run_case():
+        message = _FakeMessage()
+        progress = bot.OcrBatchProgress(message, 20)
+
+        await progress.start()
+        for _ in range(19):
+            await progress.mark_done()
+        await progress.mark_done()
+        await progress.finish(True)
+
+        assert message.progress_message is not None
+        assert message.progress_message.texts[0] == "正在识别 20 张图片，请稍候..."
+        assert message.progress_message.texts[-1].endswith("处理进度：20/20")
+        assert message.progress_message.deleted is True
+
+    old_enabled = bot.OCR_PROGRESS_ENABLED
+    old_min = bot.OCR_PROGRESS_MIN_IMAGES
+    old_seconds = bot.OCR_PROGRESS_UPDATE_SECONDS
+    try:
+        bot.OCR_PROGRESS_ENABLED = True
+        bot.OCR_PROGRESS_MIN_IMAGES = 3
+        bot.OCR_PROGRESS_UPDATE_SECONDS = 999
+        asyncio.run(run_case())
+    finally:
+        bot.OCR_PROGRESS_ENABLED = old_enabled
+        bot.OCR_PROGRESS_MIN_IMAGES = old_min
+        bot.OCR_PROGRESS_UPDATE_SECONDS = old_seconds
+
+
+def test_ocr_batch_progress_throttles_intermediate_updates(monkeypatch):
+    async def run_case():
+        message = _FakeMessage()
+        progress = bot.OcrBatchProgress(message, 5)
+
+        await progress.start()
+        await progress.mark_done()
+        await progress.mark_done()
+        current["value"] += 11
+        await progress.mark_done()
+
+        assert message.progress_message is not None
+        assert message.progress_message.texts == [
+            "正在识别 5 张图片，请稍候...",
+            "正在识别 5 张图片，请稍候...\n处理进度：3/5",
+        ]
+
+    old_enabled = bot.OCR_PROGRESS_ENABLED
+    old_min = bot.OCR_PROGRESS_MIN_IMAGES
+    old_seconds = bot.OCR_PROGRESS_UPDATE_SECONDS
+    try:
+        bot.OCR_PROGRESS_ENABLED = True
+        bot.OCR_PROGRESS_MIN_IMAGES = 3
+        bot.OCR_PROGRESS_UPDATE_SECONDS = 10
+        current = {"value": 1000.0}
+        monkeypatch.setattr(time, "time", lambda: current["value"])
+        asyncio.run(run_case())
+    finally:
+        bot.OCR_PROGRESS_ENABLED = old_enabled
+        bot.OCR_PROGRESS_MIN_IMAGES = old_min
+        bot.OCR_PROGRESS_UPDATE_SECONDS = old_seconds
