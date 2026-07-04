@@ -58,6 +58,9 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(bot, "TODAY_OCR_CACHE_PATH", cache_path)
     monkeypatch.setattr(bot, "LEDGER_DB_PATH", tmp_path / "ledger.sqlite3")
+    monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(bot, "REMOTE_OCR_LABEL", "RTX5070")
     bot.LEDGER_DB_PATH.write_text("", encoding="utf-8")
     monkeypatch.setattr(bot, "remote_worker_health", lambda: (True, {"status": "ok", "gpu": "RTX5070", "engine": "paddlex_ocr", "opencv": True}, "ok"))
     monkeypatch.setattr(bot, "service_active_state", lambda: "active")
@@ -95,6 +98,8 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
 
 def test_status_panel_worker_offline_falls_back(monkeypatch, tmp_path):
     monkeypatch.setattr(bot, "TODAY_OCR_CACHE_PATH", tmp_path / "missing.json")
+    monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(bot, "remote_worker_health", lambda: (False, {}, "ConnectError"))
     monkeypatch.setattr(bot, "service_active_state", lambda: "active")
 

@@ -128,11 +128,7 @@ def test_handler_stops_after_relay(monkeypatch, tmp_path):
         asyncio.run(handle_support_relay(update, FakeContext()))
 
 
-def test_bot_registers_support_relay_before_photo_and_ledger():
+def test_bot_does_not_register_support_relay():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
-    assert "handle_support_relay" in bot_py
-    assert "group=-2" in bot_py
-    relay_registration = "handle_support_relay), group=-2"
-    ledger_registration = "handle_priority_ledger_text), group=-1"
-    assert bot_py.index(relay_registration) < bot_py.index(ledger_registration)
+    assert "handle_support_relay" not in bot_py
