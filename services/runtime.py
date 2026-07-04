@@ -70,7 +70,11 @@ MULTI_BATCH_WAIT_SECONDS = max(
 )
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "ocrspace").strip().lower()
 REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "http://100.81.208.104:8000").strip().rstrip("/")
+REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "").strip().rstrip("/")
+REMOTE_OCR_LABEL = os.getenv("REMOTE_OCR_LABEL", "本地 GPU OCR").strip() or "本地 GPU OCR"
+REMOTE_OCR_TRUST_CARDS = os.getenv("REMOTE_OCR_TRUST_CARDS", "false").strip().lower() in {"1", "true", "yes", "on"}
+REMOTE_OCR_USE_CARDS_FALLBACK = os.getenv("REMOTE_OCR_USE_CARDS_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+REMOTE_OCR_COMPLEMENT = os.getenv("REMOTE_OCR_COMPLEMENT", "false").strip().lower() in {"1", "true", "yes", "on"}
 REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 REMOTE_OCR_HEALTH_CACHE_SECONDS = float(os.getenv("REMOTE_OCR_HEALTH_CACHE_SECONDS", "10"))
 REMOTE_OCR_OFFLINE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_OFFLINE_SECONDS", "180"))))
@@ -1562,7 +1566,7 @@ def percent_rate(part: int, total: int) -> str:
 
 def current_ocr_provider() -> str:
     if remote_ocr_status.get("last_ok"):
-        return "RTX5070"
+        return REMOTE_OCR_LABEL
     if int(remote_ocr_status.get("today_fallback_count", 0)) > 0:
         return "OCR.space"
     return "unknown"
@@ -1742,7 +1746,7 @@ def build_status_panel() -> str:
         if key in worker_payload:
             extra_fields.append(f"{key}: {worker_payload[key]}")
     worker_extra = "\n".join(extra_fields)
-    current_provider = "RTX5070" if worker_ok else "OCR.space"
+    current_provider = REMOTE_OCR_LABEL if worker_ok else "OCR.space"
     lines = [
         "━━━━━━━━━━━━━━",
         "📊 机器人状态",
@@ -1758,7 +1762,7 @@ def build_status_panel() -> str:
         f"运行时间：{process_uptime_text()}",
         f"ledger.sqlite3：{'存在' if LEDGER_DB_PATH.exists() else '缺失'}",
         "",
-        "🖥 本地 RTX5070 OCR",
+        f"🖥 {REMOTE_OCR_LABEL}",
         f"启用：{'是' if REMOTE_OCR_ENABLED else '否'}",
         f"状态：{'在线' if worker_ok else '离线'}",
         f"status：{worker_status if worker_ok else worker_error}",
@@ -1935,13 +1939,14 @@ def run_remote_ocr(
                 value = str(item).strip()
             if value:
                 text_values.append(value)
-        for item in worker_cards:
-            if isinstance(item, dict):
-                value = str(item.get("text", "")).strip()
-            else:
-                value = str(item).strip()
-            if value:
-                text_values.append(value)
+        if REMOTE_OCR_TRUST_CARDS:
+            for item in worker_cards:
+                if isinstance(item, dict):
+                    value = str(item.get("text", "")).strip()
+                else:
+                    value = str(item).strip()
+                if value:
+                    text_values.append(value)
 
         raw_text = "\n".join(text_values)
         text_raw = "\n".join(line.text for line in ordered_lines)
@@ -2005,11 +2010,11 @@ def run_ocr(
     )
     if (
         remote is not None
-        and remote.has_unresolved_pubg_fragment
+        and (remote.has_unresolved_pubg_fragment or REMOTE_OCR_COMPLEMENT)
         and OCR_PROVIDER == "ocrspace"
         and OCR_SPACE_API_KEYS
     ):
-        record_remote_ocr_fallback("remote unresolved pubg fragment")
+        record_remote_ocr_fallback("remote complement" if REMOTE_OCR_COMPLEMENT else "remote unresolved pubg fragment")
         fallback = run_ocrspace(
             image_path,
             psn_hint=psn_hint,
