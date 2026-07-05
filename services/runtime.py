@@ -879,24 +879,17 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
         current = clean_pubg_fragment(line.text, from_prefix=True)
         if not current:
             continue
+        merged = False
+        pending_unresolved: tuple[str, str] | None = None
         for end in range(index + 1, min(index + 4, len(lines))):
             next_line = lines[end]
             if line_has_pubg_prefix(next_line.text):
-                unresolved = True
-                logger.info(
-                    "PUBG LINE WRAP UNRESOLVED: %s reason=next_pubg_prefix",
-                    " + ".join(part.text for part in lines[index:end]),
-                )
+                pending_unresolved = (" + ".join(part.text for part in lines[index:end]), "next_pubg_prefix")
                 break
             next_fragment = clean_pubg_fragment(next_line.text, from_prefix=False)
             current, reject_reason = strict_join_pubg_fragment(current, next_fragment)
             if reject_reason:
-                unresolved = True
-                logger.info(
-                    "PUBG LINE WRAP UNRESOLVED: %s reason=%s",
-                    " + ".join(part.text for part in lines[index : end + 1]),
-                    reject_reason,
-                )
+                pending_unresolved = (" + ".join(part.text for part in lines[index : end + 1]), reject_reason)
                 break
             card = rebuild_pubg_card_from_fragments(current)
             if not card:
@@ -904,12 +897,31 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
             if card not in seen:
                 seen.add(card)
                 cards.append(card)
+                merged = True
                 logger.info(
                     "PUBG LINE WRAP MERGED: %s => %s",
                     " + ".join(part.text for part in lines[index : end + 1]),
                     card,
                 )
             break
+        if not merged and index > 0:
+            # 中文说明：少数 OCR 会把尾段排到前一行；只允许紧邻上一行且长度刚好补齐，避免跨卡乱拼。
+            prev_line = lines[index - 1]
+            if not line_has_pubg_prefix(prev_line.text):
+                prev_fragment = clean_pubg_fragment(prev_line.text, from_prefix=False)
+                previous_current, reject_reason = strict_join_pubg_fragment(
+                    clean_pubg_fragment(line.text, from_prefix=True),
+                    prev_fragment,
+                )
+                card = "" if reject_reason else rebuild_pubg_card_from_fragments(previous_current)
+                if card and card not in seen:
+                    seen.add(card)
+                    cards.append(card)
+                    merged = True
+                    logger.info("PUBG LINE WRAP MERGED: %s + %s => %s", line.text, prev_line.text, card)
+        if pending_unresolved and not merged:
+            unresolved = True
+            logger.info("PUBG LINE WRAP UNRESOLVED: %s reason=%s", pending_unresolved[0], pending_unresolved[1])
     return cards, unresolved
 def extract_source_anchored_pubg_cards(raw_text: str) -> tuple[list[str], bool]:
     """Keep PUBG candidates tied to one OCR line or an adjacent line wrap."""

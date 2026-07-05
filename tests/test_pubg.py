@@ -57,3 +57,21 @@ def test_pubg_line_wrap_rejects_overlong_tail_without_guessing():
 
 def test_handwritten_compact_pubg_repairs_s0_and_splits_tail_only():
     assert bot.extract_cards("507336-3L9T-W338JR626") == ["S07336-3L9T-W338-JR626"]
+
+
+def test_pubg_line_wrap_uses_previous_adjacent_tail_when_ocr_order_is_inverted():
+    text = "QRQ7E\n信息： 卡号： S07304-G5HC-YH9V-\n-A6HA-OH90-TOTLOS"
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(bot.ordered_ocr_text_lines(text.splitlines()))
+
+    assert cards == ["S07304-G5HC-YH9V-QRQ7E"]
+    assert unresolved is False
+
+
+def test_pubg_line_wrap_previous_tail_must_exactly_fit_missing_length():
+    text = "QRQ7EEXTRA\n信息： 卡号： S07304-G5HC-YH9V-"
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(bot.ordered_ocr_text_lines(text.splitlines()))
+
+    assert cards == []
+    assert unresolved is False
