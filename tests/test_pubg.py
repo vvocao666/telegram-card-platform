@@ -46,6 +46,38 @@ def test_pubg_line_wrap_rebuilds_adjacent_tail_segments():
     assert unresolved is False
 
 
+def test_pubg_line_wrap_rebuilds_split_s073_prefix_segments():
+    text = (
+        "PUBG11200G币卡密： 11200G： S073\n"
+        "36-NJEF-L9G8-F6Y8N\n"
+        "PUBG11200G币卡密： 11200G： S073\n"
+        "36-FTBJ-3SLT-PYG2H\n"
+        "PUBG11200G币卡密： 11200G： S073\n"
+        "36-6W23-CPJE-86A2Q\n"
+        "PUBG11200G币卡密： 11200G： S073\n"
+        "36-RKKC-HVSD-REBZ9"
+    )
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(bot.ordered_ocr_text_lines(text.splitlines()))
+
+    assert cards == [
+        "S07336-NJEF-L9G8-F6Y8N",
+        "S07336-FTBJ-3SLT-PYG2H",
+        "S07336-6W23-CPJE-86A2Q",
+        "S07336-RKKC-HVSD-REBZ9",
+    ]
+    assert unresolved is False
+
+
+def test_pubg_split_s073_prefix_requires_two_digit_tail():
+    text = "PUBG11200G币卡密： 11200G： S073\nX6-NJEF-L9G8-F6Y8N"
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(bot.ordered_ocr_text_lines(text.splitlines()))
+
+    assert cards == []
+    assert unresolved is False
+
+
 def test_pubg_line_wrap_previous_tail_disabled_when_multiple_prefixes_exist():
     text = "AAAAA\nS07304-G5HC-YH9V-\nS07304-ABCD-EFGH-"
 

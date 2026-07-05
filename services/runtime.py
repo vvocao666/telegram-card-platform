@@ -722,6 +722,18 @@ def rebuild_pubg_card_from_fragments(text: str) -> str:
     return card if valid_card(card) else ""
 
 
+def rebuild_split_pubg_prefix_card(prefix_line: str, tail_line: str) -> str:
+    prefix_match = re.search(r"S073\s*$", clean_pubg_fragment(prefix_line, from_prefix=False))
+    if not prefix_match:
+        return ""
+    tail_match = re.match(r"^\s*([0-9]{2})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{4})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{4})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{5})(?![A-Z0-9])", normalize_text(tail_line))
+    if not tail_match:
+        return ""
+    card = f"S073{tail_match.group(1)}-{tail_match.group(2)}-{tail_match.group(3)}-{tail_match.group(4)}"
+    card = apply_builtin_pubg_correction(card)
+    return card if valid_card(card) else ""
+
+
 def extract_cards(text: str) -> list[str]:
     text = normalize_text(text)
     sep = r"[\s\-_|:：；;,.，。|]+"
@@ -887,6 +899,16 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
             continue
         if line_cards:
             continue
+        for end in range(index + 1, min(index + 3, len(lines))):
+            split_card = rebuild_split_pubg_prefix_card(line.text, lines[end].text)
+            if split_card:
+                if split_card not in seen:
+                    seen.add(split_card)
+                    cards.append(split_card)
+                    logger.info("PUBG LINE WRAP MERGED: %s + %s => %s", line.text, lines[end].text, split_card)
+                break
+            if line_has_pubg_prefix(lines[end].text) or is_pubg_image_text(lines[end].text):
+                break
         current = clean_pubg_fragment(line.text, from_prefix=True)
         if not current:
             continue
