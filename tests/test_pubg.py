@@ -19,6 +19,11 @@ def test_pubg_parser_uses_current_bot_logic():
     assert cards == ["S07304-KVTE-JZGW-JVB4U"]
 
 
+def test_pubg_prefix_requires_s07_plus_three_digits():
+    assert bot.valid_card("S07336-9R6P-VERQ-VTZRF")
+    assert not bot.valid_card("S07ABC-9R6P-VERQ-VTZRF")
+
+
 def test_pubg_line_wrap_rebuilds_adjacent_tail_segments():
     text = (
         "卡号：S07336-9R6P-VERQ-\n"

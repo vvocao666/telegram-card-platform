@@ -30,3 +30,11 @@ def test_independent_psn_still_outputs_when_not_embedded():
     text = "PSN\n2981-848M-L674"
 
     assert bot.extract_psn_cards(text, force=True) == ["2981-848M-L674"]
+
+
+def test_psn_tail_starting_with_7_letter_is_not_pubg_trace():
+    text = "AH5F-C63H-7LML\nGXGQ-GH68-X2PG"
+
+    assert not bot.is_pubg_image_text(text)
+    assert bot.extract_psn_cards(text) == ["AH5F-C63H-7LML", "GXGQ-GH68-X2PG"]
+    assert bot.extract_psn_ordered(text) == ["AH5F-C63H-7LML", "GXGQ-GH68-X2PG"]
