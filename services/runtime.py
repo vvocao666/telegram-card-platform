@@ -1071,6 +1071,17 @@ def merge_pubg_expected_count(configured: int | None, raw_text: str) -> int | No
     return configured or detected
 
 
+def remote_needs_ocrspace_complement(remote: OcrResult) -> tuple[bool, str]:
+    if REMOTE_OCR_COMPLEMENT:
+        return True, "remote complement"
+    if remote.has_unresolved_pubg_fragment:
+        return True, "remote unresolved pubg fragment"
+    detected = count_pubg_markers(remote.raw_text) or 0
+    if detected > len(remote.cards):
+        return True, "remote pubg marker count mismatch"
+    return False, ""
+
+
 def limit_psn_ordered(cards: list[str], expected_count: int | None) -> list[str]:
     cards = unique_psn_lines(cards)
     if expected_count is None and MAX_PSN_PER_IMAGE > 0:
@@ -2067,13 +2078,17 @@ def run_ocr(
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
     )
+    needs_complement = False
+    complement_reason = ""
+    if remote is not None:
+        needs_complement, complement_reason = remote_needs_ocrspace_complement(remote)
     if (
         remote is not None
-        and (remote.has_unresolved_pubg_fragment or REMOTE_OCR_COMPLEMENT)
+        and needs_complement
         and OCR_PROVIDER == "ocrspace"
         and OCR_SPACE_API_KEYS
     ):
-        record_remote_ocr_fallback("remote complement" if REMOTE_OCR_COMPLEMENT else "remote unresolved pubg fragment")
+        record_remote_ocr_fallback(complement_reason)
         fallback = run_ocrspace(
             image_path,
             psn_hint=psn_hint,

@@ -290,6 +290,82 @@ def test_run_ocr_complements_remote_when_pubg_fragment_unresolved(monkeypatch, t
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_remote_complement_needed_when_pubg_markers_exceed_cards(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF", "S07336-25DY-FM6W-3K8D8"),
+        raw_text=(
+            "卡号：S07336-9R6P-VERQ-\n"
+            "VTZRF\n"
+            "卡号：S07336-25DY-\n"
+            "FM6W-3K8D8\n"
+            "卡号：S07336-BKBH-AAUK-\n"
+            "LPJVK"
+        ),
+    )
+
+    assert bot.remote_needs_ocrspace_complement(remote) == (
+        True,
+        "remote pubg marker count mismatch",
+    )
+
+
+def test_remote_complement_not_needed_when_pubg_markers_match_cards(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF",),
+        raw_text="卡号：S07336-9R6P-VERQ-\nVTZRF",
+    )
+
+    assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
+def test_run_ocr_complements_remote_when_pubg_marker_count_mismatches(monkeypatch, tmp_path):
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF", "S07336-25DY-FM6W-3K8D8"),
+        raw_text=(
+            "卡号：S07336-9R6P-VERQ-\n"
+            "VTZRF\n"
+            "卡号：S07336-25DY-\n"
+            "FM6W-3K8D8\n"
+            "卡号：S07336-BKBH-AAUK-\n"
+            "LPJVK"
+        ),
+    )
+    fallback = bot.OcrResult(
+        cards=(
+            "S07336-9R6P-VERQ-VTZRF",
+            "S07336-25DY-FM6W-3K8D8",
+            "S07336-BKBH-AAUK-LPJVK",
+        ),
+        raw_text=(
+            "S07336-9R6P-VERQ-VTZRF\n"
+            "S07336-25DY-FM6W-3K8D8\n"
+            "S07336-BKBH-AAUK-LPJVK"
+        ),
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (
+            "S07336-9R6P-VERQ-VTZRF",
+            "S07336-25DY-FM6W-3K8D8",
+            "S07336-BKBH-AAUK-LPJVK",
+        )
+        assert bot.remote_ocr_status["today_fallback_count"] == 1
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     bot_py = Path("bot.py").read_text(encoding="utf-8")
 
