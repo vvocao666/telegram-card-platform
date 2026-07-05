@@ -862,10 +862,21 @@ def ordered_ocr_text_lines(items: list | tuple) -> list[OcrTextLine]:
     return sorted(lines, key=lambda line: (line.y, line.x, line.index))
 
 
+def ocr_lines_have_coordinates(lines: list[OcrTextLine]) -> bool:
+    return any(line.y != 0.0 or line.x != 0.0 for line in lines)
+
+
+def allow_previous_pubg_tail_fallback(lines: list[OcrTextLine]) -> bool:
+    if ocr_lines_have_coordinates(lines):
+        return False
+    return sum(1 for line in lines if line_has_pubg_prefix(line.text)) == 1
+
+
 def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str], bool]:
     cards: list[str] = []
     seen: set[str] = set()
     unresolved = False
+    previous_tail_fallback_allowed = allow_previous_pubg_tail_fallback(lines)
     for index, line in enumerate(lines):
         line_cards = extract_cards(line.text)
         for card in line_cards:
@@ -904,8 +915,8 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
                     card,
                 )
             break
-        if not merged and index > 0:
-            # 中文说明：少数 OCR 会把尾段排到前一行；只允许紧邻上一行且长度刚好补齐，避免跨卡乱拼。
+        if not merged and previous_tail_fallback_allowed and index > 0:
+            # 中文说明：无坐标且整图只有一个 PUBG 前缀时，才允许上一行尾段兜底，避免多卡场景跨卡乱拼。
             prev_line = lines[index - 1]
             if not line_has_pubg_prefix(prev_line.text):
                 prev_fragment = clean_pubg_fragment(prev_line.text, from_prefix=False)

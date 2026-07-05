@@ -46,6 +46,29 @@ def test_pubg_line_wrap_rebuilds_adjacent_tail_segments():
     assert unresolved is False
 
 
+def test_pubg_line_wrap_previous_tail_disabled_when_multiple_prefixes_exist():
+    text = "AAAAA\nS07304-G5HC-YH9V-\nS07304-ABCD-EFGH-"
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(bot.ordered_ocr_text_lines(text.splitlines()))
+
+    assert cards == []
+    assert unresolved is True
+
+
+def test_pubg_line_wrap_prefers_visual_y_order_when_coordinates_exist():
+    lines = bot.ordered_ocr_text_lines(
+        [
+            {"text": "QRQ7E", "rec_box": [10, 80, 100, 100]},
+            {"text": "信息： 卡号： S07304-G5HC-YH9V-", "rec_box": [10, 40, 200, 60]},
+        ]
+    )
+
+    cards, unresolved = bot.extract_cards_from_ordered_lines(lines)
+
+    assert cards == ["S07304-G5HC-YH9V-QRQ7E"]
+    assert unresolved is False
+
+
 def test_pubg_line_wrap_rejects_overlong_tail_without_guessing():
     text = "卡号：S07336-9R6P-VERQ-\nVTZRFEXTRA"
 
