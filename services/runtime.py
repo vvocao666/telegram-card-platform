@@ -610,6 +610,22 @@ def filter_psn_pubg_substrings(psn_lines: list[str], pubg_cards: list[str] | tup
     return filtered
 
 
+def psn_is_embedded_in_long_token(candidate: str, text: str) -> bool:
+    key = psn_key(candidate) or normalize_text(candidate).strip()
+    if not key:
+        return False
+    compact_key = key.replace("-", "")
+    normalized = normalize_text(text)
+    for token_match in re.finditer(r"[A-Z0-9][A-Z0-9-]{14,}[A-Z0-9]", normalized):
+        token = token_match.group(0).strip("-")
+        if token == key:
+            continue
+        compact_token = token.replace("-", "")
+        if key in token or compact_key in compact_token:
+            return True
+    return False
+
+
 def add_card_candidate(cards: list[str], seen: set[str], first: str, second: str, third: str, fourth: str) -> None:
     card = apply_builtin_pubg_correction(f"{repair_first_group(first)}-{second}-{third}-{fourth}")
     if valid_card(card) and card not in seen:
@@ -669,6 +685,25 @@ def join_pubg_fragments(left: str, right: str) -> str:
     if left.endswith("-") or right.startswith("-"):
         return left + right
     return left + right
+
+
+def compact_pubg_fragment(text: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", normalize_text(text))
+
+
+def strict_join_pubg_fragment(current: str, next_fragment: str) -> tuple[str, str | None]:
+    current_compact = compact_pubg_fragment(current)
+    next_compact = compact_pubg_fragment(next_fragment)
+    if not current_compact.startswith("S07"):
+        return current, "missing_s07_prefix"
+    missing = 19 - len(current_compact)
+    if missing <= 0:
+        return current, None
+    if not next_compact:
+        return current, None
+    if len(next_compact) > missing:
+        return current, "tail_too_long"
+    return join_pubg_fragments(current, next_fragment), None
 
 
 def rebuild_pubg_card_from_fragments(text: str) -> str:
@@ -744,6 +779,18 @@ def extract_cards(text: str) -> list[str]:
     )
     for first, second, third, fourth in re.findall(compact_pattern, text):
         add_card_candidate(cards, seen, first, second, third, fourth)
+
+    compact_third_fourth_pattern = (
+        r"(?<![A-Z])"
+        r"([SP5$][0ODQU][7TIL/?][0-9ODQUILTZEA$SGB]{3})"
+        + sep
+        + r"([A-Z0-9]{4})"
+        + sep
+        + r"([A-Z0-9]{9})"
+        r"(?![A-Z0-9])"
+    )
+    for first, second, tail in re.findall(compact_third_fourth_pattern, text):
+        add_card_candidate(cards, seen, first, second, tail[:4], tail[4:])
 
     loose_pattern = (
         r"(?<![A-Z])"
@@ -839,7 +886,15 @@ def extract_cards_from_ordered_lines(lines: list[OcrTextLine]) -> tuple[list[str
                 )
                 break
             next_fragment = clean_pubg_fragment(next_line.text, from_prefix=False)
-            current = join_pubg_fragments(current, next_fragment)
+            current, reject_reason = strict_join_pubg_fragment(current, next_fragment)
+            if reject_reason:
+                unresolved = True
+                logger.info(
+                    "PUBG LINE WRAP UNRESOLVED: %s reason=%s",
+                    " + ".join(part.text for part in lines[index : end + 1]),
+                    reject_reason,
+                )
+                break
             card = rebuild_pubg_card_from_fragments(current)
             if not card:
                 continue
@@ -897,6 +952,8 @@ def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]
         if match.start() > 0 and text[match.start() - 1] == "-":
             continue
         candidate = "-".join(match.groups())
+        if psn_is_embedded_in_long_token(candidate, text):
+            continue
         if psn_is_pubg_substring(candidate, pubg_cards):
             continue
         if not candidate.startswith("S07") and candidate not in seen:
@@ -928,6 +985,8 @@ def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
             matches = list(code_pattern.finditer(next_line))
         for match in matches[:1]:
             candidate = "-".join(match.groups())
+            if psn_is_embedded_in_long_token(candidate, text):
+                continue
             if psn_is_pubg_substring(candidate, pubg_cards):
                 continue
             if candidate.startswith("S07") or candidate in seen:
