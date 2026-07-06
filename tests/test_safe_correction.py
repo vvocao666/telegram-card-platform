@@ -36,7 +36,7 @@ def test_normal_clear_font_is_not_corrected(tmp_path):
     assert decision.reason == "normal_font_protected"
 
 
-def test_special_font_enables_2_to_z_when_rule_count_is_high(tmp_path):
+def test_special_font_does_not_auto_correct_ambiguous_2_to_z(tmp_path):
     decision = safe_correct_candidate(
         "S07304-9M8Q-Y7UW-7822U",
         font_hash="3f9ab2",
@@ -45,8 +45,8 @@ def test_special_font_enables_2_to_z_when_rule_count_is_high(tmp_path):
         repository=template_repository(tmp_path, rule_count=12),
     )
 
-    assert decision.corrected
-    assert decision.result == "S07304-9M8Q-Y7UW-78Z2U"
+    assert not decision.corrected
+    assert decision.result == "S07304-9M8Q-Y7UW-7822U"
 
 
 def test_special_font_rule_under_ten_does_not_auto_correct(tmp_path):

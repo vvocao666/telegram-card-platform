@@ -6,6 +6,8 @@ from services.ocr.font_templates import FontTemplateRepository
 from services.ocr.template_matcher import best_template_match
 from services.ocr.validator import validate_candidate
 
+AMBIGUOUS_TEMPLATE_PAIRS = {("2", "Z"), ("Z", "2")}
+
 
 @dataclass(frozen=True)
 class CorrectionDecision:
@@ -58,6 +60,8 @@ def _apply_counted_template(candidate: str, template, high_weight_only: bool = F
         except ValueError:
             continue
         rule_key = f"{position}:{wrong}>{correct}"
+        if (wrong, correct) in AMBIGUOUS_TEMPLATE_PAIRS:
+            continue
         min_count = 10 if high_weight_only else 3
         if template.rule_counts.get(rule_key, 0) < min_count:
             continue

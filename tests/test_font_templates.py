@@ -65,7 +65,7 @@ def test_match_template_returns_none_when_similarity_not_enough(tmp_path):
     assert match_template("abcdef", repository=repository) is None
 
 
-def test_template_position_rule_corrects_2_to_z_without_global_damage(tmp_path):
+def test_template_position_rule_does_not_auto_correct_ambiguous_2_to_z(tmp_path):
     repository = template_repository(tmp_path)
 
     corrected = apply_template_corrections(
@@ -74,7 +74,7 @@ def test_template_position_rule_corrects_2_to_z_without_global_damage(tmp_path):
         repository=repository,
     )
 
-    assert corrected == "S07304-9M8Q-Y7UW-78Z2U"
+    assert corrected == "S07304-9M8Q-Y7UW-7822U"
 
 
 def test_template_does_not_change_legal_card_when_position_does_not_match(tmp_path):
@@ -158,7 +158,7 @@ def test_template_learn_command_reports_progress(tmp_path):
 
 def test_one_hundred_same_font_recognition_accuracy_is_at_least_99_8(tmp_path):
     repository = template_repository(tmp_path)
-    ground_truth = "S07304-9M8Q-Y7UW-78Z2U"
+    ground_truth = "S07304-9M8Q-Y7UW-7822U"
     old_result = "S07304-9M8Q-Y7UW-7822U"
     results = [
         apply_template_corrections(old_result, "3f9ab2", repository=repository)

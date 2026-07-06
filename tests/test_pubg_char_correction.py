@@ -82,6 +82,37 @@ def test_learned_position_rule_applies_for_same_font(tmp_path: Path):
     assert reason == "learned_font_rule"
 
 
+def test_learned_2_z_rule_is_not_applied_automatically(tmp_path: Path):
+    repository = FontRepository(tmp_path / "font_profiles.json")
+    repository.learn_sample(
+        "S07336-3AWF-KDSC-EWZ88",
+        card_type="PUBG",
+        error_pairs={"2>Z": 12},
+        position_rules={"19:2>Z": 12},
+        font_hash="unknown_font",
+    )
+
+    corrected, reason = correct_pubg_card("S07336-3AWF-KDSC-EW288", font_repository=repository)
+
+    assert corrected == "S07336-3AWF-KDSC-EW288"
+    assert reason == "unchanged"
+
+
+def test_clear_pubg_with_2_is_not_changed_to_z():
+    result = apply_pubg_char_corrections(
+        [
+            "S07336-3AWF-KDSC-EW288",
+            "S07336-5W8H-KS7F-UK23S",
+        ]
+    )
+
+    assert result.cards == (
+        "S07336-3AWF-KDSC-EW288",
+        "S07336-5W8H-KS7F-UK23S",
+    )
+    assert result.corrections == tuple()
+
+
 def test_remote_ocr_returns_corrections_debug(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")

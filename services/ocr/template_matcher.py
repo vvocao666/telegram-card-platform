@@ -7,6 +7,7 @@ from services.ocr.validator import validate_candidate
 
 
 MATCH_THRESHOLD = 95.0
+AMBIGUOUS_TEMPLATE_PAIRS = {("2", "Z"), ("Z", "2")}
 
 
 @dataclass(frozen=True)
@@ -82,12 +83,17 @@ def apply_template(candidate: str, template: FontTemplate) -> str:
         except ValueError:
             continue
         if 0 <= position < len(chars) and chars[position] == wrong:
+            if (wrong, correct) in AMBIGUOUS_TEMPLATE_PAIRS:
+                continue
             chars[position] = correct
     if original_valid:
         return "".join(chars)
     for index, char in enumerate(chars):
         if char in template.confusion_pairs:
-            chars[index] = template.confusion_pairs[char]
+            correct = template.confusion_pairs[char]
+            if (char, correct) in AMBIGUOUS_TEMPLATE_PAIRS:
+                continue
+            chars[index] = correct
     return "".join(chars)
 
 
