@@ -133,6 +133,9 @@ MANUAL_REVIEW_SUMMARY = "\u9700\u4eba\u5de5\u6838\u5b9e"
 PUBG_LABEL = "PUBG\u5361\u5bc6"
 PSN_LABEL = "PSN\u5361\u5bc6"
 FUZZY_SUFFIX = "\uff08\u8bc6\u522b\u6a21\u7cca\uff09"
+CLASS_ON_NOTICE = "✅本群已上课，开始接收卡密。"
+CLASS_OFF_NOTICE = "❌本群已下课，已经停止接收卡密；\n\n请您【勿发卡密以及撤回卡密】，如卡密丢失概不负责，谢谢。"
+CLASS_COMMAND_RE = re.compile(r"^/(上课|下课)(?:@\w+)?\s*$")
 
 if not TESSERACT_CMD:
     win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
@@ -3552,6 +3555,49 @@ async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await reply_ledger(update.message, result.text)
         return True
     return False
+
+
+def _class_mode_command(text: str) -> str | None:
+    match = CLASS_COMMAND_RE.match((text or "").strip())
+    if not match:
+        return None
+    return "on" if match.group(1) == "上课" else "off"
+
+
+async def handle_class_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.effective_chat:
+        return
+    if not is_group_update(update):
+        return
+    mode = _class_mode_command(update.message.text or "")
+    if not mode:
+        return
+    remember_bot_chat(update)
+    remember_ledger_user(update)
+    if update.effective_user and update.effective_user.id not in ledger_owner_ids(update.effective_chat.id):
+        await update.message.reply_text("只有本群管理权限用户可以使用上课/下课。")
+        raise ApplicationHandlerStop
+    ledger_store.set_recognition_enabled(update.effective_chat.id, mode == "on")
+    ledger_store.set_class_mode_notice(update.effective_chat.id, mode)
+    raise ApplicationHandlerStop
+
+
+async def handle_class_mode_notice_once(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.effective_chat:
+        return
+    if not is_group_update(update):
+        return
+    if getattr(update.message, "new_chat_members", None) or getattr(update.message, "left_chat_member", None):
+        return
+    if update.effective_user and getattr(update.effective_user, "is_bot", False):
+        return
+    if _class_mode_command(update.message.text or ""):
+        return
+    mode = ledger_store.consume_class_mode_notice(update.effective_chat.id)
+    if mode == "on":
+        await update.message.reply_text(CLASS_ON_NOTICE)
+    elif mode == "off":
+        await update.message.reply_text(CLASS_OFF_NOTICE)
 
 
 async def handle_priority_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

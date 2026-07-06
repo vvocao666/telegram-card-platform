@@ -114,6 +114,8 @@ class LedgerStore:
                 fee_percent TEXT NOT NULL DEFAULT '0.0000',
                 ledger_enabled INTEGER NOT NULL DEFAULT 1,
                 recognition_enabled INTEGER NOT NULL DEFAULT 1,
+                class_mode TEXT NOT NULL DEFAULT '',
+                class_notice_pending INTEGER NOT NULL DEFAULT 0,
                 ledger_reset_hour INTEGER NOT NULL DEFAULT 0,
                 owner_id INTEGER,
                 created_at TEXT NOT NULL
@@ -213,6 +215,8 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "fee_percent", "TEXT NOT NULL DEFAULT '0.0000'")
         self._add_column_if_missing("chat_settings", "ledger_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
+        self._add_column_if_missing("chat_settings", "class_mode", "TEXT NOT NULL DEFAULT ''")
+        self._add_column_if_missing("chat_settings", "class_notice_pending", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
@@ -359,6 +363,32 @@ class LedgerStore:
             (1 if enabled else 0, chat_id),
         )
         self.conn.commit()
+
+    def set_class_mode_notice(self, chat_id: int, mode: str) -> None:
+        if mode not in {"on", "off"}:
+            raise ValueError("class mode must be on or off")
+        self.ensure_chat(chat_id)
+        self.conn.execute(
+            "UPDATE chat_settings SET class_mode = ?, class_notice_pending = 1 WHERE chat_id = ?",
+            (mode, chat_id),
+        )
+        self.conn.commit()
+
+    def consume_class_mode_notice(self, chat_id: int) -> str | None:
+        self.ensure_chat(chat_id)
+        row = self.conn.execute(
+            "SELECT class_mode, class_notice_pending FROM chat_settings WHERE chat_id = ?",
+            (chat_id,),
+        ).fetchone()
+        if not row or not row["class_notice_pending"]:
+            return None
+        mode = str(row["class_mode"] or "")
+        self.conn.execute(
+            "UPDATE chat_settings SET class_notice_pending = 0 WHERE chat_id = ?",
+            (chat_id,),
+        )
+        self.conn.commit()
+        return mode if mode in {"on", "off"} else None
 
     def get_ledger_reset_hour(self, chat_id: int) -> int:
         self.ensure_chat(chat_id)
