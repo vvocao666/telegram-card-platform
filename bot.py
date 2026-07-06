@@ -120,8 +120,8 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("notify_members", notify_members_command))
     app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.GROUPS, notify_all_command))
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
-    app.add_handler(MessageHandler(filters.Regex(r"^/(?:上课|下课)(?:@\w+)?\s*$") & filters.ChatType.GROUPS, handle_class_mode_command), group=-2)
-    app.add_handler(MessageHandler(filters.ChatType.GROUPS, handle_class_mode_notice_once), group=-1)
+    app.add_handler(MessageHandler(filters.Regex(r"^/(?:上课|下课)(?:@\w+)?\s*$"), handle_class_mode_command), group=-2)
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, handle_class_mode_notice_once), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(
         CommandHandler(

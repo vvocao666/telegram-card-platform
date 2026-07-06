@@ -118,3 +118,86 @@ def test_class_mode_notice_does_not_trigger_in_private(temp_store):
     asyncio.run(bot.handle_class_mode_notice_once(update, FakeContext()))
 
     assert update.message.replies == []
+
+
+def test_private_owner_class_off_applies_to_all_recorded_groups(monkeypatch, temp_store):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "1")
+    temp_store.remember_bot_chat(-1001, "group a", "group")
+    temp_store.remember_bot_chat(-1002, "group b", "supergroup")
+    temp_store.set_recognition_enabled(-1001, True)
+    temp_store.set_recognition_enabled(-1002, True)
+    command = FakeUpdate("/下课", chat_id=1, chat_type="private")
+
+    with pytest.raises(bot.ApplicationHandlerStop):
+        asyncio.run(bot.handle_class_mode_command(command, FakeContext()))
+
+    assert command.message.replies == []
+    assert temp_store.is_recognition_enabled(-1001) is False
+    assert temp_store.is_recognition_enabled(-1002) is False
+
+    first_group = FakeUpdate("hello", chat_id=-1001)
+    second_group = FakeUpdate("hello", chat_id=-1002, chat_type="supergroup")
+    repeat = FakeUpdate("hello again", chat_id=-1001)
+    asyncio.run(bot.handle_class_mode_notice_once(first_group, FakeContext()))
+    asyncio.run(bot.handle_class_mode_notice_once(second_group, FakeContext()))
+    asyncio.run(bot.handle_class_mode_notice_once(repeat, FakeContext()))
+
+    assert first_group.message.replies == [
+        "❌本群已下课，已经停止接收卡密；\n\n请您【勿发卡密以及撤回卡密】，如卡密丢失概不负责，谢谢。"
+    ]
+    assert second_group.message.replies == [
+        "❌本群已下课，已经停止接收卡密；\n\n请您【勿发卡密以及撤回卡密】，如卡密丢失概不负责，谢谢。"
+    ]
+    assert repeat.message.replies == []
+
+
+def test_private_owner_class_on_applies_to_all_recorded_groups(monkeypatch, temp_store):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "1")
+    temp_store.remember_bot_chat(-1001, "group a", "group")
+    temp_store.remember_bot_chat(-1002, "group b", "supergroup")
+    temp_store.set_recognition_enabled(-1001, False)
+    temp_store.set_recognition_enabled(-1002, False)
+    command = FakeUpdate("/上课", chat_id=1, chat_type="private")
+
+    with pytest.raises(bot.ApplicationHandlerStop):
+        asyncio.run(bot.handle_class_mode_command(command, FakeContext()))
+
+    assert command.message.replies == []
+    assert temp_store.is_recognition_enabled(-1001) is True
+    assert temp_store.is_recognition_enabled(-1002) is True
+
+    first_group = FakeUpdate("hello", chat_id=-1001)
+    second_group = FakeUpdate("hello", chat_id=-1002, chat_type="supergroup")
+    asyncio.run(bot.handle_class_mode_notice_once(first_group, FakeContext()))
+    asyncio.run(bot.handle_class_mode_notice_once(second_group, FakeContext()))
+
+    assert first_group.message.replies == ["✅本群已上课，开始接收卡密。"]
+    assert second_group.message.replies == ["✅本群已上课，开始接收卡密。"]
+
+
+def test_private_non_owner_class_command_is_silent(monkeypatch, temp_store):
+    monkeypatch.setattr(bot, "OWNER_CHAT_ID", "1")
+    temp_store.remember_bot_chat(-1001, "group a", "group")
+    command = FakeUpdate("/下课", user_id=2, chat_id=2, chat_type="private")
+
+    with pytest.raises(bot.ApplicationHandlerStop):
+        asyncio.run(bot.handle_class_mode_command(command, FakeContext()))
+
+    assert command.message.replies == []
+    assert temp_store.is_recognition_enabled(-1001) is True
+    notice = FakeUpdate("hello", chat_id=-1001)
+    asyncio.run(bot.handle_class_mode_notice_once(notice, FakeContext()))
+    assert notice.message.replies == []
+
+
+def test_command_message_does_not_consume_pending_class_notice(temp_store):
+    chat_id = -1001
+    temp_store.set_class_mode_notice(chat_id, "on")
+    command = FakeUpdate("/status", chat_id=chat_id)
+    normal = FakeUpdate("hello", chat_id=chat_id)
+
+    asyncio.run(bot.handle_class_mode_notice_once(command, FakeContext()))
+    asyncio.run(bot.handle_class_mode_notice_once(normal, FakeContext()))
+
+    assert command.message.replies == []
+    assert normal.message.replies == ["✅本群已上课，开始接收卡密。"]

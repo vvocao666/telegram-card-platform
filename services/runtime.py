@@ -3567,11 +3567,16 @@ def _class_mode_command(text: str) -> str | None:
 async def handle_class_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat:
         return
-    if not is_group_update(update):
-        return
     mode = _class_mode_command(update.message.text or "")
     if not mode:
         return
+    if not is_group_update(update):
+        if is_owner_update(update):
+            for row in ledger_store.list_active_bot_groups():
+                chat_id = int(row["chat_id"])
+                ledger_store.set_recognition_enabled(chat_id, mode == "on")
+                ledger_store.set_class_mode_notice(chat_id, mode)
+        raise ApplicationHandlerStop
     remember_bot_chat(update)
     remember_ledger_user(update)
     if update.effective_user and update.effective_user.id not in ledger_owner_ids(update.effective_chat.id):
@@ -3590,6 +3595,8 @@ async def handle_class_mode_notice_once(update: Update, context: ContextTypes.DE
     if getattr(update.message, "new_chat_members", None) or getattr(update.message, "left_chat_member", None):
         return
     if update.effective_user and getattr(update.effective_user, "is_bot", False):
+        return
+    if (update.message.text or "").strip().startswith("/"):
         return
     if _class_mode_command(update.message.text or ""):
         return
