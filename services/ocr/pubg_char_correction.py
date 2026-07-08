@@ -49,6 +49,7 @@ SAFE_SEGMENT_RULES: dict[str, str] = {
     "7822U": "78Z2U",
     "JQ93": "JQS3",
     "4TY9": "4TYS",
+    "J6CZ9": "U6CZ9",
 }
 
 SAFE_CONFUSIONS = {
@@ -66,6 +67,7 @@ SAFE_CONFUSIONS = {
     ("B", "8"),
     ("3", "9"),
     ("9", "3"),
+    ("J", "U"),
 }
 
 

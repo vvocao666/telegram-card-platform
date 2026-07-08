@@ -52,6 +52,20 @@ def test_4ty9_corrects_to_4tys():
     assert reason == "safe_known_segment_rule"
 
 
+def test_j6cz9_corrects_to_u6cz9():
+    corrected, reason = correct_pubg_card("S07336-6HD2-HTP2-J6CZ9")
+
+    assert corrected == "S07336-6HD2-HTP2-U6CZ9"
+    assert reason == "safe_known_segment_rule"
+
+
+def test_other_j_tail_is_not_changed_without_rule():
+    corrected, reason = correct_pubg_card("S07336-3L9T-W338-JR626")
+
+    assert corrected == "S07336-3L9T-W338-JR626"
+    assert reason == "unchanged"
+
+
 def test_psn_is_not_changed():
     result = apply_pubg_char_corrections(["PFP7-FP8X-26PH"])
 
@@ -79,6 +93,22 @@ def test_learned_position_rule_applies_for_same_font(tmp_path: Path):
     corrected, reason = correct_pubg_card("S07304-WJB9-VPEZ-MUFWK", font_repository=repository)
 
     assert corrected == "S07304-WJBS-VPEZ-MUFWK"
+    assert reason == "learned_font_rule"
+
+
+def test_learned_j_to_u_rule_applies_for_same_position(tmp_path: Path):
+    repository = FontRepository(tmp_path / "font_profiles.json")
+    repository.learn_sample(
+        "S07336-ABCD-EFGH-J1234",
+        card_type="PUBG",
+        error_pairs={"J>U": 1},
+        position_rules={"17:J>U": 1},
+        font_hash="unknown_font",
+    )
+
+    corrected, reason = correct_pubg_card("S07336-ABCD-EFGH-J1234", font_repository=repository)
+
+    assert corrected == "S07336-ABCD-EFGH-U1234"
     assert reason == "learned_font_rule"
 
 
