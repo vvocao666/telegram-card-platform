@@ -122,6 +122,21 @@ def test_remote_ocr_empty_cards_falls_back(monkeypatch, tmp_path):
     assert bot.remote_ocr_status["today_remote_failed"] == 1
 
 
+def test_remote_ocr_forbidden_pubg_body_chars_fall_back(monkeypatch, tmp_path):
+    payload = {
+        "ok": True,
+        "cards": [{"text": "S07336-6HD2-HTP2-O6CZ9", "score": 0.99}],
+        "texts": [{"text": "S07336-6HD2-HTP2-O6CZ9", "score": 0.99}],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is None
+    assert bot.remote_ocr_status["last_ok"] is False
+    assert bot.remote_ocr_status["last_error"] == "no valid cards"
+
+
 def test_remote_ocr_rebuilds_from_texts_when_worker_cards_are_empty(monkeypatch, tmp_path):
     payload = {
         "ok": True,

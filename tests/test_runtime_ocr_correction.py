@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import services.runtime as runtime
 from services.ocr.font_repository import FontRepository
 
@@ -23,6 +25,34 @@ EXPECTED_PUBG_CARDS = [
     "S07304-XFBX-EHKX-RB34D",
     "S07304-8MP5-4TYS-VDVR6",
 ]
+
+
+@pytest.mark.parametrize(
+    "card",
+    [
+        "S07336-A0BC-DEFG-HJKLM",
+        "S07324-AB1C-DEFG-HJKLM",
+        "S07292-ABCO-DEFG-HJKLM",
+        "S07304-ABCI-DEFG-HJKLM",
+    ],
+)
+def test_all_s07_pubg_cards_reject_forbidden_body_chars(card):
+    assert runtime.pubg_has_forbidden_body_chars(card)
+
+    settled, uncertain, corrections = runtime.settle_and_correct_pubg_cards([card])
+
+    assert settled == []
+    assert uncertain == 1
+    assert corrections == tuple()
+
+
+def test_pubg_prefix_digits_do_not_trigger_forbidden_body_rule():
+    card = "S07336-ABCD-EFGH-JKLMN"
+
+    assert not runtime.pubg_has_forbidden_body_chars(card)
+    settled, uncertain, _ = runtime.settle_and_correct_pubg_cards([card])
+    assert settled == [card]
+    assert uncertain == 0
 
 
 def test_runtime_ocrspace_enhancement_recovers_real_sample(monkeypatch, tmp_path):

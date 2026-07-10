@@ -577,6 +577,13 @@ def valid_card(card: str) -> bool:
     )
 
 
+def pubg_has_forbidden_body_chars(card: str) -> bool:
+    if not valid_card(card):
+        return False
+    body = card.split("-", 1)[1].replace("-", "")
+    return any(char in "01OI" for char in body)
+
+
 def apply_builtin_pubg_correction(card: str) -> str:
     corrected = BUILTIN_PUBG_CARD_CORRECTIONS.get(card, card)
     if corrected != card:
@@ -1279,7 +1286,14 @@ def settle_image_cards(cards: list[str]) -> tuple[list[str], int]:
 
 def settle_and_correct_pubg_cards(cards: list[str]) -> tuple[list[str], int, tuple[dict[str, str], ...]]:
     settled, uncertain = settle_image_cards(cards)
-    correction = apply_pubg_char_corrections(settled, font_repository=font_repository)
+    accepted: list[str] = []
+    for card in settled:
+        if pubg_has_forbidden_body_chars(card):
+            uncertain += 1
+            logger.warning("OCR RESULT DROPPED reason=pubg_forbidden_body_chars card=%s", card)
+            continue
+        accepted.append(card)
+    correction = apply_pubg_char_corrections(accepted, font_repository=font_repository)
     return list(correction.cards), uncertain, tuple(item.as_dict() for item in correction.corrections)
 
 
