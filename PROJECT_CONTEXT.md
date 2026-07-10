@@ -130,6 +130,8 @@ Remote 离线冷却期 -> 当前批次后续图片跳过 Remote，直接 OCR.spa
 - `REMOTE_OCR_OFFLINE_SECONDS=180`
 - Remote 健康检查应短时缓存，不能每张图片重复等待。
 - Remote 成功并返回有效卡后，不再调用 OCR.space。
+- Worker 原图/增强图返回的同一卡密文本按卡锚点去重计数，不能因重复 `S07` 行误触发 OCR.space。
+- 不同卡锚点仍分别计数；检测数量大于有效结果数量时必须继续补识别。
 - Remote 失败、超时、非法 JSON 或无有效卡时才 fallback。
 - 相同图片保留哈希缓存，避免重复上传和重复 OCR。
 - OCR.space 并发不能破坏 Telegram 图片接收顺序。

@@ -61,6 +61,7 @@ from services.ocr.provider_router import (
 )
 from services.ocr.result_pipeline import (
     ResultPipelineHooks,
+    count_unique_pubg_markers,
     format_reply as pipeline_format_reply,
     ordered_psn_occurrences as pipeline_ordered_psn_occurrences,
     ordered_pubg_occurrences as pipeline_ordered_pubg_occurrences,
@@ -1093,9 +1094,11 @@ def parse_pubg_expected_count(caption: str) -> int | None:
 
 
 def count_pubg_markers(text: str) -> int | None:
-    normalized = normalize_text(text)
-    count = len(PUBG_PREFIX_RE.findall(normalized))
-    return count or None
+    return count_unique_pubg_markers(
+        text,
+        normalize_text=normalize_text,
+        prefix_pattern=PUBG_PREFIX_RE,
+    )
 
 
 def merge_pubg_expected_count(configured: int | None, raw_text: str) -> int | None:
@@ -2140,6 +2143,12 @@ def run_ocr(
             )
 
     if remote is not None:
+        logger.info(
+            "OCR FAST PATH provider=remote cards=%s psn=%s markers=%s",
+            len(remote.cards),
+            len(remote.psn_cards) + len(remote.psn_uncertain),
+            count_pubg_markers(remote.raw_text) or 0,
+        )
         return remote
 
     if OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:

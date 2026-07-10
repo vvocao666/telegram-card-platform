@@ -224,6 +224,29 @@ def test_run_ocr_uses_remote_before_ocrspace(monkeypatch, tmp_path):
     assert result is expected
 
 
+def test_run_ocr_uses_fast_path_for_duplicate_remote_text_variants(monkeypatch, tmp_path, caplog):
+    expected = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF",),
+        raw_text=(
+            "S07336-9R6P-VERQ-VTZRF\n"
+            "S07336-9R6P-VERQ-VTZRF"
+        ),
+    )
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: expected)
+    monkeypatch.setattr(
+        bot,
+        "run_ocrspace",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unused")),
+    )
+
+    with caplog.at_level("INFO", logger="telegram-card-platform"):
+        result = bot.run_ocr(write_image(tmp_path))
+
+    assert result is expected
+    assert "OCR FAST PATH provider=remote cards=1 psn=0 markers=1" in caplog.text
+
+
 def test_run_ocr_falls_back_to_ocrspace_when_remote_fails(monkeypatch, tmp_path):
     fallback = bot.OcrResult(cards=("S07304-RC96-2437-QTWC9",), raw_text="ocrspace")
     old_provider = bot.OCR_PROVIDER
@@ -333,6 +356,61 @@ def test_remote_complement_not_needed_when_pubg_markers_match_cards(monkeypatch)
     )
 
     assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
+def test_duplicate_remote_text_variants_count_as_one_pubg_marker(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF",),
+        raw_text=(
+            "S07336-9R6P-VERQ-VTZRF\n"
+            "S07336-9R6P-VERQ-VTZRF"
+        ),
+    )
+
+    assert bot.count_pubg_markers(remote.raw_text) == 1
+    assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
+def test_full_and_wrapped_remote_variants_count_as_one_pubg_marker(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF",),
+        raw_text=(
+            "S07336-9R6P-VERQ-VTZRF\n"
+            "S07336-9R6P-VERQ-\n"
+            "VTZRF"
+        ),
+    )
+
+    assert bot.count_pubg_markers(remote.raw_text) == 1
+    assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
+def test_distinct_pubg_markers_still_trigger_missing_card_complement(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-9R6P-VERQ-VTZRF",),
+        raw_text=(
+            "S07336-9R6P-VERQ-VTZRF\n"
+            "S07336-25DY-FM6W-3K8D8"
+        ),
+    )
+
+    assert bot.count_pubg_markers(remote.raw_text) == 2
+    assert bot.remote_needs_ocrspace_complement(remote) == (
+        True,
+        "remote pubg marker count mismatch",
+    )
+
+
+def test_pubg_markers_with_same_first_group_but_different_second_group_remain_distinct():
+    raw_text = (
+        "S07336-ABCD-EFGH-JKLMN\n"
+        "S07336-ABCD-PQRS-TUVWX"
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 2
 
 
 def test_run_ocr_complements_remote_when_pubg_marker_count_mismatches(monkeypatch, tmp_path):

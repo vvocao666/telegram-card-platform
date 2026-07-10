@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Pattern
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,39 @@ class ResultPipelineHooks:
     manual_review_summary: str
     pubg_label: str
     psn_label: str
+
+
+def count_unique_pubg_markers(
+    text: str,
+    *,
+    normalize_text: Callable[[str], str],
+    prefix_pattern: Pattern[str],
+) -> int | None:
+    anchors: list[tuple[str, ...]] = []
+    normalized = normalize_text(text)
+    body_pattern = re.compile(
+        r"^\s*-\s*([A-Z0-9]{1,5})"
+        r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
+        r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
+    )
+    for line in normalized.splitlines():
+        for match in prefix_pattern.finditer(line):
+            anchor = [match.group(0)]
+            body_match = body_pattern.match(line[match.end() :])
+            if body_match:
+                expected_lengths = ({4}, {4}, {4, 5})
+                for value, allowed_lengths in zip(body_match.groups(), expected_lengths):
+                    if value is None or len(value) not in allowed_lengths:
+                        break
+                    anchor.append(value)
+            anchors.append(tuple(anchor))
+
+    unique: list[tuple[str, ...]] = []
+    for anchor in sorted(anchors, key=len, reverse=True):
+        if any(anchor == existing[: len(anchor)] for existing in unique):
+            continue
+        unique.append(anchor)
+    return len(unique) or None
 
 
 def ordered_pubg_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:
