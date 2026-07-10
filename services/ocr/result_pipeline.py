@@ -1,0 +1,230 @@
+from __future__ import annotations
+
+import html
+from dataclasses import dataclass
+from typing import Any, Callable
+
+
+@dataclass(frozen=True)
+class ResultPipelineHooks:
+    occurrence_type: type
+    valid_card: Callable[[str], bool]
+    canonical_card: Callable[[str], str]
+    psn_key: Callable[[str], str | None]
+    psn_is_pubg_substring: Callable[[str, list[str]], bool]
+    filter_psn_pubg_substrings: Callable[[list[str], list[str]], list[str]]
+    exact_unique_psn: Callable[[list[str]], list[str]]
+    exact_unique_text: Callable[[list[str]], list[str]]
+    limit_psn_ordered: Callable[[list[str], int | None], list[str]]
+    format_duplicate_lines: Callable[[list[tuple[int, list[int]]]], list[str]]
+    format_card_codes: Callable[[list[str]], str]
+    result_location: Callable[[int, Any], str]
+    fuzzy_suffix: str
+    success_prefix: str
+    count_suffix: str
+    uncertain_prefix: str
+    uncertain_suffix: str
+    manual_review_summary: str
+    pubg_label: str
+    psn_label: str
+
+
+def ordered_pubg_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:
+    occurrences: list[Any] = []
+    for image_index, result in enumerate(results, start=1):
+        sequence_index = result.sequence_index or image_index
+        if result.card_locations:
+            for card, y, x in result.card_locations:
+                key = hooks.canonical_card(card)
+                if key and hooks.valid_card(card):
+                    occurrences.append(
+                        hooks.occurrence_type(
+                            card=card,
+                            image_index=sequence_index,
+                            y=int(y),
+                            x=int(x),
+                            duplicate_key=key,
+                        )
+                    )
+            continue
+        for y, card in enumerate(result.cards):
+            key = hooks.canonical_card(card)
+            if key and hooks.valid_card(card):
+                occurrences.append(
+                    hooks.occurrence_type(
+                        card=card,
+                        image_index=sequence_index,
+                        y=y,
+                        x=0,
+                        duplicate_key=key,
+                    )
+                )
+    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+
+
+def ordered_psn_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:
+    occurrences: list[Any] = []
+    all_pubg_cards = [card for result in results for card in result.cards if hooks.valid_card(card)]
+    for image_index, result in enumerate(results, start=1):
+        sequence_index = result.sequence_index or image_index
+        if result.psn_locations:
+            for line, y, x in result.psn_locations:
+                key = hooks.psn_key(line)
+                if not key or hooks.psn_is_pubg_substring(key, all_pubg_cards):
+                    continue
+                display = f"{key}{hooks.fuzzy_suffix}" if line.endswith(hooks.fuzzy_suffix) else key
+                occurrences.append(
+                    hooks.occurrence_type(
+                        card=key,
+                        image_index=sequence_index,
+                        y=int(y),
+                        x=int(x),
+                        duplicate_key=key,
+                        display=display,
+                    )
+                )
+            continue
+        if result.psn_ordered:
+            ordered_psn = list(result.psn_ordered)
+        else:
+            ordered_psn = hooks.exact_unique_psn(list(result.psn_cards)) + hooks.exact_unique_text(
+                list(result.psn_uncertain)
+            )
+        ordered_psn = hooks.filter_psn_pubg_substrings(ordered_psn, all_pubg_cards)
+        ordered_psn = hooks.limit_psn_ordered(ordered_psn, result.psn_expected_count)
+        for y, line in enumerate(ordered_psn):
+            key = hooks.psn_key(line)
+            if not key or hooks.psn_is_pubg_substring(key, all_pubg_cards):
+                continue
+            display = f"{key}{hooks.fuzzy_suffix}" if line.endswith(hooks.fuzzy_suffix) else key
+            occurrences.append(
+                hooks.occurrence_type(
+                    card=key,
+                    image_index=sequence_index,
+                    y=y,
+                    x=0,
+                    duplicate_key=key,
+                    display=display,
+                )
+            )
+    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+
+
+def format_reply(results: list[Any], hooks: ResultPipelineHooks) -> str:
+    pubg_occurrences = ordered_pubg_occurrences(results, hooks)
+    psn_occurrences = ordered_psn_occurrences(results, hooks)
+    conflict_lines: list[str] = []
+    expected_pubg_total = 0
+    expected_psn_total = 0
+    pubg_image_count = 0
+    psn_image_count = 0
+    uncertain_count = 0
+    for index, result in enumerate(results, start=1):
+        image_pubg = [item for item in pubg_occurrences if item.image_index == index]
+        image_psn = [item for item in psn_occurrences if item.image_index == index]
+        if image_pubg:
+            pubg_image_count += 1
+        if image_psn:
+            psn_image_count += 1
+        if result.pubg_expected_count:
+            expected_pubg_total += result.pubg_expected_count
+        if result.psn_expected_count:
+            expected_psn_total += result.psn_expected_count
+        if result.uncertain_count:
+            conflict_lines.append(
+                f"{hooks.result_location(index, result)}："
+                f"{hooks.uncertain_prefix}{result.uncertain_count}{hooks.uncertain_suffix}"
+            )
+        uncertain_count += result.uncertain_count
+
+    pubg_cards: list[str] = []
+    seen_pubg: dict[str, int] = {}
+    pubg_duplicate_groups: dict[int, list[int]] = {}
+    for occurrence in pubg_occurrences:
+        if not hooks.valid_card(occurrence.card):
+            continue
+        if occurrence.duplicate_key not in seen_pubg:
+            seen_pubg[occurrence.duplicate_key] = occurrence.image_index
+            pubg_cards.append(occurrence.card)
+            continue
+        pubg_duplicate_groups.setdefault(seen_pubg[occurrence.duplicate_key], []).append(occurrence.image_index)
+
+    psn_lines: list[str] = []
+    seen_psn: dict[str, int] = {}
+    psn_duplicate_groups: dict[int, list[int]] = {}
+    for occurrence in psn_occurrences:
+        if occurrence.duplicate_key not in seen_psn:
+            seen_psn[occurrence.duplicate_key] = occurrence.image_index
+            psn_lines.append(occurrence.display)
+            continue
+        psn_duplicate_groups.setdefault(seen_psn[occurrence.duplicate_key], []).append(occurrence.image_index)
+    psn_cards = hooks.exact_unique_psn([card for card in psn_lines if not card.endswith(hooks.fuzzy_suffix)])
+    psn_uncertain = hooks.exact_unique_text([card for card in psn_lines if card.endswith(hooks.fuzzy_suffix)])
+    pubg_duplicate_lines = hooks.format_duplicate_lines(list(pubg_duplicate_groups.items()))
+    psn_duplicate_lines = hooks.format_duplicate_lines(list(psn_duplicate_groups.items()))
+
+    sections: list[str] = []
+    if pubg_cards:
+        pubg_summary = (
+            f"<b>{hooks.success_prefix}{hooks.pubg_label}：{len(pubg_cards)}{hooks.count_suffix}（点击卡密复制）</b>\n"
+            f"本次识别PUBG图片：{pubg_image_count}张"
+        )
+        if expected_pubg_total and len(pubg_cards) < expected_pubg_total:
+            pubg_summary += (
+                f"\n{hooks.manual_review_summary}{hooks.pubg_label}"
+                f"{expected_pubg_total - len(pubg_cards)}{hooks.count_suffix}"
+            )
+        if pubg_duplicate_lines:
+            pubg_summary += "\n" + "\n".join(pubg_duplicate_lines)
+        sections.append(
+            f"<b>【{hooks.pubg_label}】</b>\n\n{hooks.format_card_codes(pubg_cards)}\n\n{pubg_summary}"
+        )
+
+    if psn_lines:
+        psn_summary = (
+            f"<b>{hooks.success_prefix}{hooks.psn_label}：{len(psn_cards)}{hooks.count_suffix}（点击卡密复制）</b>\n"
+            f"本次识别PSN图片：{psn_image_count}张"
+        )
+        if psn_uncertain:
+            psn_summary += (
+                f"\n{hooks.manual_review_summary}{hooks.psn_label}{len(psn_uncertain)}{hooks.count_suffix}"
+            )
+        if expected_psn_total and len(psn_lines) < expected_psn_total:
+            psn_summary += (
+                f"\n{hooks.manual_review_summary}{hooks.psn_label}"
+                f"{expected_psn_total - len(psn_lines)}{hooks.count_suffix}"
+            )
+        if psn_duplicate_lines:
+            psn_summary += "\n" + "\n".join(psn_duplicate_lines)
+        sections.append(f"<b>【{hooks.psn_label}】</b>\n\n{hooks.format_card_codes(psn_lines)}\n\n{psn_summary}")
+
+    if uncertain_count:
+        if conflict_lines:
+            sections.append(
+                f"{hooks.uncertain_prefix}\n"
+                f"<blockquote>{html.escape(chr(10).join(conflict_lines))}</blockquote>\n"
+                f"{hooks.uncertain_prefix}{uncertain_count}{hooks.uncertain_suffix}"
+            )
+        else:
+            sections.append(f"{hooks.uncertain_prefix}{uncertain_count}{hooks.uncertain_suffix}")
+    if not sections:
+        sections.append("未识别到卡密")
+    return "\n\n".join(sections)
+
+
+def result_card_lines(results: list[Any], hooks: ResultPipelineHooks) -> tuple[list[str], list[str]]:
+    pubg_cards: list[str] = []
+    psn_lines: list[str] = []
+    seen_pubg: set[str] = set()
+    for occurrence in ordered_pubg_occurrences(results, hooks):
+        if occurrence.duplicate_key in seen_pubg:
+            continue
+        seen_pubg.add(occurrence.duplicate_key)
+        pubg_cards.append(occurrence.card)
+    seen_psn: set[str] = set()
+    for occurrence in ordered_psn_occurrences(results, hooks):
+        if occurrence.duplicate_key in seen_psn:
+            continue
+        seen_psn.add(occurrence.duplicate_key)
+        psn_lines.append(occurrence.display)
+    return pubg_cards, psn_lines

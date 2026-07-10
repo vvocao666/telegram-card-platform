@@ -30,6 +30,11 @@ from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
+from services.ocr.batch_processor import (
+    OcrBatchProgress as BaseOcrBatchProgress,
+    order_batch_results,
+    order_batch_updates,
+)
 from services.ocr.correction_engine import apply_corrections
 from services.ocr.admin_commands import (
     export_font_templates,
@@ -41,10 +46,26 @@ from services.ocr.admin_commands import (
 from services.ocr.debug_commands import ocr_candidates as format_ocr_candidates_debug
 from services.ocr.debug_commands import ocr_debug as format_ocr_debug
 from services.ocr.font_repository import FontRepository
-from services.ocr.daily_learning import extract_ground_truth_cards
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
+from services.ocr.provider_router import (
+    average_latency_ms as provider_average_latency_ms,
+    circuit_is_open as provider_circuit_is_open,
+    circuit_reason as provider_circuit_reason,
+    current_provider as provider_current_provider,
+    ensure_daily_counters,
+    fallback_reason as provider_fallback_reason,
+    percent_rate as provider_percent_rate,
+    safe_remote_url as provider_safe_remote_url,
+)
+from services.ocr.result_pipeline import (
+    ResultPipelineHooks,
+    format_reply as pipeline_format_reply,
+    ordered_psn_occurrences as pipeline_ordered_psn_occurrences,
+    ordered_pubg_occurrences as pipeline_ordered_pubg_occurrences,
+    result_card_lines as pipeline_result_card_lines,
+)
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
@@ -231,62 +252,17 @@ pending_learning_texts: dict[int, str] = {}
 welcome_sent_at: dict[int, float] = {}
 
 
-class OcrBatchProgress:
+class OcrBatchProgress(BaseOcrBatchProgress):
     def __init__(self, message, total: int) -> None:
-        self.message = message
-        self.total = total
-        self.done = 0
-        self.progress_message = None
-        self.last_update_at = 0.0
-        self.lock = asyncio.Lock()
-
-    async def start(self) -> None:
-        if not self.should_show:
-            return
-        try:
-            self.progress_message = await self.message.reply_text(self.text())
-            self.last_update_at = time.time()
-        except Exception:
-            logger.exception("Failed to send OCR progress message")
-
-    @property
-    def should_show(self) -> bool:
-        return OCR_PROGRESS_ENABLED and self.total >= OCR_PROGRESS_MIN_IMAGES
-
-    def text(self) -> str:
-        if self.done <= 0:
-            return f"正在识别 {self.total} 张图片，请稍候..."
-        return f"正在识别 {self.total} 张图片，请稍候...\n处理进度：{self.done}/{self.total}"
-
-    async def mark_done(self, force: bool = False) -> None:
-        if not self.should_show:
-            return
-        async with self.lock:
-            self.done = min(self.total, self.done + 1)
-            if not self.progress_message:
-                return
-            now = time.time()
-            if not force and self.done < self.total and now - self.last_update_at < OCR_PROGRESS_UPDATE_SECONDS:
-                return
-            try:
-                await self.progress_message.edit_text(self.text())
-                self.last_update_at = now
-            except Exception as exc:
-                logger.info("OCR progress update skipped: %s", exc)
-
-    async def finish(self, has_result: bool) -> None:
-        if not self.should_show or not self.progress_message:
-            return
-        if has_result:
-            try:
-                await self.progress_message.delete()
-            except Exception as exc:
-                logger.info("OCR progress delete skipped: %s", exc)
-            return
-        try:
-            await self.progress_message.edit_text(f"已完成 {self.total} 张图片识别，未识别到卡密。")
-        except Exception as exc:
-            logger.info("OCR progress finish update skipped: %s", exc)
+        super().__init__(
+            message,
+            total,
+            enabled=lambda: OCR_PROGRESS_ENABLED,
+            minimum_images=lambda: OCR_PROGRESS_MIN_IMAGES,
+            update_seconds=lambda: OCR_PROGRESS_UPDATE_SECONDS,
+            clock=lambda: time.time(),
+            logger=logger,
+        )
 LEDGER_TZ = timezone(timedelta(hours=8))
 LEDGER_CALLBACK_TEXT = {
     "ledger:yesterday": "昨日账单",
@@ -1609,22 +1585,7 @@ def remote_ocr_now() -> datetime:
 
 
 def ensure_remote_ocr_today(now: datetime | None = None) -> None:
-    now = now or remote_ocr_now()
-    today = now.date().isoformat()
-    if remote_ocr_status.get("today_date") == today:
-        return
-    remote_ocr_status.update(
-        {
-            "today_date": today,
-            "today_remote_calls": 0,
-            "today_remote_success": 0,
-            "today_remote_failed": 0,
-            "today_fallback_count": 0,
-            "today_remote_latency_total_ms": 0,
-            "today_enhanced_used": 0,
-            "today_cache_hits": 0,
-        }
-    )
+    ensure_daily_counters(remote_ocr_status, now or remote_ocr_now())
 
 
 def record_remote_ocr_start() -> None:
@@ -1640,15 +1601,12 @@ def record_remote_ocr_fallback(reason: str) -> None:
 
 def remote_ocr_is_circuit_open(now: float | None = None) -> bool:
     current = time.time() if now is None else now
-    return current < remote_ocr_offline_until
+    return provider_circuit_is_open(remote_ocr_offline_until, current)
 
 
 def remote_ocr_circuit_reason(now: float | None = None) -> str:
     current = time.time() if now is None else now
-    remaining = max(0, int(remote_ocr_offline_until - current))
-    if remaining <= 0:
-        return "ok"
-    return f"remote offline, retry in {remaining}s"
+    return provider_circuit_reason(remote_ocr_offline_until, current)
 
 
 def mark_remote_ocr_offline(reason: str) -> None:
@@ -1676,40 +1634,30 @@ async def remote_ocr_probe_loop() -> None:
 
 
 def remote_ocr_fallback_reason() -> str:
-    if not REMOTE_OCR_ENABLED:
-        return "remote disabled"
-    if not REMOTE_OCR_URL:
-        return "remote url empty"
-    if remote_ocr_is_circuit_open():
-        return remote_ocr_circuit_reason()
-    return remote_ocr_status.get("last_error") or "remote unavailable"
+    return provider_fallback_reason(
+        enabled=REMOTE_OCR_ENABLED,
+        url=REMOTE_OCR_URL,
+        offline_until=remote_ocr_offline_until,
+        now=time.time(),
+        last_error=str(remote_ocr_status.get("last_error") or ""),
+    )
 
 
 def avg_remote_latency_ms() -> int:
     ensure_remote_ocr_today()
-    success_count = int(remote_ocr_status.get("today_remote_success", 0))
-    if success_count <= 0:
-        return 0
-    return int(int(remote_ocr_status.get("today_remote_latency_total_ms", 0)) / success_count)
+    return provider_average_latency_ms(remote_ocr_status)
 
 
 def percent_rate(part: int, total: int) -> str:
-    if total <= 0:
-        return "0.0%"
-    return f"{(part / total) * 100:.1f}%"
+    return provider_percent_rate(part, total)
 
 
 def current_ocr_provider() -> str:
-    if remote_ocr_status.get("last_ok"):
-        return REMOTE_OCR_LABEL
-    if int(remote_ocr_status.get("today_fallback_count", 0)) > 0:
-        return "OCR.space"
-    return "unknown"
+    return provider_current_provider(remote_ocr_status, REMOTE_OCR_LABEL)
 
 
 def safe_remote_url() -> str:
-    url = REMOTE_OCR_URL.split("?", 1)[0].replace("http://", "").replace("https://", "")
-    return url.rstrip("/")
+    return provider_safe_remote_url(REMOTE_OCR_URL).rstrip("/")
 
 
 def format_time_value(value: object) -> str:
@@ -2364,156 +2312,45 @@ def source_username_only(source_user: str) -> str:
     return parts[0] if parts else source_user.strip() or "Unknown"
 
 
+def result_pipeline_hooks() -> ResultPipelineHooks:
+    return ResultPipelineHooks(
+        occurrence_type=OrderedCardOccurrence,
+        valid_card=valid_card,
+        canonical_card=canonical_card,
+        psn_key=psn_key,
+        psn_is_pubg_substring=psn_is_pubg_substring,
+        filter_psn_pubg_substrings=filter_psn_pubg_substrings,
+        exact_unique_psn=exact_unique_psn,
+        exact_unique_text=exact_unique_text,
+        limit_psn_ordered=limit_psn_ordered,
+        format_duplicate_lines=format_duplicate_lines,
+        format_card_codes=format_card_codes,
+        result_location=result_location,
+        fuzzy_suffix=FUZZY_SUFFIX,
+        success_prefix=SUCCESS_PREFIX,
+        count_suffix=COUNT_SUFFIX,
+        uncertain_prefix=UNCERTAIN_PREFIX,
+        uncertain_suffix=UNCERTAIN_SUFFIX,
+        manual_review_summary=MANUAL_REVIEW_SUMMARY,
+        pubg_label=PUBG_LABEL,
+        psn_label=PSN_LABEL,
+    )
+
+
 def ordered_pubg_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
-    occurrences: list[OrderedCardOccurrence] = []
-    for image_index, result in enumerate(results, start=1):
-        sequence_index = result.sequence_index or image_index
-        if result.card_locations:
-            for card, y, x in result.card_locations:
-                key = canonical_card(card)
-                if key and valid_card(card):
-                    occurrences.append(OrderedCardOccurrence(card=card, image_index=sequence_index, y=int(y), x=int(x), duplicate_key=key))
-            continue
-        for y, card in enumerate(result.cards):
-            key = canonical_card(card)
-            if key and valid_card(card):
-                occurrences.append(OrderedCardOccurrence(card=card, image_index=sequence_index, y=y, x=0, duplicate_key=key))
-    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+    return pipeline_ordered_pubg_occurrences(results, result_pipeline_hooks())
 
 
 def ordered_psn_occurrences(results: list[OcrResult]) -> list[OrderedCardOccurrence]:
-    occurrences: list[OrderedCardOccurrence] = []
-    all_pubg_cards = [card for result in results for card in result.cards if valid_card(card)]
-    for image_index, result in enumerate(results, start=1):
-        sequence_index = result.sequence_index or image_index
-        if result.psn_locations:
-            for line, y, x in result.psn_locations:
-                key = psn_key(line)
-                if not key:
-                    continue
-                if psn_is_pubg_substring(key, all_pubg_cards):
-                    continue
-                display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
-                occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=int(y), x=int(x), duplicate_key=key, display=display))
-            continue
-        if result.psn_ordered:
-            ordered_psn = list(result.psn_ordered)
-        else:
-            ordered_psn = exact_unique_psn(list(result.psn_cards)) + exact_unique_text(list(result.psn_uncertain))
-        ordered_psn = filter_psn_pubg_substrings(ordered_psn, all_pubg_cards)
-        ordered_psn = limit_psn_ordered(ordered_psn, result.psn_expected_count)
-        for y, line in enumerate(ordered_psn):
-            key = psn_key(line)
-            if not key:
-                continue
-            if psn_is_pubg_substring(key, all_pubg_cards):
-                continue
-            display = f"{key}{FUZZY_SUFFIX}" if line.endswith(FUZZY_SUFFIX) else key
-            occurrences.append(OrderedCardOccurrence(card=key, image_index=sequence_index, y=y, x=0, duplicate_key=key, display=display))
-    return sorted(occurrences, key=lambda item: (item.image_index, item.y, item.x))
+    return pipeline_ordered_psn_occurrences(results, result_pipeline_hooks())
 
 
 def format_reply(results: list[OcrResult]) -> str:
-    pubg_occurrences = ordered_pubg_occurrences(results)
-    psn_occurrences = ordered_psn_occurrences(results)
-    conflict_lines: list[str] = []
-    expected_pubg_total = 0
-    expected_psn_total = 0
-    pubg_image_count = 0
-    psn_image_count = 0
-    uncertain_count = 0
-    for index, result in enumerate(results, start=1):
-        image_pubg = [item for item in pubg_occurrences if item.image_index == index]
-        image_psn = [item for item in psn_occurrences if item.image_index == index]
-        if image_pubg:
-            pubg_image_count += 1
-        if image_psn:
-            psn_image_count += 1
-        if result.pubg_expected_count:
-            expected_pubg_total += result.pubg_expected_count
-        if result.psn_expected_count:
-            expected_psn_total += result.psn_expected_count
-        if result.uncertain_count:
-            conflict_lines.append(f"{result_location(index, result)}：{UNCERTAIN_PREFIX}{result.uncertain_count}{UNCERTAIN_SUFFIX}")
-        uncertain_count += result.uncertain_count
-
-    pubg_cards: list[str] = []
-    seen_pubg: dict[str, int] = {}
-    pubg_duplicate_groups: dict[int, list[int]] = {}
-    for occurrence in pubg_occurrences:
-        if not valid_card(occurrence.card):
-            continue
-        if occurrence.duplicate_key not in seen_pubg:
-            seen_pubg[occurrence.duplicate_key] = occurrence.image_index
-            pubg_cards.append(occurrence.card)
-            continue
-        pubg_duplicate_groups.setdefault(seen_pubg[occurrence.duplicate_key], []).append(occurrence.image_index)
-
-    psn_lines: list[str] = []
-    seen_psn: dict[str, int] = {}
-    psn_duplicate_groups: dict[int, list[int]] = {}
-    for occurrence in psn_occurrences:
-        if occurrence.duplicate_key not in seen_psn:
-            seen_psn[occurrence.duplicate_key] = occurrence.image_index
-            psn_lines.append(occurrence.display)
-            continue
-        psn_duplicate_groups.setdefault(seen_psn[occurrence.duplicate_key], []).append(occurrence.image_index)
-    psn_cards = exact_unique_psn([card for card in psn_lines if not card.endswith(FUZZY_SUFFIX)])
-    psn_uncertain = exact_unique_text([card for card in psn_lines if card.endswith(FUZZY_SUFFIX)])
-    pubg_duplicate_lines = format_duplicate_lines(list(pubg_duplicate_groups.items()))
-    psn_duplicate_lines = format_duplicate_lines(list(psn_duplicate_groups.items()))
-
-    sections: list[str] = []
-    if pubg_cards:
-        pubg_summary = (
-            f"<b>{SUCCESS_PREFIX}{PUBG_LABEL}：{len(pubg_cards)}{COUNT_SUFFIX}（点击卡密复制）</b>\n"
-            f"\u672c\u6b21\u8bc6\u522bPUBG\u56fe\u7247\uff1a{pubg_image_count}\u5f20"
-        )
-        if expected_pubg_total and len(pubg_cards) < expected_pubg_total:
-            pubg_summary += f"\n{MANUAL_REVIEW_SUMMARY}{PUBG_LABEL}{expected_pubg_total - len(pubg_cards)}{COUNT_SUFFIX}"
-        if pubg_duplicate_lines:
-            pubg_summary += "\n" + "\n".join(pubg_duplicate_lines)
-        sections.append(f"<b>【{PUBG_LABEL}】</b>\n\n{format_card_codes(pubg_cards)}\n\n{pubg_summary}")
-
-    if psn_lines:
-        psn_summary = (
-            f"<b>{SUCCESS_PREFIX}{PSN_LABEL}：{len(psn_cards)}{COUNT_SUFFIX}（点击卡密复制）</b>\n"
-            f"\u672c\u6b21\u8bc6\u522bPSN\u56fe\u7247\uff1a{psn_image_count}\u5f20"
-        )
-        if psn_uncertain:
-            psn_summary += f"\n{MANUAL_REVIEW_SUMMARY}{PSN_LABEL}{len(psn_uncertain)}{COUNT_SUFFIX}"
-        if expected_psn_total and len(psn_lines) < expected_psn_total:
-            psn_summary += f"\n{MANUAL_REVIEW_SUMMARY}{PSN_LABEL}{expected_psn_total - len(psn_lines)}{COUNT_SUFFIX}"
-        if psn_duplicate_lines:
-            psn_summary += "\n" + "\n".join(psn_duplicate_lines)
-        sections.append(f"<b>【{PSN_LABEL}】</b>\n\n{format_card_codes(psn_lines)}\n\n{psn_summary}")
-
-    if uncertain_count:
-        if conflict_lines:
-            sections.append(f"{UNCERTAIN_PREFIX}\n<blockquote>{html.escape(chr(10).join(conflict_lines))}</blockquote>\n{UNCERTAIN_PREFIX}{uncertain_count}{UNCERTAIN_SUFFIX}")
-        else:
-            sections.append(f"{UNCERTAIN_PREFIX}{uncertain_count}{UNCERTAIN_SUFFIX}")
-    if not sections:
-        sections.append("\u672a\u8bc6\u522b\u5230\u5361\u5bc6")
-    return "\n\n".join(sections)
+    return pipeline_format_reply(results, result_pipeline_hooks())
 
 
 def result_card_lines(results: list[OcrResult]) -> tuple[list[str], list[str]]:
-    pubg_cards: list[str] = []
-    psn_lines: list[str] = []
-    seen_pubg: set[str] = set()
-    for occurrence in ordered_pubg_occurrences(results):
-        if occurrence.duplicate_key in seen_pubg:
-            continue
-        seen_pubg.add(occurrence.duplicate_key)
-        pubg_cards.append(occurrence.card)
-    seen_psn: set[str] = set()
-    for occurrence in ordered_psn_occurrences(results):
-        if occurrence.duplicate_key in seen_psn:
-            continue
-        seen_psn.add(occurrence.duplicate_key)
-        psn_lines.append(occurrence.display)
-    return pubg_cards, psn_lines
+    return pipeline_result_card_lines(results, result_pipeline_hooks())
 
 
 def has_card_results(results: list[OcrResult]) -> bool:
@@ -3652,117 +3489,6 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
         await reply_ledger(query.message, result.text)
 
 
-def broadcast_group_keyboard(selected: set[int] | None = None) -> InlineKeyboardMarkup:
-    selected = selected or set()
-    rows: list[list[InlineKeyboardButton]] = []
-    for row in ledger_store.list_active_bot_groups():
-        chat_id = int(row["chat_id"])
-        title = row["title"] or str(chat_id)
-        prefix = "✅ " if chat_id in selected else "⬜ "
-        rows.append([InlineKeyboardButton(f"{prefix}{title}", callback_data=f"broadcast:toggle:{chat_id}")])
-    rows.append(
-        [
-            InlineKeyboardButton("下一步", callback_data="broadcast:next"),
-            InlineKeyboardButton("取消", callback_data="broadcast:cancel"),
-        ]
-    )
-    return InlineKeyboardMarkup(rows)
-
-
-async def start_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    if not is_owner_update(update):
-        await update.message.reply_text("只有老板可以使用广播。")
-        return
-    groups = ledger_store.list_active_bot_groups()
-    if not groups:
-        await update.message.reply_text("还没有记录到机器人所在群。先把机器人拉进群，或在群里发一条消息后再试。")
-        return
-    context.user_data["broadcast_selected"] = set()
-    context.user_data["broadcast_waiting_text"] = False
-    await update.message.reply_text("请选择要广播的群：", reply_markup=broadcast_group_keyboard(set()))
-
-
-async def handle_broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    if not query:
-        return
-    await query.answer()
-    if not is_owner_update(update):
-        await query.edit_message_text("只有老板可以使用广播。")
-        return
-    data = query.data or ""
-    selected = context.user_data.get("broadcast_selected")
-    if not isinstance(selected, set):
-        selected = set()
-    if data == "broadcast:cancel":
-        context.user_data.pop("broadcast_selected", None)
-        context.user_data.pop("broadcast_waiting_text", None)
-        await query.edit_message_text("已取消广播。")
-        return
-    if data == "broadcast:next":
-        if not selected:
-            await query.edit_message_text("请至少选择一个群。", reply_markup=broadcast_group_keyboard(selected))
-            return
-        context.user_data["broadcast_selected"] = selected
-        context.user_data["broadcast_waiting_text"] = True
-        await query.edit_message_text("请发送要广播的文字。发送“取消广播”可退出。")
-        return
-    match = re.fullmatch(r"broadcast:toggle:(-?\d+)", data)
-    if match:
-        chat_id = int(match.group(1))
-        if chat_id in selected:
-            selected.remove(chat_id)
-        else:
-            selected.add(chat_id)
-        context.user_data["broadcast_selected"] = selected
-        await query.edit_message_reply_markup(reply_markup=broadcast_group_keyboard(selected))
-
-
-async def handle_broadcast_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    if not update.message or not is_owner_update(update):
-        return False
-    if not context.user_data.get("broadcast_waiting_text"):
-        return False
-    text = update.message.text or ""
-    if text.strip() == "取消广播":
-        context.user_data.pop("broadcast_selected", None)
-        context.user_data.pop("broadcast_waiting_text", None)
-        await update.message.reply_text("已取消广播。")
-        return True
-    selected = context.user_data.get("broadcast_selected")
-    if not isinstance(selected, set) or not selected:
-        context.user_data.pop("broadcast_waiting_text", None)
-        await update.message.reply_text("没有选择群，请重新发送“广播”。")
-        return True
-    success = 0
-    failed = 0
-    for chat_id in sorted(selected):
-        try:
-            await context.bot.send_message(chat_id=chat_id, text=text)
-            success += 1
-        except Exception:
-            logger.exception("Broadcast to chat %s failed", chat_id)
-            failed += 1
-    context.user_data.pop("broadcast_selected", None)
-    context.user_data.pop("broadcast_waiting_text", None)
-    await update.message.reply_text(f"广播完成：成功 {success} 个群，失败 {failed} 个群。")
-    return True
-
-
-def broadcast_all_targets() -> list[int]:
-    targets: list[int] = []
-    seen: set[int] = set()
-    for row in ledger_store.list_known_users_for_broadcast():
-        user_id = int(row["user_id"])
-        if user_id in seen:
-            continue
-        seen.add(user_id)
-        targets.append(user_id)
-    return targets
-
-
 def extract_broadcast_all_text(text: str, command: str) -> str:
     stripped = text.strip()
     if stripped == command:
@@ -3770,90 +3496,6 @@ def extract_broadcast_all_text(text: str, command: str) -> str:
     if stripped.startswith(command):
         return stripped[len(command) :].lstrip(" \t\r\n")
     return stripped
-
-
-def format_broadcast_preview(text: str, target_count: int) -> str:
-    return (
-        "广播预览\n\n"
-        f"目标用户：{target_count}\n"
-        "内容：\n"
-        f"{text}\n\n"
-        "发送“通知所有人”将发送当前预览内容。\n"
-        "发送 /broadcast_cancel 可取消。"
-    )
-
-
-async def broadcast_preview_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    if not is_owner_update(update):
-        await update.message.reply_text("无权限。")
-        return
-    text = extract_broadcast_all_text(update.message.text or "", "/broadcast_preview")
-    if not text:
-        text = str(context.user_data.get("broadcast_all_pending_text") or "")
-    if not text:
-        await update.message.reply_text("请在 /broadcast_preview 后面填写要预览的通知内容。")
-        return
-    context.user_data["broadcast_all_pending_text"] = text
-    await update.message.reply_text(
-        format_broadcast_preview(text, len(broadcast_all_targets())),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
-
-
-async def broadcast_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    if not is_owner_update(update):
-        await update.message.reply_text("无权限。")
-        return
-    context.user_data.pop("broadcast_all_pending_text", None)
-    context.user_data.pop("broadcast_selected", None)
-    context.user_data.pop("broadcast_waiting_text", None)
-    await update.message.reply_text("已取消广播任务。")
-
-
-async def notify_all_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
-        return
-    if not is_owner_update(update):
-        await update.message.reply_text("无权限。")
-        return
-    text = extract_broadcast_all_text(update.message.text or "", "通知所有人")
-    if not text:
-        text = str(context.user_data.get("broadcast_all_pending_text") or "")
-    if not text:
-        await update.message.reply_text("请发送：通知所有人\\n通知内容，或先使用 /broadcast_preview 预览。")
-        return
-    targets = broadcast_all_targets()
-    if not targets:
-        await update.message.reply_text("没有可广播的用户。")
-        return
-    started_at = time.monotonic()
-    success = 0
-    failed = 0
-    for user_id in targets:
-        try:
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=text,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-            success += 1
-        except Exception:
-            logger.exception("Broadcast to user %s failed", user_id)
-            failed += 1
-    context.user_data.pop("broadcast_all_pending_text", None)
-    elapsed = time.monotonic() - started_at
-    await update.message.reply_text(
-        "通知所有人完成\n\n"
-        f"成功数量：{success}\n"
-        f"失败数量：{failed}\n"
-        f"耗时：{elapsed:.2f} 秒"
-    )
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -4162,7 +3804,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         chat_tasks.pop(chat_id, None)
         if not updates:
             return
-        updates.sort(key=photo_display_order)
+        updates = order_batch_updates(updates, photo_display_order)
         message = updates[-1].message
         if not message:
             return
@@ -4189,7 +3831,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         batch_results = await asyncio.gather(
             *(recognize_batch_update(batch_index, update) for batch_index, update in enumerate(updates, start=1))
         )
-        batch_results = sorted(batch_results, key=lambda item: item[0])
+        batch_results = order_batch_results(batch_results)
         results: list[OcrResult] = []
         for _batch_index, corrected, raw_result, success in batch_results:
             results.append(corrected)
