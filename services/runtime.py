@@ -32,6 +32,7 @@ from services.ledger.ledger_commands import handle_text as handle_ledger_command
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr.batch_processor import (
     OcrBatchProgress as BaseOcrBatchProgress,
+    batch_debounce_seconds,
     order_batch_results,
     order_batch_updates,
 )
@@ -97,6 +98,7 @@ MULTI_BATCH_WAIT_SECONDS = max(
     float(os.getenv("MULTI_BATCH_WAIT_SECONDS", os.getenv("BATCH_WAIT_SECONDS", "3.0"))),
     2.0,
 )
+OWNER_FORWARD_BATCH_WAIT_SECONDS = max(float(os.getenv("OWNER_FORWARD_BATCH_WAIT_SECONDS", "12.0")), 3.0)
 OCR_PROVIDER = os.getenv("OCR_PROVIDER", "ocrspace").strip().lower()
 REMOTE_OCR_ENABLED = os.getenv("REMOTE_OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 REMOTE_OCR_URL = os.getenv("REMOTE_OCR_URL", "").strip().rstrip("/")
@@ -3947,7 +3949,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     old_task = chat_tasks.get(chat_id)
     if old_task and not old_task.done():
         old_task.cancel()
-    wait_seconds = 0.05 if owner_photo else (MULTI_BATCH_WAIT_SECONDS if len(chat_buffers[chat_id]) > 1 else SINGLE_WAIT_SECONDS)
+    owner_bulk_photo = owner_photo and bool(
+        getattr(update.message, "forward_origin", None) or getattr(update.message, "media_group_id", None)
+    )
+    wait_seconds = batch_debounce_seconds(
+        owner_photo=owner_photo,
+        owner_bulk_photo=owner_bulk_photo,
+        batch_size=len(chat_buffers[chat_id]),
+        single_wait_seconds=SINGLE_WAIT_SECONDS,
+        multi_wait_seconds=MULTI_BATCH_WAIT_SECONDS,
+        owner_bulk_wait_seconds=OWNER_FORWARD_BATCH_WAIT_SECONDS,
+    )
     chat_tasks[chat_id] = asyncio.create_task(flush_chat_batch(chat_id, context, wait_seconds))
 
 

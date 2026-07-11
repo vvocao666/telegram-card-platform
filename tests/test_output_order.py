@@ -6,10 +6,60 @@ import time
 import asyncio
 
 import bot
+from services.ocr.batch_processor import batch_debounce_seconds
 
 
 def _card(index: int) -> str:
     return f"S07304-A{index:03d}-B{index:03d}-C{index:04d}"
+
+
+def test_owner_forwarded_photos_use_long_debounce_from_first_image():
+    assert batch_debounce_seconds(
+        owner_photo=True,
+        owner_bulk_photo=True,
+        batch_size=1,
+        single_wait_seconds=0.6,
+        multi_wait_seconds=3.0,
+        owner_bulk_wait_seconds=12.0,
+    ) == 12.0
+
+
+def test_ninety_owner_forwarded_photos_keep_refreshing_one_batch_window():
+    waits = [
+        batch_debounce_seconds(
+            owner_photo=True,
+            owner_bulk_photo=True,
+            batch_size=index,
+            single_wait_seconds=0.6,
+            multi_wait_seconds=3.0,
+            owner_bulk_wait_seconds=12.0,
+        )
+        for index in range(1, 91)
+    ]
+
+    assert waits == [12.0] * 90
+
+
+def test_owner_single_photo_keeps_existing_fast_wait():
+    assert batch_debounce_seconds(
+        owner_photo=True,
+        owner_bulk_photo=False,
+        batch_size=1,
+        single_wait_seconds=0.6,
+        multi_wait_seconds=3.0,
+        owner_bulk_wait_seconds=12.0,
+    ) == 0.05
+
+
+def test_regular_single_photo_keeps_short_wait():
+    assert batch_debounce_seconds(
+        owner_photo=False,
+        owner_bulk_photo=False,
+        batch_size=1,
+        single_wait_seconds=0.6,
+        multi_wait_seconds=3.0,
+        owner_bulk_wait_seconds=12.0,
+    ) == 0.6
 
 
 def _pubg_lines(reply: str) -> list[str]:

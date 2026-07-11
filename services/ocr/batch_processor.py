@@ -84,3 +84,22 @@ def order_batch_updates(updates: list[Any], key: Callable[[Any], tuple[int, int]
 
 def order_batch_results(results: list[tuple[int, Any, Any, bool]]) -> list[tuple[int, Any, Any, bool]]:
     return sorted(results, key=lambda item: item[0])
+
+
+def batch_debounce_seconds(
+    *,
+    owner_photo: bool,
+    owner_bulk_photo: bool,
+    batch_size: int,
+    single_wait_seconds: float,
+    multi_wait_seconds: float,
+    owner_bulk_wait_seconds: float,
+) -> float:
+    """连续发送的 owner 图片也等待完整批次，避免按网络到达间隔拆批。"""
+    if owner_bulk_photo:
+        return owner_bulk_wait_seconds
+    if owner_photo:
+        return 0.05
+    if batch_size > 1:
+        return multi_wait_seconds
+    return single_wait_seconds
