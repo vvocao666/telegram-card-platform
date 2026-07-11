@@ -59,3 +59,25 @@ def test_live_progress_starts_on_first_image_and_tracks_received_and_done() -> N
         assert message.progress_message.deleted is True
 
     asyncio.run(run_case())
+
+
+def test_live_progress_is_deleted_when_image_has_no_cards() -> None:
+    async def run_case() -> None:
+        message = FakeMessage()
+        progress = LiveOcrBatchProgress(
+            message,
+            enabled=lambda: True,
+            update_seconds=lambda: 0.1,
+            clock=lambda: 100.0,
+            logger=type("Logger", (), {"exception": lambda *args: None, "info": lambda *args: None})(),
+        )
+        progress.register_image(message)
+        await progress.publish()
+        await progress.mark_done()
+        await progress.finish(False)
+
+        assert message.progress_message is not None
+        assert message.progress_message.deleted is True
+        assert all("未识别到卡密" not in text for text in message.progress_message.texts)
+
+    asyncio.run(run_case())

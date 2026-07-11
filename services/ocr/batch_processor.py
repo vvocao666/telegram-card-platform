@@ -90,16 +90,10 @@ class OcrBatchProgress:
     async def finish(self, has_result: bool) -> None:
         if not self.should_show or not self.progress_message:
             return
-        if has_result:
-            try:
-                await self.progress_message.delete()
-            except Exception as exc:
-                self._logger.info("OCR progress delete skipped: %s", exc)
-            return
         try:
-            await self.progress_message.edit_text(f"已完成 {self.total} 张图片识别，未识别到卡密。")
+            await self.progress_message.delete()
         except Exception as exc:
-            self._logger.info("OCR progress finish update skipped: %s", exc)
+            self._logger.info("OCR progress delete skipped: %s", exc)
 
 
 class LiveOcrBatchProgress:
@@ -178,18 +172,10 @@ class LiveOcrBatchProgress:
             self._delayed_update.cancel()
         if not self._enabled() or self.progress_message is None:
             return
-        if has_result:
-            try:
-                await self.progress_message.delete()
-            except Exception as exc:
-                self._logger.info("Live OCR progress delete skipped: %s", exc)
-            return
         try:
-            await self.progress_message.edit_text(
-                f"已完成 {self.total} 张图片识别，未识别到卡密。"
-            )
+            await self.progress_message.delete()
         except Exception as exc:
-            self._logger.info("Live OCR progress finish update skipped: %s", exc)
+            self._logger.info("Live OCR progress delete skipped: %s", exc)
 
 
 def order_batch_updates(updates: list[Any], key: Callable[[Any], tuple[int, int]]) -> list[Any]:
