@@ -68,7 +68,6 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
-from services.ocr.thin_strip_verifier import choose_thin_strip_consensus, verify_thin_strip_pubg
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
     cleanup_expired_audits,
@@ -1278,17 +1277,15 @@ def settle_image_cards(cards: list[str]) -> tuple[list[str], int]:
 
 
 def settle_and_correct_pubg_cards(cards: list[str]) -> tuple[list[str], int, tuple[dict[str, str], ...]]:
+    settled, uncertain = settle_image_cards(cards)
     accepted: list[str] = []
-    uncertain = 0
-    for card in exact_unique(cards):
+    for card in settled:
         if pubg_has_forbidden_body_chars(card):
             uncertain += 1
             logger.warning("OCR RESULT DROPPED reason=pubg_forbidden_body_chars card=%s", card)
             continue
         accepted.append(card)
-    settled, suppressed = settle_image_cards(accepted)
-    uncertain += suppressed
-    correction = apply_pubg_char_corrections(settled, font_repository=font_repository)
+    correction = apply_pubg_char_corrections(accepted, font_repository=font_repository)
     return list(correction.cards), uncertain, tuple(item.as_dict() for item in correction.corrections)
 
 
@@ -2175,18 +2172,6 @@ def run_ocr(
             psn_expected_count=psn_expected_count,
             pubg_expected_count=pubg_expected_count,
         )
-        verified_cards = verify_thin_strip_pubg(image_path) if remote.cards else tuple()
-        selected_cards, verification_used = choose_thin_strip_consensus(remote.cards, verified_cards)
-        if verification_used:
-            logger.info("OCR THIN STRIP VERIFIED from=%s to=%s", remote.cards[0], selected_cards[0])
-            remote = replace(
-                remote,
-                cards=selected_cards,
-                corrections_applied=tuple(
-                    list(remote.corrections_applied)
-                    + [{"from": remote.cards[0], "to": selected_cards[0], "reason": "thin_strip_tesseract_consensus"}]
-                ),
-            )
         if (remote.cards or remote.psn_cards or remote.psn_uncertain) and not VERIFY_WITH_LOCAL and not LOCAL_COMPLEMENT:
             return remote
         if not LOCAL_FALLBACK and not VERIFY_WITH_LOCAL:
