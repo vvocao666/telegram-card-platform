@@ -248,6 +248,15 @@ class BotFormattingTests(unittest.TestCase):
             bot.filter_local_ocr_cards(cards, min_votes=1),
         )
 
+    def test_invalid_variant_cannot_suppress_later_valid_card(self):
+        invalid = "S07336-Z5QW-USKA-W2HOY"
+        valid = "S07336-Z5QW-USKA-W2HQY"
+
+        cards, uncertain, _corrections = bot.settle_and_correct_pubg_cards([invalid, valid])
+
+        self.assertEqual([valid], cards)
+        self.assertEqual(1, uncertain)
+
     def test_ocrspace_api_key_parser_supports_rotation(self):
         self.assertEqual(
             ["key1", "key2", "legacy"],
