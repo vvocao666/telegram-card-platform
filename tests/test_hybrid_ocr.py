@@ -3,6 +3,7 @@ from pathlib import Path
 import asyncio
 import bot
 import pytest
+from PIL import Image
 
 
 @pytest.fixture(autouse=True)
@@ -222,6 +223,23 @@ def test_run_ocr_uses_remote_before_ocrspace(monkeypatch, tmp_path):
     result = bot.run_ocr(write_image(tmp_path))
 
     assert result is expected
+
+
+def test_run_ocr_verifies_thin_strip_remote_conflict_with_ocrspace(monkeypatch, tmp_path):
+    image_path = tmp_path / "thin.jpg"
+    Image.new("RGB", (500, 80), "white").save(image_path)
+    remote = bot.OcrResult(cards=("S07324-N4RB-3744-V3Y8N",), raw_text="remote")
+    cloud = bot.OcrResult(cards=("S07324-N4RB-3744-V3Y8M",), raw_text="cloud")
+    monkeypatch.setattr(bot, "OCR_PROVIDER", "ocrspace")
+    monkeypatch.setattr(bot, "OCR_SPACE_API_KEYS", ["key"])
+    monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+    monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: cloud)
+
+    result = bot.run_ocr(image_path)
+
+    assert result.cards == cloud.cards
+    assert "[REMOTE]" in result.raw_text
+    assert "[OCRSPACE]" in result.raw_text
 
 
 def test_run_ocr_uses_fast_path_for_duplicate_remote_text_variants(monkeypatch, tmp_path, caplog):

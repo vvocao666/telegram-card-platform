@@ -32,10 +32,12 @@ from services.ledger.ledger_commands import handle_text as handle_ledger_command
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr.batch_processor import (
     OcrBatchProgress as BaseOcrBatchProgress,
+    OcrBatchJobPool,
     batch_debounce_seconds,
     order_batch_results,
     order_batch_updates,
 )
+from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image
 from services.ocr.correction_engine import apply_corrections
 from services.ocr.admin_commands import (
     export_font_templates,
@@ -256,6 +258,7 @@ remote_ocr_offline_until = 0.0
 remote_http_client: httpx.Client | None = None
 remote_http_client_timeout: float | None = None
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
+ocr_batch_jobs = OcrBatchJobPool()
 ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
 pending_learning_texts: dict[int, str] = {}
@@ -2109,6 +2112,31 @@ def run_ocr(
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
     )
+    if remote is not None and is_thin_strip_image(image_path) and OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
+        cloud = run_ocrspace(
+            image_path,
+            psn_hint=psn_hint,
+            psn_expected_count=psn_expected_count,
+            pubg_expected_count=pubg_expected_count,
+        )
+        selected, changed = choose_thin_strip_result(remote, cloud, valid_card=valid_card)
+        if selected is cloud:
+            selected = replace(
+                cloud,
+                raw_text=(
+                    f"[REMOTE]\n{remote.raw_text.strip()}\n"
+                    f"[OCRSPACE]\n{cloud.raw_text.strip()}"
+                ).strip(),
+            )
+            if changed:
+                logger.warning(
+                    "OCR THIN STRIP CONFLICT remote=%s cloud=%s selected=ocrspace",
+                    list(remote.cards),
+                    list(cloud.cards),
+                )
+            else:
+                logger.info("OCR THIN STRIP VERIFIED card=%s", cloud.cards[0])
+            return selected
     needs_complement = False
     complement_reason = ""
     if remote is not None:
@@ -3862,7 +3890,10 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
 
         async def recognize_batch_update(batch_index: int, update: Update) -> tuple[int, OcrResult, OcrResult, bool]:
             try:
-                result, audit_record = await recognize_update(update, context)
+                result, audit_record = await ocr_batch_jobs.take(
+                    id(update),
+                    lambda: recognize_update(update, context),
+                )
                 result = replace(result, sequence_index=batch_index)
                 corrected = apply_card_corrections(chat_id, result)
                 try:
@@ -3946,6 +3977,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await assign_photo_sequence(update)
     chat_buffers[chat_id].append(update)
+    ocr_batch_jobs.start(id(update), lambda: recognize_update(update, context))
     old_task = chat_tasks.get(chat_id)
     if old_task and not old_task.done():
         old_task.cancel()

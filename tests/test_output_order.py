@@ -6,7 +6,7 @@ import time
 import asyncio
 
 import bot
-from services.ocr.batch_processor import batch_debounce_seconds
+from services.ocr.batch_processor import OcrBatchJobPool, batch_debounce_seconds
 
 
 def _card(index: int) -> str:
@@ -38,6 +38,25 @@ def test_ninety_owner_forwarded_photos_keep_refreshing_one_batch_window():
     ]
 
     assert waits == [12.0] * 90
+
+
+def test_ocr_job_starts_before_batch_flush():
+    async def scenario():
+        pool = OcrBatchJobPool()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def recognize():
+            started.set()
+            await release.wait()
+            return "done"
+
+        pool.start("photo-1", recognize)
+        await asyncio.wait_for(started.wait(), timeout=0.2)
+        release.set()
+        return await pool.take("photo-1", recognize)
+
+    assert asyncio.run(scenario()) == "done"
 
 
 def test_owner_single_photo_keeps_existing_fast_wait():

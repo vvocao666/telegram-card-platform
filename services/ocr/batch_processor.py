@@ -1,8 +1,32 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Hashable
+from typing import Any, TypeVar
+
+
+T = TypeVar("T")
+
+
+class OcrBatchJobPool:
+    """图片到达时立即启动 OCR，批次结束时只负责按序收集结果。"""
+
+    def __init__(self) -> None:
+        self._tasks: dict[Hashable, asyncio.Task[Any]] = {}
+
+    def start(self, key: Hashable, factory: Callable[[], Awaitable[T]]) -> asyncio.Task[T]:
+        existing = self._tasks.get(key)
+        if existing is not None:
+            return existing
+        task = asyncio.create_task(factory())
+        self._tasks[key] = task
+        return task
+
+    async def take(self, key: Hashable, factory: Callable[[], Awaitable[T]]) -> T:
+        task = self._tasks.pop(key, None)
+        if task is None:
+            task = asyncio.create_task(factory())
+        return await task
 
 
 class OcrBatchProgress:
