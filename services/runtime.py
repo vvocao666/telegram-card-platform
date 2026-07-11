@@ -4027,12 +4027,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     async def recognize_with_progress():
         try:
-            return await recognize_update(update, context)
-        finally:
+            recognized = await recognize_update(update, context)
+            result = recognized[0]
+            await progress.mark_done(
+                has_card_result=bool(result.cards or result.psn_cards or result.psn_uncertain)
+            )
+            return recognized
+        except Exception:
             await progress.mark_done()
+            raise
 
     ocr_batch_jobs.start(id(update), recognize_with_progress)
-    await progress.publish()
     old_task = chat_tasks.get(chat_id)
     if old_task and not old_task.done():
         old_task.cancel()

@@ -111,6 +111,7 @@ class LiveOcrBatchProgress:
         self.message = message
         self.total = 0
         self.done = 0
+        self.has_card_result = False
         self.progress_message = None
         self.last_update_at = 0.0
         self.lock = asyncio.Lock()
@@ -132,7 +133,7 @@ class LiveOcrBatchProgress:
         )
 
     async def publish(self, *, force: bool = False) -> None:
-        if not self._enabled() or self.total <= 0:
+        if not self._enabled() or self.total < 2 or not self.has_card_result:
             return
         async with self.lock:
             if self.progress_message is None:
@@ -163,7 +164,8 @@ class LiveOcrBatchProgress:
 
         self._delayed_update = asyncio.create_task(update_later())
 
-    async def mark_done(self) -> None:
+    async def mark_done(self, *, has_card_result: bool = False) -> None:
+        self.has_card_result = self.has_card_result or has_card_result
         self.done = min(self.total, self.done + 1)
         await self.publish(force=self.done >= self.total)
 
