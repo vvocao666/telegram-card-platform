@@ -110,6 +110,53 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert bot.avg_remote_latency_ms() >= 0
 
 
+def test_remote_ocr_counts_each_ordered_pubg_anchor_even_when_last_tail_is_missing(monkeypatch, tmp_path):
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": [
+            {"text": "卡号：S07336-6WPM-2UY8-", "score": 0.99},
+            {"text": "TL6GT", "score": 0.99},
+            {"text": "卡号：S07336-", "score": 0.99},
+            {"text": "YVCK-3DN9-7H92X", "score": 0.99},
+            {"text": "卡号：S07336-5EC8-FVFG-", "score": 0.99},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-6WPM-2UY8-TL6GT",
+        "S07336-YVCK-3DN9-7H92X",
+    )
+    assert result.pubg_expected_count == 3
+    assert bot.remote_needs_ocrspace_complement(result)[0] is True
+
+
+def test_remote_ocr_recovers_single_prefix_digit_by_same_image_consensus(monkeypatch, tmp_path):
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": [
+            {"text": "S07336-ZEBT-JFGP-KR4YE", "score": 0.99},
+            {"text": "S01336-3SRE-ETDS-QEXR7", "score": 0.99},
+            {"text": "S07336-BHSN-T4TA-CH39R", "score": 0.99},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == (
+        "S07336-ZEBT-JFGP-KR4YE",
+        "S07336-3SRE-ETDS-QEXR7",
+        "S07336-BHSN-T4TA-CH39R",
+    )
+
+
 def test_remote_ocr_empty_cards_falls_back(monkeypatch, tmp_path):
     payload = {"ok": True, "cards": [], "texts": [{"text": "nothing", "score": 0.9}]}
     monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
@@ -376,6 +423,27 @@ def test_remote_complement_not_needed_when_pubg_markers_match_cards(monkeypatch)
     assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
 
 
+def test_remote_expected_count_triggers_complement_when_last_tail_was_cropped(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=(
+            "S07336-6WPM-2UY8-TL6GT",
+            "S07336-YVCK-3DN9-7H92X",
+        ),
+        raw_text=(
+            "卡号：S07336-6WPM-2UY8-\nTL6GT\n"
+            "卡号：S07336-\nYVCK-3DN9-7H92X\n"
+            "卡号：S07336-5EC8-FVFG-"
+        ),
+        pubg_expected_count=3,
+    )
+
+    assert bot.remote_needs_ocrspace_complement(remote) == (
+        True,
+        "remote pubg marker count mismatch",
+    )
+
+
 def test_duplicate_remote_text_variants_count_as_one_pubg_marker(monkeypatch):
     monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
     remote = bot.OcrResult(
@@ -472,6 +540,35 @@ def test_run_ocr_complements_remote_when_pubg_marker_count_mismatches(monkeypatc
             "S07336-BKBH-AAUK-LPJVK",
         )
         assert bot.remote_ocr_status["today_fallback_count"] == 1
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
+def test_partial_cloud_complement_keeps_remote_image_order(monkeypatch, tmp_path):
+    remote = bot.OcrResult(
+        cards=(
+            "S07336-ZEBT-JFGP-KR4YE",
+            "S07336-BHSN-T4TA-CH39R",
+        ),
+        raw_text="S07336-ZEBT-JFGP-KR4YE\nS07336-BHSN-T4TA-CH39R",
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=("S07336-BHSN-T4TA-CH39R",),
+        raw_text="S07336-BHSN-T4TA-CH39R",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == remote.cards
     finally:
         bot.OCR_PROVIDER = old_provider
         bot.OCR_SPACE_API_KEYS = old_keys

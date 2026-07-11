@@ -31,12 +31,15 @@ from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr.batch_processor import (
+    LiveOcrBatchProgress as BaseLiveOcrBatchProgress,
     OcrBatchProgress as BaseOcrBatchProgress,
     OcrBatchJobPool,
     batch_debounce_seconds,
     order_batch_results,
     order_batch_updates,
 )
+from services.ocr.pubg_prefix_consensus import recover_single_prefix_digit_error
+from services.ocr.remote_variant_policy import remote_variants_conflict
 from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image
 from services.ocr.correction_engine import apply_corrections
 from services.ocr.admin_commands import (
@@ -259,6 +262,7 @@ remote_http_client: httpx.Client | None = None
 remote_http_client_timeout: float | None = None
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ocr_batch_jobs = OcrBatchJobPool()
+ocr_live_progresses: dict[int, "LiveOcrBatchProgress"] = {}
 ledger_store = LedgerStore(LEDGER_DB_PATH)
 font_repository = FontRepository()
 pending_learning_texts: dict[int, str] = {}
@@ -276,6 +280,19 @@ class OcrBatchProgress(BaseOcrBatchProgress):
             clock=lambda: time.time(),
             logger=logger,
         )
+
+
+class LiveOcrBatchProgress(BaseLiveOcrBatchProgress):
+    def __init__(self, message) -> None:
+        super().__init__(
+            message,
+            enabled=lambda: OCR_PROGRESS_ENABLED,
+            update_seconds=lambda: OCR_PROGRESS_UPDATE_SECONDS,
+            clock=lambda: time.time(),
+            logger=logger,
+        )
+
+
 LEDGER_TZ = timezone(timedelta(hours=8))
 LEDGER_CALLBACK_TEXT = {
     "ledger:yesterday": "昨日账单",
@@ -1131,7 +1148,7 @@ def remote_needs_ocrspace_complement(remote: OcrResult) -> tuple[bool, str]:
         return True, "remote complement"
     if remote.has_unresolved_pubg_fragment:
         return True, "remote unresolved pubg fragment"
-    detected = count_pubg_markers(remote.raw_text) or 0
+    detected = max(count_pubg_markers(remote.raw_text) or 0, remote.pubg_expected_count or 0)
     if detected > len(remote.cards):
         return True, "remote pubg marker count mismatch"
     return False, ""
@@ -2028,6 +2045,7 @@ def run_remote_ocr(
         if payload.get("ok") is not True:
             record_remote_ocr_status(False, latency_ms, error="ok=false")
             return None
+        variant_conflict = remote_variants_conflict(payload)
         worker_cards = payload.get("cards")
         if not isinstance(worker_cards, list):
             worker_cards = []
@@ -2063,6 +2081,16 @@ def run_remote_ocr(
             )
         else:
             extracted_cards = ordered_line_cards or extract_cards(raw_text)
+        recovered_prefix_cards = recover_single_prefix_digit_error(
+            [line.text for line in ordered_lines],
+            extracted_cards,
+        )
+        for insert_at, recovered_card in recovered_prefix_cards:
+            extracted_cards.insert(min(insert_at, len(extracted_cards)), recovered_card)
+            logger.warning(
+                "PUBG PREFIX CONSENSUS RECOVERED card=%s source=same_image_majority",
+                recovered_card,
+            )
         cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extracted_cards)
         psn_ordered = limit_psn_ordered(psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint), psn_expected_count)
         psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
@@ -2072,6 +2100,14 @@ def run_remote_ocr(
             return None
 
         card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
+        remote_pubg_expected_count = merge_pubg_expected_count(pubg_expected_count, raw_text)
+        ordered_pubg_markers = sum(
+            1
+            for line in ordered_lines
+            if PUBG_PREFIX_RE.search(normalize_text(line.text))
+        )
+        if ordered_pubg_markers:
+            remote_pubg_expected_count = max(remote_pubg_expected_count or 0, ordered_pubg_markers)
         mark_remote_ocr_online()
         record_remote_ocr_status(
             True,
@@ -2086,12 +2122,12 @@ def run_remote_ocr(
             psn_cards=tuple(psn_cards),
             psn_uncertain=tuple(psn_uncertain),
             psn_ordered=tuple(psn_ordered),
-            pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, raw_text),
+            pubg_expected_count=remote_pubg_expected_count,
             psn_expected_count=psn_expected_count,
             raw_text=raw_text,
             uncertain_count=uncertain,
             corrections_applied=card_corrections,
-            has_unresolved_pubg_fragment=has_unresolved_pubg_fragment,
+            has_unresolved_pubg_fragment=has_unresolved_pubg_fragment or variant_conflict,
         )
     except Exception as exc:
         latency_ms = int((time.time() - start) * 1000)
@@ -2154,7 +2190,11 @@ def run_ocr(
             psn_expected_count=psn_expected_count,
             pubg_expected_count=pubg_expected_count,
         )
-        merged, conflict_count = merge_without_guessing(list(fallback.cards), list(remote.cards))
+        if len(fallback.cards) >= len(remote.cards):
+            merged, conflict_count = merge_without_guessing(list(fallback.cards), list(remote.cards))
+        else:
+            # 备用 OCR 只识别出部分卡密时保留 Remote 的图片内顺序，避免补检导致倒序。
+            merged, conflict_count = merge_without_guessing(list(remote.cards), list(fallback.cards))
         settled_cards, correction_conflicts, card_corrections = settle_and_correct_pubg_cards(merged)
         merged_psn = exact_unique_psn(list(remote.psn_cards) + list(fallback.psn_cards))
         merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(fallback.psn_uncertain))
@@ -2170,7 +2210,7 @@ def run_ocr(
                 psn_cards=tuple(merged_psn),
                 psn_uncertain=tuple(merged_psn_uncertain),
                 psn_ordered=tuple(merged_psn_ordered),
-                pubg_expected_count=pubg_expected_count,
+                pubg_expected_count=max(pubg_expected_count or 0, len(settled_cards)) or None,
                 psn_expected_count=psn_expected_count,
                 raw_text=merged_raw_text,
                 uncertain_count=remote.uncertain_count + fallback.uncertain_count + conflict_count + correction_conflicts,
@@ -3876,6 +3916,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         await asyncio.sleep(wait_seconds)
         updates = chat_buffers.pop(chat_id, [])
         chat_tasks.pop(chat_id, None)
+        progress = ocr_live_progresses.pop(chat_id, None)
         if not updates:
             return
         updates = order_batch_updates(updates, photo_display_order)
@@ -3884,8 +3925,11 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
             return
 
         await message.chat.send_action("typing")
-        progress = OcrBatchProgress(message, len(updates))
-        await progress.start()
+        if progress is None:
+            progress = LiveOcrBatchProgress(message)
+            for batch_update in updates:
+                progress.register_image(batch_update.message or message)
+            await progress.publish(force=True)
         batch_id = f"{chat_id}_{int(time.time() * 1000)}"
 
         async def recognize_batch_update(batch_index: int, update: Update) -> tuple[int, OcrResult, OcrResult, bool]:
@@ -3914,8 +3958,6 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
             except Exception:
                 logger.exception("Batch image OCR failed")
                 return batch_index, OcrResult(cards=tuple(), sequence_index=batch_index), OcrResult(cards=tuple()), False
-            finally:
-                await progress.mark_done()
 
         batch_results = await asyncio.gather(
             *(recognize_batch_update(batch_index, update) for batch_index, update in enumerate(updates, start=1))
@@ -3977,7 +4019,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     await assign_photo_sequence(update)
     chat_buffers[chat_id].append(update)
-    ocr_batch_jobs.start(id(update), lambda: recognize_update(update, context))
+    progress = ocr_live_progresses.get(chat_id)
+    if progress is None:
+        progress = LiveOcrBatchProgress(update.message)
+        ocr_live_progresses[chat_id] = progress
+    progress.register_image(update.message)
+
+    async def recognize_with_progress():
+        try:
+            return await recognize_update(update, context)
+        finally:
+            await progress.mark_done()
+
+    ocr_batch_jobs.start(id(update), recognize_with_progress)
+    await progress.publish()
     old_task = chat_tasks.get(chat_id)
     if old_task and not old_task.done():
         old_task.cancel()
