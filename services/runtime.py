@@ -68,6 +68,13 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
+from services.ocr.audit_cache import (
+    DEFAULT_AUDIT_ROOT,
+    cleanup_expired_audits,
+    finalize_ocr_audit,
+    mark_ocr_audit_failed,
+    stage_ocr_audit_image,
+)
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
 from storage.repositories.ledger_storage import LedgerStore
@@ -471,6 +478,9 @@ def cleanup_server_files(now: float | None = None) -> int:
         output_root = Path.cwd() / output_root
     if output_root.exists() and output_root.is_dir():
         for path in output_root.iterdir():
+            audit_root = DEFAULT_AUDIT_ROOT if DEFAULT_AUDIT_ROOT.is_absolute() else Path.cwd() / DEFAULT_AUDIT_ROOT
+            if path.resolve() == audit_root.resolve():
+                continue
             try:
                 if path.stat().st_mtime <= cutoff and is_within_cleanup_root(path, output_root):
                     remove_path(path)
@@ -479,6 +489,7 @@ def cleanup_server_files(now: float | None = None) -> int:
                 continue
             except OSError:
                 logger.warning("Failed to clean output path: %s", path)
+    removed += cleanup_expired_audits()
     if removed:
         logger.info("Cleaned %s old server file record(s).", removed)
     return removed
@@ -2244,16 +2255,38 @@ async def download_message_photo(message, context: ContextTypes.DEFAULT_TYPE) ->
     return image_path
 
 
-async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> OcrResult:
+async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[OcrResult, Path | None]:
     image_path = await download_photo(update, context)
     caption = update.message.caption if update.message and update.message.caption else ""
     psn_hint = "PSN" in normalize_text(caption)
     psn_expected_count = parse_psn_expected_count(caption)
     pubg_expected_count = parse_pubg_expected_count(caption)
+    message = update.message
+    photo = message.photo[-1] if message and message.photo else None
+    chat = update.effective_chat
+    user = update.effective_user
+    audit_record = None
+    try:
+        audit_record = await asyncio.to_thread(
+            stage_ocr_audit_image,
+            image_path,
+            message_id=message.message_id if message else 0,
+            file_unique_id=getattr(photo, "file_unique_id", ""),
+            media_group_id=str(getattr(message, "media_group_id", "") or ""),
+            source_chat_id=getattr(chat, "id", 0),
+            source_chat_title=str(getattr(chat, "title", "") or ""),
+            source_user_id=getattr(user, "id", 0),
+            source_username=str(getattr(user, "username", "") or ""),
+        )
+    except Exception:
+        logger.exception("Failed to stage OCR audit image")
     try:
         async with ocr_semaphore:
             result = await asyncio.to_thread(run_ocr, image_path, psn_hint, psn_expected_count, pubg_expected_count)
-            return replace(result, source_caption=caption.strip())
+            return replace(result, source_caption=caption.strip()), audit_record
+    except Exception as exc:
+        mark_ocr_audit_failed(audit_record, str(exc))
+        raise
     finally:
         try:
             image_path.unlink(missing_ok=True)
@@ -3821,12 +3854,24 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         await message.chat.send_action("typing")
         progress = OcrBatchProgress(message, len(updates))
         await progress.start()
+        batch_id = f"{chat_id}_{int(time.time() * 1000)}"
 
         async def recognize_batch_update(batch_index: int, update: Update) -> tuple[int, OcrResult, OcrResult, bool]:
             try:
-                result = await recognize_update(update, context)
+                result, audit_record = await recognize_update(update, context)
                 result = replace(result, sequence_index=batch_index)
                 corrected = apply_card_corrections(chat_id, result)
+                try:
+                    await asyncio.to_thread(
+                        finalize_ocr_audit,
+                        audit_record,
+                        batch_id=batch_id,
+                        sequence_index=batch_index,
+                        raw_result=result,
+                        final_result=corrected,
+                    )
+                except Exception:
+                    logger.exception("Failed to finalize OCR audit record")
                 corrected_pubg, corrected_psn = result_card_lines([corrected])
                 if not corrected_pubg and not corrected_psn and result.raw_text.strip():
                     logger.info("Unrecognized OCR raw text: %s", result.raw_text.strip().replace("\n", " | ")[:1000])
