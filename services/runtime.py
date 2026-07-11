@@ -476,9 +476,11 @@ def cleanup_server_files(now: float | None = None) -> int:
     output_root = CLEANUP_OUTPUTS_DIR
     if not output_root.is_absolute():
         output_root = Path.cwd() / output_root
+    audit_root = DEFAULT_AUDIT_ROOT
+    if not audit_root.is_absolute():
+        audit_root = Path.cwd() / audit_root
     if output_root.exists() and output_root.is_dir():
         for path in output_root.iterdir():
-            audit_root = DEFAULT_AUDIT_ROOT if DEFAULT_AUDIT_ROOT.is_absolute() else Path.cwd() / DEFAULT_AUDIT_ROOT
             if path.resolve() == audit_root.resolve():
                 continue
             try:
@@ -489,7 +491,7 @@ def cleanup_server_files(now: float | None = None) -> int:
                 continue
             except OSError:
                 logger.warning("Failed to clean output path: %s", path)
-    removed += cleanup_expired_audits()
+    removed += cleanup_expired_audits(audit_root)
     if removed:
         logger.info("Cleaned %s old server file record(s).", removed)
     return removed

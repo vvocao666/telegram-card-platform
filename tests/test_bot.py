@@ -803,6 +803,7 @@ class BotFormattingTests(unittest.TestCase):
     def test_cleanup_removes_only_old_server_file_records(self):
         old_tempfile = bot.tempfile
         old_outputs_dir = bot.CLEANUP_OUTPUTS_DIR
+        old_audit_root = bot.DEFAULT_AUDIT_ROOT
         old_after_seconds = bot.CLEANUP_AFTER_SECONDS
         try:
             with tempfile.TemporaryDirectory() as temp_dir, tempfile.TemporaryDirectory() as work_dir:
@@ -813,10 +814,18 @@ class BotFormattingTests(unittest.TestCase):
                 new_temp = temp_root / "s07_card_new"
                 old_output = output_root / "old.jpg"
                 new_output = output_root / "new.jpg"
+                audit_root = output_root / "ocr_audit"
+                audit_record = audit_root / "2026-07-09" / "record"
                 old_temp.mkdir()
                 new_temp.mkdir()
                 old_output.write_text("old", encoding="utf-8")
                 new_output.write_text("new", encoding="utf-8")
+                audit_record.mkdir(parents=True)
+                audit_record.joinpath("record.json").write_text(
+                    '{"created_at": "' + (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S") + '"}',
+                    encoding="utf-8",
+                )
+                audit_record.joinpath("original.jpg").write_text("audit", encoding="utf-8")
 
                 old_time = time.time() - 25 * 3600
                 for path in (old_temp, old_output):
@@ -834,6 +843,7 @@ class BotFormattingTests(unittest.TestCase):
 
                 bot.tempfile = TempfileStub
                 bot.CLEANUP_OUTPUTS_DIR = output_root
+                bot.DEFAULT_AUDIT_ROOT = audit_root
                 bot.CLEANUP_AFTER_SECONDS = 24 * 3600
 
                 removed = bot.cleanup_server_files()
@@ -843,9 +853,11 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertFalse(old_output.exists())
                 self.assertTrue(new_temp.exists())
                 self.assertTrue(new_output.exists())
+                self.assertTrue(audit_record.exists())
         finally:
             bot.tempfile = old_tempfile
             bot.CLEANUP_OUTPUTS_DIR = old_outputs_dir
+            bot.DEFAULT_AUDIT_ROOT = old_audit_root
             bot.CLEANUP_AFTER_SECONDS = old_after_seconds
 
     def test_photo_rate_limit_protects_chat_and_user(self):
