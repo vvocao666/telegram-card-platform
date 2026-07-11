@@ -89,6 +89,8 @@ feature_backups/        历史稳定备份
 
 `services/runtime.py` 第一轮行为保持型拆分后约 4216 行，仍是当前最大维护风险。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
 
+永久约束：后续优化不得继续向 `services/runtime.py` 或 Windows Worker 的 `server.py` 堆积算法和业务实现。`runtime.py` 只保留兼容入口与编排，`server.py` 只保留 FastAPI 接口与调度；新增算法必须进入职责明确、可独立测试的小模块。
+
 ## 5. 当前功能边界
 
 主项目是卡密识别机器人，同时保留完整记账功能。不要因为存在独立 `telegram-ledger-bot` 仓库而删除或弱化本项目记账功能。
