@@ -814,12 +814,22 @@ class BotFormattingTests(unittest.TestCase):
                 new_temp = temp_root / "s07_card_new"
                 old_output = output_root / "old.jpg"
                 new_output = output_root / "new.jpg"
+                old_database = output_root / "ledger.sqlite3"
+                old_profile = output_root / "font_profiles.json"
+                preprocess_root = output_root / "preprocess"
+                old_preprocessed = preprocess_root / "old.png"
+                new_preprocessed = preprocess_root / "new.png"
                 audit_root = output_root / "ocr_audit"
                 audit_record = audit_root / "2026-07-09" / "record"
                 old_temp.mkdir()
                 new_temp.mkdir()
                 old_output.write_text("old", encoding="utf-8")
                 new_output.write_text("new", encoding="utf-8")
+                old_database.write_text("database", encoding="utf-8")
+                old_profile.write_text("profiles", encoding="utf-8")
+                preprocess_root.mkdir()
+                old_preprocessed.write_text("old", encoding="utf-8")
+                new_preprocessed.write_text("new", encoding="utf-8")
                 audit_record.mkdir(parents=True)
                 audit_record.joinpath("record.json").write_text(
                     '{"created_at": "' + (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S") + '"}',
@@ -828,7 +838,7 @@ class BotFormattingTests(unittest.TestCase):
                 audit_record.joinpath("original.jpg").write_text("audit", encoding="utf-8")
 
                 old_time = time.time() - 25 * 3600
-                for path in (old_temp, old_output):
+                for path in (old_temp, old_output, old_database, old_profile, old_preprocessed):
                     os_time = (old_time, old_time)
                     if path.is_dir():
                         path.joinpath("image.jpg").write_text("old", encoding="utf-8")
@@ -848,11 +858,15 @@ class BotFormattingTests(unittest.TestCase):
 
                 removed = bot.cleanup_server_files()
 
-                self.assertEqual(2, removed)
+                self.assertEqual(3, removed)
                 self.assertFalse(old_temp.exists())
                 self.assertFalse(old_output.exists())
                 self.assertTrue(new_temp.exists())
                 self.assertTrue(new_output.exists())
+                self.assertTrue(old_database.exists())
+                self.assertTrue(old_profile.exists())
+                self.assertFalse(old_preprocessed.exists())
+                self.assertTrue(new_preprocessed.exists())
                 self.assertTrue(audit_record.exists())
         finally:
             bot.tempfile = old_tempfile

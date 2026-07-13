@@ -228,6 +228,18 @@ def test_photo_display_order_prefers_telegram_message_id_over_receive_sequence()
     assert updates == [first_update, second_update]
 
 
+def test_forget_photo_sequences_releases_completed_updates():
+    first_update = type("Update", (), {})()
+    second_update = type("Update", (), {})()
+    bot.photo_sequence_by_update.clear()
+    bot.photo_sequence_by_update[id(first_update)] = 1
+    bot.photo_sequence_by_update[id(second_update)] = 2
+
+    bot.forget_photo_sequences([first_update, second_update])
+
+    assert bot.photo_sequence_by_update == {}
+
+
 class _FakeProgressMessage:
     def __init__(self, text: str) -> None:
         self.texts = [text]

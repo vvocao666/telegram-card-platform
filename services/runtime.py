@@ -74,6 +74,7 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
+from services.file_cleanup import cleanup_expired_output_images
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
     cleanup_expired_audits,
@@ -501,18 +502,7 @@ def cleanup_server_files(now: float | None = None) -> int:
     audit_root = DEFAULT_AUDIT_ROOT
     if not audit_root.is_absolute():
         audit_root = Path.cwd() / audit_root
-    if output_root.exists() and output_root.is_dir():
-        for path in output_root.iterdir():
-            if path.resolve() == audit_root.resolve():
-                continue
-            try:
-                if path.stat().st_mtime <= cutoff and is_within_cleanup_root(path, output_root):
-                    remove_path(path)
-                    removed += 1
-            except FileNotFoundError:
-                continue
-            except OSError:
-                logger.warning("Failed to clean output path: %s", path)
+    removed += cleanup_expired_output_images(output_root, cutoff, logger=logger)
     removed += cleanup_expired_audits(audit_root)
     if removed:
         logger.info("Cleaned %s old server file record(s).", removed)
@@ -548,6 +538,7 @@ async def stop_background_tasks(app: Application) -> None:
             await remote_task
         except asyncio.CancelledError:
             pass
+    close_remote_http_client()
 
 
 def repair_digit(char: str) -> str:
@@ -1440,6 +1431,8 @@ def run_ocrspace(
                             )
                             response = None
                             break
+                    if response is None:
+                        break
                     if response.status_code != 429:
                         break
                     ocrspace_key_cooldowns[api_key] = time.time() + OCR_SPACE_429_COOLDOWN_SECONDS
@@ -2389,6 +2382,11 @@ def photo_display_order(update: Update) -> tuple[int, int]:
     if isinstance(message_id, int):
         return message_id, photo_sequence(update)
     return 10**12, photo_sequence(update)
+
+
+def forget_photo_sequences(updates: list[Update]) -> None:
+    for update in updates:
+        photo_sequence_by_update.pop(id(update), None)
 
 
 def result_location(index: int, result: OcrResult) -> str:
@@ -3920,6 +3918,7 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         if not updates:
             return
         updates = order_batch_updates(updates, photo_display_order)
+        forget_photo_sequences(updates)
         message = updates[-1].message
         if not message:
             return

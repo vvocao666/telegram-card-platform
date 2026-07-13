@@ -4,7 +4,7 @@ import re
 import sys
 
 from telegram import Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDGER_ADD_GROUP
@@ -44,6 +44,7 @@ from handlers.ledger_handler import (
     handle_ledger_callback,
     handle_ledger_command,
     handle_ledger_menu,
+    handle_bot_chat_member,
     handle_new_chat_members,
     handle_priority_ledger_text,
 )
@@ -125,11 +126,25 @@ def register_handlers(app: Application) -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(
         CommandHandler(
-            ["help", "bill", "fullbill", "yesterday", "undo", "clear", "in", "income", "out", "payout"],
+            [
+                "help",
+                "bill",
+                "fullbill",
+                "yesterday",
+                "undo",
+                "clear",
+                "in",
+                "income",
+                "out",
+                "payout",
+                "set_cutoff",
+                "cutoff",
+            ],
             handle_ledger_command,
         )
     )
     app.add_handler(CallbackQueryHandler(handle_ledger_callback, pattern=r"^ledger:"))
+    app.add_handler(ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ledger_command))
