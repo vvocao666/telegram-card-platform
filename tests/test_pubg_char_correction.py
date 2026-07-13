@@ -6,64 +6,22 @@ from services.ocr.font_repository import FontRepository
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections, correct_pubg_card
 
 
-@pytest.fixture(autouse=True)
-def enable_remote_ocr_for_remote_tests():
-    old_enabled = bot.REMOTE_OCR_ENABLED
-    old_url = bot.REMOTE_OCR_URL
-    bot.REMOTE_OCR_ENABLED = True
-    bot.REMOTE_OCR_URL = "http://100.81.208.104:8000"
-    yield
-    bot.REMOTE_OCR_ENABLED = old_enabled
-    bot.REMOTE_OCR_URL = old_url
+@pytest.mark.parametrize(
+    "card",
+    [
+        "S07304-WJB9-VPEZ-MUFWK",
+        "S07304-RC96-Z437-QTWC9",
+        "S07304-9M8Q-Y7UW-7822U",
+        "S07304-GM72-JQ93-8NHLV",
+        "S07304-8MP5-4TY9-VDVR6",
+        "S07336-6HD2-HTP2-J6CZ9",
+    ],
+)
+def test_one_time_card_segments_are_never_rewritten_globally(card):
+    result = apply_pubg_char_corrections([card])
 
-
-def test_wjb9_corrects_to_wjbs():
-    corrected, reason = correct_pubg_card("S07304-WJB9-VPEZ-MUFWK")
-
-    assert corrected == "S07304-WJBS-VPEZ-MUFWK"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_rc96_and_z437_correct_to_rcs6_and_2437():
-    corrected, reason = correct_pubg_card("S07304-RC96-Z437-QTWC9")
-
-    assert corrected == "S07304-RCS6-2437-QTWC9"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_7822u_corrects_to_78z2u():
-    corrected, reason = correct_pubg_card("S07304-9M8Q-Y7UW-7822U")
-
-    assert corrected == "S07304-9M8Q-Y7UW-78Z2U"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_jq93_corrects_to_jqs3():
-    corrected, reason = correct_pubg_card("S07304-GM72-JQ93-8NHLV")
-
-    assert corrected == "S07304-GM72-JQS3-8NHLV"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_4ty9_corrects_to_4tys():
-    corrected, reason = correct_pubg_card("S07304-8MP5-4TY9-VDVR6")
-
-    assert corrected == "S07304-8MP5-4TYS-VDVR6"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_j6cz9_corrects_to_u6cz9():
-    corrected, reason = correct_pubg_card("S07336-6HD2-HTP2-J6CZ9")
-
-    assert corrected == "S07336-6HD2-HTP2-U6CZ9"
-    assert reason == "safe_known_segment_rule"
-
-
-def test_other_j_tail_is_not_changed_without_rule():
-    corrected, reason = correct_pubg_card("S07336-3L9T-W338-JR626")
-
-    assert corrected == "S07336-3L9T-W338-JR626"
-    assert reason == "unchanged"
+    assert result.cards == (card,)
+    assert result.corrections == tuple()
 
 
 def test_psn_is_not_changed():
@@ -73,80 +31,113 @@ def test_psn_is_not_changed():
     assert result.corrections == tuple()
 
 
-def test_without_rule_does_not_aggressively_change():
-    corrected, reason = correct_pubg_card("S07304-ABCD-EFGH-IJKLM")
-
-    assert corrected == "S07304-ABCD-EFGH-IJKLM"
-    assert reason == "unchanged"
-
-
-def test_learned_position_rule_applies_for_same_font(tmp_path: Path):
+@pytest.mark.parametrize("rule_count", [1, 3, 10])
+def test_unknown_font_profile_never_rewrites_card(tmp_path: Path, rule_count):
     repository = FontRepository(tmp_path / "font_profiles.json")
     repository.learn_sample(
         "S07304-TEST-AAAA-BBBBB",
         card_type="PUBG",
-        error_pairs={"9>S": 1},
-        position_rules={"10:9>S": 1},
+        error_pairs={"9>S": rule_count},
+        position_rules={"10:9>S": rule_count},
         font_hash="unknown_font",
     )
 
-    corrected, reason = correct_pubg_card("S07304-WJB9-VPEZ-MUFWK", font_repository=repository)
+    corrected, reason = correct_pubg_card(
+        "S07304-WJB9-VPEZ-MUFWK",
+        font_repository=repository,
+    )
+
+    assert corrected == "S07304-WJB9-VPEZ-MUFWK"
+    assert reason == "unchanged"
+
+
+@pytest.mark.parametrize("rule_count", [0, 1, 2])
+def test_matching_font_rule_requires_three_confirmations(tmp_path: Path, rule_count):
+    repository = FontRepository(tmp_path / "font_profiles.json")
+    repository.learn_sample(
+        "S07304-TEST-AAAA-BBBBB",
+        card_type="PUBG",
+        error_pairs={"9>S": rule_count},
+        position_rules={"10:9>S": rule_count},
+        font_hash="supplier_font_a",
+    )
+
+    corrected, reason = correct_pubg_card(
+        "S07304-WJB9-VPEZ-MUFWK",
+        font_repository=repository,
+        font_hash="supplier_font_a",
+    )
+
+    assert corrected == "S07304-WJB9-VPEZ-MUFWK"
+    assert reason == "unchanged"
+
+
+def test_matching_font_rule_applies_after_three_confirmations(tmp_path: Path):
+    repository = FontRepository(tmp_path / "font_profiles.json")
+    repository.learn_sample(
+        "S07304-TEST-AAAA-BBBBB",
+        card_type="PUBG",
+        error_pairs={"9>S": 3},
+        position_rules={"10:9>S": 3},
+        font_hash="supplier_font_a",
+    )
+
+    corrected, reason = correct_pubg_card(
+        "S07304-WJB9-VPEZ-MUFWK",
+        font_repository=repository,
+        font_hash="supplier_font_a",
+    )
 
     assert corrected == "S07304-WJBS-VPEZ-MUFWK"
     assert reason == "learned_font_rule"
 
 
-def test_learned_j_to_u_rule_applies_for_same_position(tmp_path: Path):
+def test_different_font_never_uses_other_profile(tmp_path: Path):
     repository = FontRepository(tmp_path / "font_profiles.json")
     repository.learn_sample(
-        "S07336-ABCD-EFGH-J1234",
+        "S07304-TEST-AAAA-BBBBB",
         card_type="PUBG",
-        error_pairs={"J>U": 1},
-        position_rules={"17:J>U": 1},
-        font_hash="unknown_font",
+        error_pairs={"9>S": 10},
+        position_rules={"10:9>S": 10},
+        font_hash="supplier_font_a",
     )
 
-    corrected, reason = correct_pubg_card("S07336-ABCD-EFGH-J1234", font_repository=repository)
-
-    assert corrected == "S07336-ABCD-EFGH-U1234"
-    assert reason == "learned_font_rule"
-
-
-def test_learned_2_z_rule_is_not_applied_automatically(tmp_path: Path):
-    repository = FontRepository(tmp_path / "font_profiles.json")
-    repository.learn_sample(
-        "S07336-3AWF-KDSC-EWZ88",
-        card_type="PUBG",
-        error_pairs={"2>Z": 12},
-        position_rules={"19:2>Z": 12},
-        font_hash="unknown_font",
+    corrected, reason = correct_pubg_card(
+        "S07304-WJB9-VPEZ-MUFWK",
+        font_repository=repository,
+        font_hash="supplier_font_b",
     )
 
-    corrected, reason = correct_pubg_card("S07336-3AWF-KDSC-EW288", font_repository=repository)
-
-    assert corrected == "S07336-3AWF-KDSC-EW288"
+    assert corrected == "S07304-WJB9-VPEZ-MUFWK"
     assert reason == "unchanged"
 
 
-def test_clear_pubg_with_2_is_not_changed_to_z():
-    result = apply_pubg_char_corrections(
-        [
-            "S07336-3AWF-KDSC-EW288",
-            "S07336-5W8H-KS7F-UK23S",
-        ]
+def test_disabled_matching_font_profile_never_rewrites_card(tmp_path: Path):
+    repository = FontRepository(tmp_path / "font_profiles.json")
+    repository.learn_sample(
+        "S07304-TEST-AAAA-BBBBB",
+        card_type="PUBG",
+        error_pairs={"9>S": 10},
+        position_rules={"10:9>S": 10},
+        font_hash="supplier_font_a",
+    )
+    repository.set_enabled("supplier_font_a", False)
+
+    corrected, reason = correct_pubg_card(
+        "S07304-WJB9-VPEZ-MUFWK",
+        font_repository=repository,
+        font_hash="supplier_font_a",
     )
 
-    assert result.cards == (
-        "S07336-3AWF-KDSC-EW288",
-        "S07336-5W8H-KS7F-UK23S",
-    )
-    assert result.corrections == tuple()
+    assert corrected == "S07304-WJB9-VPEZ-MUFWK"
+    assert reason == "unchanged"
 
 
-def test_remote_ocr_returns_corrections_debug(monkeypatch, tmp_path):
+def test_remote_ocr_does_not_apply_historical_card_substitution(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
     monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://127.0.0.1:8000")
     bot.close_remote_http_client()
 
     class FakeResponse:
@@ -175,7 +166,5 @@ def test_remote_ocr_returns_corrections_debug(monkeypatch, tmp_path):
     bot.close_remote_http_client()
 
     assert result is not None
-    assert result.cards == ("S07304-WJBS-VPEZ-MUFWK",)
-    assert result.corrections_applied == (
-        {"from": "S07304-WJB9-VPEZ-MUFWK", "to": "S07304-WJBS-VPEZ-MUFWK", "reason": "safe_known_segment_rule"},
-    )
+    assert result.cards == ("S07304-WJB9-VPEZ-MUFWK",)
+    assert result.corrections_applied == tuple()

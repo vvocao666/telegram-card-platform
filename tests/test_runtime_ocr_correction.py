@@ -18,12 +18,12 @@ S07304-8MP5-4TY9-VDVR6
 
 
 EXPECTED_PUBG_CARDS = [
-    "S07304-WJBS-VPEZ-MUFWK",
-    "S07304-RCS6-2437-QTWC9",
-    "S07304-9M8Q-Y7UW-78Z2U",
-    "S07304-GM7D-JQS3-9NHLV",
+    "S07304-WJB9-VPEZ-MUFWK",
+    "S07304-RC96-2437-QTWC9",
+    "S07304-9M8Q-Y7UW-7822U",
+    "S07304-GM7D-JQ93-9NHLV",
     "S07304-XFBX-EHKX-RB34D",
-    "S07304-8MP5-4TYS-VDVR6",
+    "S07304-8MP5-4TY9-VDVR6",
 ]
 
 
@@ -55,7 +55,7 @@ def test_pubg_prefix_digits_do_not_trigger_forbidden_body_rule():
     assert uncertain == 0
 
 
-def test_runtime_ocrspace_enhancement_recovers_real_sample(monkeypatch, tmp_path):
+def test_runtime_ocrspace_enhancement_does_not_memorize_one_time_cards(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "OCR_CANDIDATES_PATH", tmp_path / "ocr_candidates.json")
     monkeypatch.setattr(runtime, "font_repository", FontRepository(tmp_path / "ocr_font_profiles.json"))
 
@@ -64,7 +64,7 @@ def test_runtime_ocrspace_enhancement_recovers_real_sample(monkeypatch, tmp_path
     settled_cards, _, corrections = runtime.settle_and_correct_pubg_cards(enhanced_cards + legacy_cards)
 
     assert settled_cards == EXPECTED_PUBG_CARDS
-    assert corrections
+    assert corrections == tuple()
     assert len(settled_cards) / len(EXPECTED_PUBG_CARDS) == 1.0
     assert stats["ocr_fixed_count"] >= 1
     assert stats["ocr_missing_count"] >= 0

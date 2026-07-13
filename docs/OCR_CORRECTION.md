@@ -367,9 +367,8 @@ Supported command names:
 
 Owner-only learning commands:
 
-- `/learn_cards` accepts the daily manually confirmed cards.
-- Owner plain text with at least 5 valid PUBG/PSN cards automatically opens the same confirmation flow.
-- `/learn_confirm` writes the learning results.
+- `/learn_cards` accepts the daily manually confirmed cards for audit and font statistics.
+- `/learn_confirm` writes audit and font-feature results only.
 - `/learn_cancel` discards the pending learning batch.
 - `/ocr_learning_stats` shows cumulative samples, rules, top confusions, missing cards, and template accuracy.
 
@@ -381,10 +380,10 @@ Safety rules:
 - Learning requires `outputs/today_ocr_cache.json`.
 - If today's OCR cache is missing, learning is blocked and no missing-card counts are created.
 - Repeated rules are deduplicated by `(font_hash, wrong, correct, position)` and only update `last_seen`.
-- Auto-detected learning text never writes immediately; `/learn_confirm` is required.
+- Full card values and exact historical card segments are never reused to rewrite future cards.
+- Automatic character correction requires a real matching `font_hash`; `unknown_font` never applies automatically.
+- A matching position rule needs at least three confirmed occurrences and must pass the PUBG validator.
 - Non-owner messages never trigger learning.
-
-They are not registered in Telegram yet because this feature branch does not modify `bot.py` or handlers.
 
 ## Manual Rules
 

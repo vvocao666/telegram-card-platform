@@ -99,8 +99,8 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     result = bot.run_remote_ocr(write_image(tmp_path))
 
     assert result is not None
-    assert result.cards == ("S07304-WJBS-VPEZ-MUFWK",)
-    assert result.corrections_applied
+    assert result.cards == ("S07304-WJB9-VPEZ-MUFWK",)
+    assert result.corrections_applied == tuple()
     assert bot.remote_ocr_status["last_ok"] is True
     assert bot.remote_ocr_status["today_remote_calls"] == 1
     assert bot.remote_ocr_status["today_remote_success"] == 1

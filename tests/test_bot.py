@@ -542,7 +542,7 @@ class BotFormattingTests(unittest.TestCase):
                 bot.ledger_store = old_store
                 store.close()
 
-    def test_card_correction_learning_persists_and_applies(self):
+    def test_one_time_card_reply_does_not_persist_correction(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
             old_owner = bot.OWNER_CHAT_ID
@@ -554,7 +554,7 @@ class BotFormattingTests(unittest.TestCase):
                 reply_message = type(
                     "ReplyMessage",
                     (),
-                    {"text": "PUBG卡密\nS07304-KVTE-JZGW-JVB4U", "caption": None},
+                    {"text": "PUBG card\nS07304-KVTE-JZGW-JVB4U", "caption": None},
                 )()
                 update.message = type(
                     "Message",
@@ -567,107 +567,84 @@ class BotFormattingTests(unittest.TestCase):
                 )()
 
                 learned = bot.learn_card_corrections_from_reply(update)
-                corrected = bot.apply_card_corrections(
-                    -1001,
-                    bot.OcrResult(cards=("S07304-KVTE-JZGW-JVB4U",)),
-                )
-
-                self.assertIsNotNone(learned)
-                self.assertIn("已学习纠错", learned)
-                self.assertEqual(("S07304-KVTE-JZGW-JVB4V",), corrected.cards)
-                self.assertEqual(
-                    "S07304-KVTE-JZGW-JVB4V",
-                    store.get_card_correction(-1001, "PUBG", "S07304-KVTE-JZGW-JVB4U"),
-                )
-            finally:
-                bot.ledger_store = old_store
-                bot.OWNER_CHAT_ID = old_owner
-                store.close()
-
-    def test_non_owner_cannot_learn_card_correction_from_reply(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            old_store = bot.ledger_store
-            old_owner = bot.OWNER_CHAT_ID
-            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
-            bot.ledger_store = store
-            try:
-                bot.OWNER_CHAT_ID = "999"
-                update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
-                reply_message = type(
-                    "ReplyMessage",
-                    (),
-                    {"text": "PSN卡密\nRJTR-PTMQ-2H1C", "caption": None},
-                )()
-                update.message = type(
-                    "Message",
-                    (),
-                    {
-                        "message_id": 20,
-                        "text": "FK4L-D7MP-2GQX",
-                        "reply_to_message": reply_message,
-                    },
-                )()
-
-                learned = bot.learn_card_corrections_from_reply(update)
 
                 self.assertIsNone(learned)
-                self.assertIsNone(store.get_card_correction(-1001, "PSN", "RJTR-PTMQ-2H1C"))
+                self.assertIsNone(
+                    store.get_card_correction(-1001, "PUBG", "S07304-KVTE-JZGW-JVB4U")
+                )
             finally:
                 bot.ledger_store = old_store
                 bot.OWNER_CHAT_ID = old_owner
                 store.close()
 
-    def test_ocr_sample_learning_persists_and_applies(self):
+    def test_replied_photo_does_not_store_full_card_memory(self):
+        update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
+
+        learned = asyncio.run(bot.learn_ocr_sample_from_replied_photo(update, object()))
+
+        self.assertIsNone(learned)
+
+    def test_legacy_full_card_mappings_never_rewrite_new_results(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
-            old_owner = bot.OWNER_CHAT_ID
-            old_download = bot.download_message_photo
-            old_run_ocr = bot.run_ocr
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             bot.ledger_store = store
-
-            async def fake_download(message, context):
-                image_path = Path(temp_dir) / "sample.jpg"
-                image_path.write_text("image", encoding="utf-8")
-                return image_path
-
-            def fake_run_ocr(image_path, *args, **kwargs):
-                return bot.OcrResult(cards=tuple(), raw_text="密码1 S0730XMBY6MEF9G7TFE")
-
-            bot.download_message_photo = fake_download
-            bot.run_ocr = fake_run_ocr
             try:
-                bot.OWNER_CHAT_ID = "111"
-                update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
-                photo = type("Photo", (), {"file_id": "file", "file_unique_id": "unique"})()
-                reply_message = type("ReplyMessage", (), {"photo": [photo]})()
-                update.message = type(
-                    "Message",
-                    (),
-                    {
-                        "message_id": 20,
-                        "text": "S07304-MBY6-MEF9-G7TFE",
-                        "reply_to_message": reply_message,
-                    },
-                )()
-
-                learned = asyncio.run(bot.learn_ocr_sample_from_replied_photo(update, object()))
-                corrected = bot.apply_card_corrections(
+                store.set_card_correction(
                     -1001,
-                    bot.OcrResult(cards=tuple(), raw_text="密码1 S0730XMBY6MEF9G7TFE"),
+                    "PUBG",
+                    "S07304-KVTE-JZGW-JVB4U",
+                    "S07304-KVTE-JZGW-JVB4V",
+                    "@teacher",
+                )
+                store.set_ocr_text_correction(
+                    -1001,
+                    "PUBG",
+                    "S0730XMBY6MEF9G7TFE",
+                    "S07304-MBY6-MEF9-G7TFE",
+                    "@teacher",
+                )
+                original = bot.OcrResult(
+                    cards=("S07304-KVTE-JZGW-JVB4U",),
+                    raw_text="S0730XMBY6MEF9G7TFE",
+                    uncertain_count=2,
                 )
 
-                self.assertIsNotNone(learned)
-                self.assertIn("已学习这张图片的OCR特征", learned)
-                self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), corrected.cards)
+                group_result = bot.apply_card_corrections(-1001, original)
+                private_result = bot.apply_card_corrections(8064848352, original)
+
+                self.assertIs(group_result, original)
+                self.assertIs(private_result, original)
+                self.assertEqual(("S07304-KVTE-JZGW-JVB4U",), group_result.cards)
+                self.assertEqual(2, group_result.uncertain_count)
             finally:
                 bot.ledger_store = old_store
-                bot.OWNER_CHAT_ID = old_owner
-                bot.download_message_photo = old_download
-                bot.run_ocr = old_run_ocr
                 store.close()
 
-    def test_learned_ocr_sample_hides_uncertain_conflict(self):
+    def test_legacy_psn_mapping_never_rewrites_new_result(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            old_store = bot.ledger_store
+            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
+            bot.ledger_store = store
+            try:
+                store.set_card_correction(
+                    -1001,
+                    "PSN",
+                    "ABCD-EFGH-JKLM",
+                    "ABCD-EFGH-JKLN",
+                    "@teacher",
+                )
+                original = bot.OcrResult(cards=tuple(), psn_ordered=("ABCD-EFGH-JKLM",))
+
+                result = bot.apply_card_corrections(-1001, original)
+
+                self.assertIs(result, original)
+                self.assertEqual(("ABCD-EFGH-JKLM",), result.psn_ordered)
+            finally:
+                bot.ledger_store = old_store
+                store.close()
+
+    def test_legacy_raw_text_mapping_does_not_hide_uncertainty(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_store = bot.ledger_store
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
@@ -680,112 +657,31 @@ class BotFormattingTests(unittest.TestCase):
                     "S07304-MBY6-MEF9-G7TFE",
                     "@teacher",
                 )
-
-                corrected = bot.apply_card_corrections(
-                    -1001,
-                    bot.OcrResult(
-                        cards=("S07300-MBYG-MEF9-GAITE",),
-                        raw_text="密码1 S0730XMBY6MEF9G7TFE",
-                        uncertain_count=2,
-                    ),
+                original = bot.OcrResult(
+                    cards=("S07300-MBYG-MEF9-GAITE",),
+                    raw_text="S0730XMBY6MEF9G7TFE",
+                    uncertain_count=2,
                 )
 
-                self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), corrected.cards)
-                self.assertEqual(0, corrected.uncertain_count)
+                result = bot.apply_card_corrections(-1001, original)
+
+                self.assertIs(result, original)
+                self.assertEqual(2, result.uncertain_count)
             finally:
                 bot.ledger_store = old_store
                 store.close()
 
-    def test_learned_correct_card_fixes_similar_ocr_variant(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            old_store = bot.ledger_store
-            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
-            bot.ledger_store = store
-            try:
-                store.set_ocr_text_correction(
-                    -1001,
-                    "PUBG",
-                    "S0730XMBY6MEF9G7TFE",
-                    "S07304-MBY6-MEF9-G7TFE",
-                    "@teacher",
-                )
+    def test_legacy_mapping_is_inert_in_private_and_group_chats(self):
+        original = bot.OcrResult(cards=("S07304-AAAA-BBBB-CCCCC",), uncertain_count=1)
 
-                corrected = bot.apply_card_corrections(
-                    -1001,
-                    bot.OcrResult(cards=("S07300-MBY6-MET9-G7ITE",), uncertain_count=1),
-                )
+        private_result = bot.apply_card_corrections(8064848352, original)
+        group_result = bot.apply_card_corrections(-1001, original)
 
-                self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), corrected.cards)
-                self.assertEqual(0, corrected.uncertain_count)
-            finally:
-                bot.ledger_store = old_store
-                store.close()
-
-    def test_learned_correction_applies_across_private_and_group_chats(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            old_store = bot.ledger_store
-            store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
-            bot.ledger_store = store
-            try:
-                store.set_ocr_text_correction(
-                    -1001,
-                    "PUBG",
-                    "S0730XMBY6MEF9G7TFE",
-                    "S07304-MBY6-MEF9-G7TFE",
-                    "@teacher",
-                )
-
-                private_corrected = bot.apply_card_corrections(
-                    8064848352,
-                    bot.OcrResult(cards=("S07300-MBYG-MEF9-GAITE",), uncertain_count=2),
-                )
-                group_corrected = bot.apply_card_corrections(
-                    -1001,
-                    bot.OcrResult(cards=("S07300-MBYG-MEP9-GAITE",), uncertain_count=2),
-                )
-
-                self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), private_corrected.cards)
-                self.assertEqual(0, private_corrected.uncertain_count)
-                self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), group_corrected.cards)
-                self.assertEqual(0, group_corrected.uncertain_count)
-            finally:
-                bot.ledger_store = old_store
-                store.close()
+        self.assertIs(private_result, original)
+        self.assertIs(group_result, original)
 
     def test_no_card_results_are_silent(self):
         self.assertFalse(bot.has_card_results([bot.OcrResult(cards=tuple(), raw_text="hello")]))
-
-    def test_text_card_result_with_pubg_suppresses_psn(self):
-        result = bot.card_text_result("S07304-MBY6-MEF9-G7TFE\nMELG-BTF8-JCJN")
-
-        self.assertIsNotNone(result)
-        self.assertEqual(("S07304-MBY6-MEF9-G7TFE",), result.cards)
-        self.assertEqual(tuple(), result.psn_ordered)
-
-    def test_text_card_result_extracts_independent_psn(self):
-        result = bot.card_text_result("MELG-BTF8-JCJN")
-
-        self.assertIsNotNone(result)
-        self.assertEqual(tuple(), result.cards)
-        self.assertEqual(("MELG-BTF8-JCJN",), result.psn_ordered)
-
-    def test_unlearnable_correction_feedback_when_reply_has_no_wrong_card(self):
-        update = self.make_update_stub(user_id=111, chat_id=-1001, chat_type="group", username="teacher")
-        reply_message = type("ReplyMessage", (), {"text": "未识别到卡密", "caption": None})()
-        update.message = type(
-            "Message",
-            (),
-            {
-                "message_id": 20,
-                "text": "S07304-MBY6-MEF9-G7TFE",
-                "reply_to_message": reply_message,
-            },
-        )()
-
-        feedback = bot.unlearnable_correction_feedback(update)
-
-        self.assertIsNotNone(feedback)
-        self.assertIn("原回复里没有错误卡密", feedback)
 
     def test_duplicate_psn_cards_are_reported_by_image(self):
         reply = bot.format_reply(

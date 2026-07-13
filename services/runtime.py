@@ -74,6 +74,11 @@ from services.ocr.http_client_pool import (
     get_remote_http_client,
 )
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
+from services.ocr.correction_service import (
+    apply_card_corrections as preserve_one_time_card_result,
+    learn_card_corrections_from_reply,
+    learn_ocr_sample_from_replied_photo,
+)
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
 from services.ocr.provider_router import (
@@ -1257,14 +1262,6 @@ def likely_same_card(left: str, right: str) -> bool:
     return False
 
 
-def likely_learned_variant(left: str, right: str) -> bool:
-    left_compact = left.replace("-", "")
-    right_compact = right.replace("-", "")
-    if len(left_compact) != len(right_compact):
-        return False
-    return edit_distance_at_most(left_compact, right_compact, 6)
-
-
 def merge_card_variants(cards: list[str]) -> tuple[list[str], int]:
     merged: list[str] = []
     suppressed = 0
@@ -2352,200 +2349,8 @@ def has_card_results(results: list[OcrResult]) -> bool:
     return bool(pubg_cards or psn_lines)
 
 
-def extract_card_lines_from_text(text: str) -> tuple[list[str], list[str]]:
-    pubg_cards = exact_unique(extract_cards(text))
-    psn_lines = unique_psn_lines(extract_psn_ordered(text, force=True))
-    return pubg_cards, [line for line in psn_lines if not line.endswith(FUZZY_SUFFIX)]
-
-
-def ocr_text_keys(text: str) -> list[str]:
-    normalized = normalize_text(text)
-    compact = re.sub(r"[^A-Z0-9$]", "", normalized)
-    keys: list[str] = []
-    for match in re.finditer(r"[SP5$][A-Z0-9$]{10,25}", compact):
-        keys.append(match.group(0))
-    if len(compact) >= 10:
-        keys.append(compact)
-    return exact_unique_text(keys)
-
-
-def card_type_for(card: str) -> str | None:
-    if valid_card(card):
-        return "PUBG"
-    if valid_psn_card(card):
-        return "PSN"
-    return None
-
-
 def apply_card_corrections(chat_id: int, result: OcrResult) -> OcrResult:
-    corrected_cards: list[str] = []
-    learned_pubg_cards: list[str] = []
-    correction_applied = False
-    learned_pubg_targets = exact_unique_text(
-        [correction.correct_card for correction in ledger_store.list_ocr_text_corrections(chat_id) if correction.card_type == "PUBG"]
-        + [correction.correct_card for correction in ledger_store.list_card_corrections(chat_id) if correction.card_type == "PUBG"]
-    )
-    for card in result.cards:
-        corrected = ledger_store.get_card_correction(chat_id, "PUBG", card)
-        if corrected and corrected != card:
-            correction_applied = True
-        if not corrected:
-            learned_match = next((target for target in learned_pubg_targets if likely_learned_variant(card, target)), None)
-            if learned_match and learned_match != card:
-                corrected = learned_match
-                correction_applied = True
-                learned_pubg_cards.append(learned_match)
-        corrected_cards.append(corrected or card)
-
-    def correct_psn(line: str) -> str:
-        nonlocal correction_applied
-        key = psn_key(line)
-        if not key:
-            return line
-        corrected = ledger_store.get_card_correction(chat_id, "PSN", key)
-        if corrected and corrected != key:
-            correction_applied = True
-        return corrected or line
-
-    corrected_psn_cards: list[str] = []
-    for card in result.psn_cards:
-        corrected = ledger_store.get_card_correction(chat_id, "PSN", card)
-        if corrected and corrected != card:
-            correction_applied = True
-        corrected_psn_cards.append(corrected or card)
-    corrected_psn_ordered = [correct_psn(line) for line in result.psn_ordered]
-    corrected_psn_uncertain = [correct_psn(line) for line in result.psn_uncertain]
-    raw_keys = set(ocr_text_keys(result.raw_text))
-    for correction in ledger_store.list_ocr_text_corrections(chat_id):
-        if correction.wrong_text not in raw_keys:
-            continue
-        correction_applied = True
-        if correction.card_type == "PUBG":
-            corrected_cards.append(correction.correct_card)
-            learned_pubg_cards.append(correction.correct_card)
-        elif correction.card_type == "PSN":
-            corrected_psn_ordered.append(correction.correct_card)
-    if learned_pubg_cards:
-        corrected_cards = [
-            card
-            for card in corrected_cards
-            if card in learned_pubg_cards
-        ]
-    return replace(
-        result,
-        cards=tuple(exact_unique(corrected_cards)),
-        psn_cards=tuple(exact_unique_psn(corrected_psn_cards)),
-        psn_ordered=tuple(unique_psn_lines(corrected_psn_ordered)),
-        psn_uncertain=tuple(exact_unique_text(corrected_psn_uncertain)),
-        uncertain_count=0 if correction_applied else result.uncertain_count,
-        corrections_applied=result.corrections_applied,
-    )
-
-
-def learn_card_corrections_from_reply(update: Update) -> str | None:
-    if not update.message or not update.effective_chat or not is_owner_update(update):
-        return None
-    reply_message = update.message.reply_to_message
-    if not reply_message:
-        return None
-    correction_text = update.message.text or ""
-    replied_text = reply_message.text or reply_message.caption or ""
-    if not correction_text or not replied_text:
-        return None
-    wrong_pubg, wrong_psn = extract_card_lines_from_text(replied_text)
-    correct_pubg, correct_psn = extract_card_lines_from_text(correction_text)
-    source_user = user_label(update)
-    learned_lines: list[str] = []
-
-    def learn_pairs(card_type: str, wrong_cards: list[str], correct_cards: list[str]) -> None:
-        if not wrong_cards or not correct_cards or len(wrong_cards) != len(correct_cards):
-            return
-        for wrong_card, correct_card in zip(wrong_cards, correct_cards):
-            if wrong_card == correct_card:
-                continue
-            ledger_store.set_card_correction(
-                update.effective_chat.id,
-                card_type,
-                wrong_card,
-                correct_card,
-                source_user,
-            )
-            learned_lines.append(f"{card_type} {wrong_card} -> {correct_card}")
-
-    learn_pairs("PUBG", wrong_pubg, correct_pubg)
-    learn_pairs("PSN", wrong_psn, correct_psn)
-    if not learned_lines:
-        return None
-    return "已学习纠错\n" + "\n".join(learned_lines)
-
-
-def card_text_result(text: str) -> OcrResult | None:
-    pubg_cards, psn_lines = extract_card_lines_from_text(text)
-    if not pubg_cards and not psn_lines:
-        return None
-    return OcrResult(cards=tuple(pubg_cards), psn_ordered=tuple(psn_lines))
-
-
-def unlearnable_correction_feedback(update: Update) -> str | None:
-    if not update.message:
-        return None
-    reply_message = update.message.reply_to_message
-    if not reply_message:
-        return None
-    correction_result = card_text_result(update.message.text or "")
-    if correction_result is None:
-        return None
-    replied_text = reply_message.text or reply_message.caption or ""
-    wrong_pubg, wrong_psn = extract_card_lines_from_text(replied_text)
-    if wrong_pubg or wrong_psn:
-        return None
-    return (
-        "已收到正确卡密，但原回复里没有错误卡密，不能建立纠错映射。\n"
-        "以后如果机器人把卡密识别错了，请回复那条包含错误卡密的结果，再发送正确卡密。"
-    )
-
-
-async def learn_ocr_sample_from_replied_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str | None:
-    if not update.message or not update.effective_chat or not is_owner_update(update):
-        return None
-    reply_message = update.message.reply_to_message
-    if not reply_message or not getattr(reply_message, "photo", None):
-        return None
-    correct_result = card_text_result(update.message.text or "")
-    if correct_result is None:
-        return None
-    correct_pubg, correct_psn = result_card_lines([correct_result])
-    correct_cards = [("PUBG", card) for card in correct_pubg] + [("PSN", card) for card in correct_psn]
-    if not correct_cards:
-        return None
-
-    image_path = await download_message_photo(reply_message, context)
-    try:
-        result = await asyncio.to_thread(run_ocr, image_path)
-    finally:
-        try:
-            image_path.unlink(missing_ok=True)
-            image_path.parent.rmdir()
-        except OSError:
-            pass
-
-    keys = ocr_text_keys(result.raw_text)
-    if not keys:
-        return "没有从这张图读到可学习的文字特征，请换更清晰的原图再回复正确卡密。"
-
-    source_user = user_label(update)
-    learned_lines: list[str] = []
-    for card_type, correct_card in correct_cards:
-        for key in keys[:8]:
-            ledger_store.set_ocr_text_correction(
-                update.effective_chat.id,
-                card_type,
-                key,
-                correct_card,
-                source_user,
-            )
-        learned_lines.append(f"{card_type} {correct_card}")
-    return "已学习这张图片的OCR特征\n" + "\n".join(learned_lines)
+    return preserve_one_time_card_result(chat_id, result)
 
 
 def card_history_day_key(chat_id: int, now: datetime | None = None) -> str:
@@ -2995,20 +2800,6 @@ async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ledger_store.set_recognition_enabled(update.effective_chat.id, False)
         await update.message.reply_text("卡密识别已关闭，后续图片不会识别卡密。发送“开启识别”可重新开启。")
         return True
-    recognition_enabled = ledger_store.is_recognition_enabled(update.effective_chat.id)
-    if recognition_enabled:
-        learned = learn_card_corrections_from_reply(update)
-        if learned:
-            await update.message.reply_text(learned)
-            return True
-        learned_sample = await learn_ocr_sample_from_replied_photo(update, context)
-        if learned_sample:
-            await update.message.reply_text(learned_sample)
-            return True
-        correction_feedback = unlearnable_correction_feedback(update)
-        if correction_feedback:
-            await update.message.reply_text(correction_feedback)
-            return True
     trc20_address = extract_trc20_address(update.message.text or "") if allow_trc20 else None
     if trc20_address:
         await reply_trc20_verify_image(update.message, trc20_address)

@@ -41,17 +41,7 @@ class PubgCorrectionResult:
     needs_review: bool = False
 
 
-# 只覆盖已经人工确认过的固定误识别片段，避免全局字符替换。
-SAFE_SEGMENT_RULES: dict[str, str] = {
-    "WJB9": "WJBS",
-    "RC96": "RCS6",
-    "Z437": "2437",
-    "7822U": "78Z2U",
-    "JQ93": "JQS3",
-    "4TY9": "4TYS",
-    "J6CZ9": "U6CZ9",
-}
-
+# 只允许字体、位置和字符对同时匹配的保守字符级规则。
 SAFE_CONFUSIONS = {
     ("9", "S"),
     ("S", "9"),
@@ -99,10 +89,6 @@ def correct_pubg_card(
     if learned != normalized and PUBG_RE.fullmatch(learned):
         return learned, "learned_font_rule"
 
-    segment_corrected = apply_safe_segment_rules(normalized)
-    if segment_corrected != normalized and PUBG_RE.fullmatch(segment_corrected):
-        return segment_corrected, "safe_known_segment_rule"
-
     return normalized, "unchanged"
 
 
@@ -115,34 +101,21 @@ def normalize_pubg_prefix(card: str) -> str:
     return value
 
 
-def apply_safe_segment_rules(card: str) -> str:
-    parts = card.split("-")
-    if len(parts) != 4:
-        return card
-    changed = False
-    updated = [parts[0]]
-    for segment in parts[1:]:
-        replacement = SAFE_SEGMENT_RULES.get(segment, segment)
-        changed = changed or replacement != segment
-        updated.append(replacement)
-    return "-".join(updated) if changed else card
-
-
 def apply_learned_rules(
     card: str,
     font_repository: FontRepository | None,
     font_hash: str,
 ) -> str:
-    if not font_repository:
+    if not font_repository or not font_hash or font_hash == DEFAULT_FONT_HASH:
         return card
-    profile = font_repository.get_profile(font_hash) or font_repository.get_profile(DEFAULT_FONT_HASH)
+    profile = font_repository.get_profile(font_hash)
     if not profile or not profile.enabled or profile.card_type not in {None, "PUBG"}:
         return card
 
     chars = list(card)
     changed = False
     for key, count in profile.position_rules.items():
-        if count < 1:
+        if count < 3:
             continue
         parsed = parse_position_rule(key)
         if not parsed:
