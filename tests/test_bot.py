@@ -511,9 +511,9 @@ class BotFormattingTests(unittest.TestCase):
 
                 self.assertEqual([], first_duplicates)
                 self.assertEqual(1, len(second_duplicates))
-                self.assertIn("今日重复出现卡密", reply)
+                self.assertIn("<b>⚠️今日重复出现卡密⚠️</b>", reply)
                 self.assertIn("PUBG：<u>S07304-KVTE-JZGW-JVB4U</u>", reply)
-                self.assertIn("已出现过", reply)
+                self.assertIn("<b>——————出现时间——————</b>", reply)
                 self.assertIn("首次 ", reply)
                 self.assertIn("首次 ", reply)
                 self.assertIn("来自 | @first |", reply)

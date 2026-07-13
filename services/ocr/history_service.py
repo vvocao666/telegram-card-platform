@@ -108,13 +108,13 @@ def append_history_duplicates(
 ) -> str:
     if not duplicates:
         return reply
-    lines = ["<b>今日重复出现卡密</b>"]
+    lines = ["<b>⚠️今日重复出现卡密⚠️</b>"]
     for duplicate in duplicates:
         source_user = html.escape(source_username_only(duplicate.first_source_user))
         lines.extend(
             [
                 f"{duplicate.card_type}：{hooks.format_card(duplicate.card)}",
-                "已出现过",
+                "<b>——————出现时间——————</b>",
                 f"首次 {format_history_time(duplicate.first_seen_at, hooks.ledger_timezone)} 来自 | {source_user} |",
             ]
         )
