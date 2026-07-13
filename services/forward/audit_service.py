@@ -4,9 +4,14 @@ import html
 import logging
 import tempfile
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 
+import httpx
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+
+from utils.text_utils import split_html_message
 
 
 logger = logging.getLogger("telegram-card-platform")
@@ -91,3 +96,54 @@ def update_is_private_chat(update: Update | None) -> bool:
     if not update or not update.effective_chat:
         return False
     return getattr(update.effective_chat, "type", "") == "private"
+
+
+async def send_audit_bot_message(
+    chat_id: int,
+    text: str,
+    *,
+    bot_token: str,
+    timeout: float,
+) -> None:
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for chunk in split_html_message(text):
+            response = await client.post(
+                url,
+                data={
+                    "chat_id": str(chat_id),
+                    "text": chunk,
+                    "parse_mode": ParseMode.HTML,
+                    "disable_web_page_preview": "true",
+                },
+            )
+            response.raise_for_status()
+
+
+async def send_audit_bot_photos(
+    chat_id: int,
+    photo_paths: list[Path],
+    caption_text: str,
+    *,
+    bot_token: str,
+    timeout: float,
+    send_message: Callable[[int, str], Awaitable[None]],
+) -> None:
+    photo_url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+    caption_chunks = split_html_message(caption_text, limit=900)
+    first_caption = caption_chunks[0] if caption_chunks else ""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for index, photo_path in enumerate(photo_paths):
+            data = {"chat_id": str(chat_id)}
+            if index == 0 and first_caption:
+                data["caption"] = first_caption
+                data["parse_mode"] = ParseMode.HTML
+            with photo_path.open("rb") as photo_file:
+                response = await client.post(
+                    photo_url,
+                    data=data,
+                    files={"photo": (photo_path.name, photo_file, "image/jpeg")},
+                )
+            response.raise_for_status()
+    for extra_chunk in caption_chunks[1:]:
+        await send_message(chat_id, extra_chunk)

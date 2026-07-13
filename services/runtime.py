@@ -102,6 +102,8 @@ from services.forward.audit_service import (
     chat_label,
     cleanup_audit_photo_paths,
     download_audit_photo_paths,
+    send_audit_bot_message as _send_audit_bot_message,
+    send_audit_bot_photos as _send_audit_bot_photos,
     update_is_private_chat,
     user_label,
 )
@@ -131,6 +133,20 @@ from services.ocr.audit_cache import (
 )
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
+from services.ocr.photo_rate_limiter import (
+    check_photo_rate_limit,
+    photo_rate_chat,
+    photo_rate_user,
+    photo_rate_warned_at,
+    warn_photo_rate_limited as _warn_photo_rate_limited,
+)
+from services.ocr.photo_sequence import (
+    assign_photo_sequence,
+    forget_photo_sequences,
+    photo_display_order,
+    photo_sequence,
+    photo_sequence_by_update,
+)
 from storage.repositories.ledger_storage import LedgerStore
 
 
@@ -261,12 +277,6 @@ class CardHistoryDuplicate:
 chat_buffers: dict[int, list[Update]] = defaultdict(list)
 chat_tasks: dict[int, asyncio.Task] = {}
 chat_flush_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
-photo_sequence_lock = asyncio.Lock()
-photo_sequence_by_update: dict[int, int] = {}
-global_photo_sequence = 0
-photo_rate_chat: dict[int, list[float]] = defaultdict(list)
-photo_rate_user: dict[tuple[int, int], list[float]] = defaultdict(list)
-photo_rate_warned_at: dict[tuple[str, int], float] = {}
 ocrspace_cooldown_until = 0.0
 ocrspace_key_cooldowns: dict[str, float] = {}
 remote_ocr_status = {
@@ -2296,35 +2306,6 @@ async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             pass
 
 
-async def assign_photo_sequence(update: Update) -> int:
-    global global_photo_sequence
-    key = id(update)
-    async with photo_sequence_lock:
-        existing = photo_sequence_by_update.get(key)
-        if existing is not None:
-            return existing
-        global_photo_sequence += 1
-        photo_sequence_by_update[key] = global_photo_sequence
-        return global_photo_sequence
-
-
-def photo_sequence(update: Update) -> int:
-    return photo_sequence_by_update.get(id(update), 0)
-
-
-def photo_display_order(update: Update) -> tuple[int, int]:
-    message = getattr(update, "message", None)
-    message_id = getattr(message, "message_id", None)
-    if isinstance(message_id, int):
-        return message_id, photo_sequence(update)
-    return 10**12, photo_sequence(update)
-
-
-def forget_photo_sequences(updates: list[Update]) -> None:
-    for update in updates:
-        photo_sequence_by_update.pop(id(update), None)
-
-
 def result_location(index: int, result: OcrResult) -> str:
     return f"第{index}张"
 
@@ -3362,81 +3343,43 @@ async def notify_owner(
 
 
 async def send_audit_bot_message(chat_id: int, text: str) -> None:
-    url = f"https://api.telegram.org/bot{AUDIT_BOT_TOKEN}/sendMessage"
-    async with httpx.AsyncClient(timeout=TELEGRAM_TIMEOUT) as client:
-        for chunk in split_html_message(text):
-            response = await client.post(
-                url,
-                data={
-                    "chat_id": str(chat_id),
-                    "text": chunk,
-                    "parse_mode": ParseMode.HTML,
-                    "disable_web_page_preview": "true",
-                },
-            )
-            response.raise_for_status()
+    await _send_audit_bot_message(
+        chat_id,
+        text,
+        bot_token=AUDIT_BOT_TOKEN,
+        timeout=TELEGRAM_TIMEOUT,
+    )
 
 
 async def send_audit_bot_photos(chat_id: int, photo_paths: list[Path], caption_text: str) -> None:
-    photo_url = f"https://api.telegram.org/bot{AUDIT_BOT_TOKEN}/sendPhoto"
-    caption_chunks = split_html_message(caption_text, limit=900)
-    first_caption = caption_chunks[0] if caption_chunks else ""
-    async with httpx.AsyncClient(timeout=TELEGRAM_TIMEOUT) as client:
-        for index, photo_path in enumerate(photo_paths):
-            data = {
-                "chat_id": str(chat_id),
-            }
-            if index == 0 and first_caption:
-                data["caption"] = first_caption
-                data["parse_mode"] = ParseMode.HTML
-            with photo_path.open("rb") as photo_file:
-                response = await client.post(
-                    photo_url,
-                    data=data,
-                    files={"photo": (photo_path.name, photo_file, "image/jpeg")},
-                )
-            response.raise_for_status()
-    for extra_chunk in caption_chunks[1:]:
-        await send_audit_bot_message(chat_id, extra_chunk)
-
-
-def _trim_rate_window(records: list[float], now: float) -> None:
-    cutoff = now - PHOTO_RATE_WINDOW_SECONDS
-    while records and records[0] < cutoff:
-        records.pop(0)
+    await _send_audit_bot_photos(
+        chat_id,
+        photo_paths,
+        caption_text,
+        bot_token=AUDIT_BOT_TOKEN,
+        timeout=TELEGRAM_TIMEOUT,
+        send_message=send_audit_bot_message,
+    )
 
 
 def photo_rate_limit_reason(update: Update, now: float | None = None) -> str | None:
-    if not update.message or not update.effective_chat:
-        return "消息无效"
-    if is_owner_update(update):
-        return None
-    now = now if now is not None else time.time()
-    chat_id = update.effective_chat.id
-    user_id = update.effective_user.id if update.effective_user else 0
-
-    chat_records = photo_rate_chat[chat_id]
-    _trim_rate_window(chat_records, now)
-    if len(chat_records) >= PHOTO_RATE_LIMIT_PER_CHAT:
-        return f"当前群图片发送太快，{PHOTO_RATE_WINDOW_SECONDS}秒内最多处理{PHOTO_RATE_LIMIT_PER_CHAT}张。"
-
-    user_key = (chat_id, user_id)
-    user_records = photo_rate_user[user_key]
-    _trim_rate_window(user_records, now)
-    if len(user_records) >= PHOTO_RATE_LIMIT_PER_USER:
-        return f"当前用户图片发送太快，{PHOTO_RATE_WINDOW_SECONDS}秒内最多处理{PHOTO_RATE_LIMIT_PER_USER}张。"
-
-    chat_records.append(now)
-    user_records.append(now)
-    return None
+    return check_photo_rate_limit(
+        update,
+        now=now,
+        is_owner=is_owner_update,
+        window_seconds=PHOTO_RATE_WINDOW_SECONDS,
+        chat_limit=PHOTO_RATE_LIMIT_PER_CHAT,
+        user_limit=PHOTO_RATE_LIMIT_PER_USER,
+    )
 
 
 async def warn_photo_rate_limited(message, key: tuple[str, int], text: str) -> None:
-    now = time.time()
-    if now - photo_rate_warned_at.get(key, 0) < PHOTO_RATE_WINDOW_SECONDS:
-        return
-    photo_rate_warned_at[key] = now
-    await message.reply_text(text)
+    await _warn_photo_rate_limited(
+        message,
+        key,
+        text,
+        window_seconds=PHOTO_RATE_WINDOW_SECONDS,
+    )
 
 
 async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wait_seconds: float) -> None:

@@ -7,6 +7,12 @@ from PIL import Image
 from handlers.start_handler import add_group_keyboard, main_menu_keyboard, start_help_text
 from services.forward.audit_service import audit_photo_file_ids, audit_source_text, update_is_private_chat
 from services.group.group_service import group_welcome_message, parse_class_mode_command
+from services.ocr.photo_rate_limiter import check_photo_rate_limit, photo_rate_chat, photo_rate_user
+from services.ocr.photo_sequence import (
+    assign_photo_sequence,
+    forget_photo_sequences,
+    photo_sequence_by_update,
+)
 from services.price.price_service import format_okx_prices, parse_okx_c2c_usdt_cny_prices
 from services.status.status_service import StatusPanelSnapshot, render_status_panel
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image
@@ -38,6 +44,8 @@ def test_service_modules_do_not_import_runtime():
         Path("services/price/price_service.py"),
         Path("services/group/group_service.py"),
         Path("services/forward/audit_service.py"),
+        Path("services/ocr/photo_rate_limiter.py"),
+        Path("services/ocr/photo_sequence.py"),
         Path("services/status/status_service.py"),
         Path("services/status/system_info.py"),
         Path("services/trc20/verify_service.py"),
@@ -71,6 +79,43 @@ def test_audit_service_preserves_source_and_photo_contract():
     assert "123 | @alice | Alice Chen" in audit_source_text(update)
     assert audit_photo_file_ids([update, update]) == ["large"]
     assert update_is_private_chat(update) is False
+
+
+def test_photo_sequence_service_preserves_receive_order_and_cleanup():
+    first = type("Update", (), {})()
+    second = type("Update", (), {})()
+    photo_sequence_by_update.clear()
+
+    first_index = asyncio.run(assign_photo_sequence(first))
+    second_index = asyncio.run(assign_photo_sequence(second))
+
+    assert second_index == first_index + 1
+    assert asyncio.run(assign_photo_sequence(first)) == first_index
+    forget_photo_sequences([first, second])
+    assert photo_sequence_by_update == {}
+
+
+def test_photo_rate_limiter_preserves_window_contract():
+    user = type("User", (), {"id": 123})()
+    chat = type("Chat", (), {"id": -1001})()
+    message = type("Message", (), {})()
+    update = type("Update", (), {"effective_user": user, "effective_chat": chat, "message": message})()
+    photo_rate_chat.clear()
+    photo_rate_user.clear()
+
+    options = {
+        "is_owner": lambda _update: False,
+        "window_seconds": 60,
+        "chat_limit": 2,
+        "user_limit": 2,
+    }
+    assert check_photo_rate_limit(update, now=1000, **options) is None
+    assert check_photo_rate_limit(update, now=1001, **options) is None
+    assert "当前群图片发送太快" in check_photo_rate_limit(update, now=1002, **options)
+    assert check_photo_rate_limit(update, now=1062, **options) is None
+
+    photo_rate_chat.clear()
+    photo_rate_user.clear()
 
 
 def test_status_service_preserves_panel_contract():
