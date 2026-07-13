@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import ast
 from contextlib import nullcontext
 import html
 import json
@@ -14,7 +13,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal, DivisionByZero, InvalidOperation
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 
@@ -27,6 +26,7 @@ from telegram.constants import ParseMode
 from telegram.ext import Application, ApplicationHandlerStop, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
+from services.calculator import calculate_expression, format_calc_result as _format_calc_result, normalize_calc_expression
 from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
@@ -53,7 +53,12 @@ from services.ocr.admin_commands import (
 from services.ocr.debug_commands import ocr_candidates as format_ocr_candidates_debug
 from services.ocr.debug_commands import ocr_debug as format_ocr_debug
 from services.ocr.font_repository import FontRepository
-from services.ocr.http_client_pool import close_ocrspace_http_client, get_ocrspace_http_client
+from services.ocr.http_client_pool import (
+    close_ocrspace_http_client,
+    close_remote_http_client,
+    get_ocrspace_http_client,
+    get_remote_http_client,
+)
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
@@ -77,6 +82,7 @@ from services.ocr.result_pipeline import (
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.file_cleanup import cleanup_expired_output_images
+from utils.text_utils import split_html_message
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
     cleanup_expired_audits,
@@ -160,7 +166,6 @@ OKX_C2C_USDT_CNY_URL = (
 OKX_EXCHANGE_RATE_URL = "https://www.okx.com/api/v5/market/exchange-rate"
 OKX_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 TELEGRAM_TEXT_LIMIT = 4096
-TELEGRAM_SAFE_TEXT_LIMIT = 3600
 PROCESS_STARTED_AT = time.time()
 
 SUCCESS_PREFIX = "\u672c\u6b21\u8bc6\u522b\u6210\u529f"
@@ -261,8 +266,6 @@ remote_ocr_status = {
 }
 remote_ocr_health_cache: dict[str, object] = {"checked_at": 0.0, "result": None}
 remote_ocr_offline_until = 0.0
-remote_http_client: httpx.Client | None = None
-remote_http_client_timeout: float | None = None
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ocr_batch_jobs = OcrBatchJobPool()
 ocr_live_progresses: dict[int, "LiveOcrBatchProgress"] = {}
@@ -1791,31 +1794,6 @@ def remote_worker_health() -> tuple[bool, dict[str, object], str]:
     return result
 
 
-def get_remote_http_client(timeout: float | None = None) -> httpx.Client:
-    global remote_http_client, remote_http_client_timeout
-    target_timeout = float(timeout if timeout is not None else REMOTE_OCR_TIMEOUT)
-    if remote_http_client is None or remote_http_client_timeout != target_timeout:
-        if remote_http_client is not None:
-            try:
-                remote_http_client.close()
-            except Exception:
-                pass
-        remote_http_client = httpx.Client(timeout=target_timeout)
-        remote_http_client_timeout = target_timeout
-    return remote_http_client
-
-
-def close_remote_http_client() -> None:
-    global remote_http_client, remote_http_client_timeout
-    if remote_http_client is not None:
-        try:
-            remote_http_client.close()
-        except Exception:
-            pass
-    remote_http_client = None
-    remote_http_client_timeout = None
-
-
 def today_cache_counts() -> dict[str, int]:
     summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
     cards = list(summary.first_cards)
@@ -2754,49 +2732,6 @@ def format_cards_only(results: list[OcrResult]) -> str:
     return "\n\n".join(sections)
 
 
-def split_html_message(text: str, limit: int = TELEGRAM_SAFE_TEXT_LIMIT) -> list[str]:
-    if len(text) <= limit:
-        return [text]
-
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    open_tag = ""
-
-    def emit() -> None:
-        nonlocal current, current_len
-        if not current:
-            return
-        chunk = "\n".join(current)
-        if open_tag and not chunk.endswith(f"</{open_tag}>"):
-            chunk += f"\n</{open_tag}>"
-        chunks.append(chunk)
-        current = [f"<{open_tag}>"] if open_tag else []
-        current_len = len(f"<{open_tag}>") if open_tag else 0
-
-    for line in text.splitlines():
-        add_len = len(line) + (1 if current else 0)
-        if current and current_len + add_len > limit:
-            emit()
-        while len(line) > limit:
-            if current:
-                emit()
-            chunks.append(line[:limit])
-            line = line[limit:]
-        if not line and not current:
-            continue
-        current.append(line)
-        current_len += add_len
-        for tag in ("pre", "blockquote"):
-            if f"<{tag}>" in line and f"</{tag}>" not in line:
-                open_tag = tag
-            if f"</{tag}>" in line:
-                open_tag = ""
-
-    emit()
-    return chunks or [text[:limit]]
-
-
 async def reply_html_chunks(message, text: str, **kwargs) -> None:
     chunks = split_html_message(text)
     for index, chunk in enumerate(chunks):
@@ -2815,65 +2750,6 @@ async def send_html_chunks(context: ContextTypes.DEFAULT_TYPE, chat_id: int, tex
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
-
-
-CALC_RE = re.compile(r"^[\d\s+\-*/().xX×÷]+$")
-CALC_HAS_OPERATOR_RE = re.compile(r"[\d)]\s*[+\-*/xX×÷]\s*[\d(]")
-
-
-def calculate_expression(text: str) -> str | None:
-    expression = normalize_calc_expression(text)
-    if not expression or not CALC_RE.fullmatch(expression) or not CALC_HAS_OPERATOR_RE.search(expression):
-        return None
-    try:
-        tree = ast.parse(expression, mode="eval")
-        value = _eval_calc_node(tree.body)
-    except (SyntaxError, ValueError, InvalidOperation, DivisionByZero, OverflowError):
-        return None
-    display_expression = re.sub(r"\s+", "", expression)
-    return f"{display_expression}={_format_calc_result(value)}"
-
-
-def normalize_calc_expression(text: str) -> str:
-    return (
-        text.strip()
-        .translate(FULLWIDTH_MAP)
-        .replace("＋", "+")
-        .replace("－", "-")
-        .replace("＊", "*")
-        .replace("／", "/")
-        .replace("（", "(")
-        .replace("）", ")")
-        .replace("×", "*")
-        .replace("x", "*")
-        .replace("X", "*")
-        .replace("÷", "/")
-    )
-
-
-def _eval_calc_node(node: ast.AST) -> Decimal:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-        return Decimal(str(node.value))
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        value = _eval_calc_node(node.operand)
-        return value if isinstance(node.op, ast.UAdd) else -value
-    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
-        left = _eval_calc_node(node.left)
-        right = _eval_calc_node(node.right)
-        if isinstance(node.op, ast.Add):
-            return left + right
-        if isinstance(node.op, ast.Sub):
-            return left - right
-        if isinstance(node.op, ast.Mult):
-            return left * right
-        if right == 0:
-            raise DivisionByZero
-        return left / right
-    raise ValueError("unsupported expression")
-
-
-def _format_calc_result(value: Decimal) -> str:
-    return format(value.quantize(Decimal("0.01")), "f")
 
 
 TRC20_ADDRESS_RE = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
