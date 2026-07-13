@@ -4,8 +4,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from services.group.group_service import group_welcome_message, parse_class_mode_command
 from handlers.start_handler import add_group_keyboard, main_menu_keyboard, start_help_text
+from services.forward.audit_service import audit_photo_file_ids, audit_source_text, update_is_private_chat
+from services.group.group_service import group_welcome_message, parse_class_mode_command
 from services.price.price_service import format_okx_prices, parse_okx_c2c_usdt_cny_prices
 from services.status.status_service import StatusPanelSnapshot, render_status_panel
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image
@@ -36,6 +37,7 @@ def test_service_modules_do_not_import_runtime():
     for module_path in (
         Path("services/price/price_service.py"),
         Path("services/group/group_service.py"),
+        Path("services/forward/audit_service.py"),
         Path("services/status/status_service.py"),
         Path("services/status/system_info.py"),
         Path("services/trc20/verify_service.py"),
@@ -51,6 +53,24 @@ def test_start_handler_preserves_help_and_menu_contract():
     assert "<code>+10000</code>" in start_help_text()
     assert add_group_keyboard("kamibot").inline_keyboard[0][0].url == "https://t.me/kamibot?startgroup=true"
     assert main_menu_keyboard().keyboard[0][0].text == "✅记账拉机器人进群"
+
+
+def test_audit_service_preserves_source_and_photo_contract():
+    user = type(
+        "User",
+        (),
+        {"id": 123, "username": "alice", "first_name": "Alice", "last_name": "Chen"},
+    )()
+    chat = type("Chat", (), {"id": -1001, "type": "group", "title": "Test <Group>"})()
+    small = type("Photo", (), {"file_id": "small"})()
+    large = type("Photo", (), {"file_id": "large"})()
+    message = type("Message", (), {"photo": [small, large]})()
+    update = type("Update", (), {"effective_user": user, "effective_chat": chat, "message": message})()
+
+    assert "群组（Test &lt;Group&gt;）" in audit_source_text(update)
+    assert "123 | @alice | Alice Chen" in audit_source_text(update)
+    assert audit_photo_file_ids([update, update]) == ["large"]
+    assert update_is_private_chat(update) is False
 
 
 def test_status_service_preserves_panel_contract():
