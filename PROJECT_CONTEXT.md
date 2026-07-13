@@ -77,7 +77,8 @@ services/ocr/provider_router.py  Remote 状态、熔断和 provider 统计计算
 services/ocr/batch_processor.py  OCR 批次进度与稳定排序
 services/ocr/result_pipeline.py  最终卡密排序、去重和回复格式管线
 services/ledger/        记账业务
-services/broadcast/     群组广播
+services/broadcast/     owner 私聊群组广播流程
+services/notify/        当前群成员通知流程
 services/forward/       转发服务
 services/price/         价格查询
 services/trc20/         TRC20 地址校验
@@ -91,7 +92,7 @@ systemd/                Linux 服务与定时备份
 feature_backups/        历史稳定备份
 ```
 
-`services/runtime.py` 多轮行为保持型拆分后约 3761 行，仍是当前最大维护风险。生产 handler 注册、Application 构建、后台任务生命周期、文件清理、状态、价格、群组、TRC20、审计、图片顺序和限流已经迁出。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
+`services/runtime.py` 多轮行为保持型拆分后约 3602 行，仍是当前最大维护风险。生产 handler 注册、Application 构建、后台任务生命周期、文件清理、广播与通知、状态、价格、群组、TRC20、审计、图片顺序和限流已经迁出。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
 
 永久约束：后续优化不得继续向 `services/runtime.py` 或 Windows Worker 的 `server.py` 堆积算法和业务实现。`runtime.py` 只保留兼容入口与编排，`server.py` 只保留 FastAPI 接口与调度；新增算法必须进入职责明确、可独立测试的小模块。
 

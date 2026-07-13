@@ -5,6 +5,7 @@ import asyncio
 import bot
 import pytest
 from services.broadcast import broadcast_service
+from services.notify import notify_service
 
 
 @pytest.fixture(autouse=True)
@@ -121,14 +122,16 @@ def fake_callback_update(data, user_id=123):
     return type("Update", (), {"callback_query": query, "effective_user": user, "effective_chat": None})()
 
 
-def test_broadcast_service_exports_flow_functions():
-    snapshot = Path("services/broadcast/broadcast_service.py")
+def test_broadcast_service_owns_flow_without_runtime_reverse_import():
+    service_path = Path("services/broadcast/broadcast_service.py")
+    source = service_path.read_text(encoding="utf-8")
 
-    assert snapshot.exists()
-    assert broadcast_service.broadcast_group_keyboard is bot.broadcast_group_keyboard
-    assert broadcast_service.start_broadcast is bot.start_broadcast
-    assert broadcast_service.handle_broadcast_callback is bot.handle_broadcast_callback
-    assert broadcast_service.handle_broadcast_text is bot.handle_broadcast_text
+    assert service_path.exists()
+    assert broadcast_service.BroadcastController
+    assert "services.runtime" not in source
+    assert "async def handle_callback" in source
+    assert notify_service.NotifyController
+    assert "services.runtime" not in Path("services/notify/notify_service.py").read_text(encoding="utf-8")
 
 
 def test_private_broadcast_returns_group_selection(monkeypatch):
