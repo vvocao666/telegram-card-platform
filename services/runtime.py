@@ -14,13 +14,12 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
-from io import BytesIO
 from pathlib import Path
 
 import httpx
 import pytesseract
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, ApplicationHandlerStop, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
@@ -30,6 +29,14 @@ from services.calculator import calculate_expression, format_calc_result as _for
 from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
+from services.price.price_service import (
+    fetch_okx_usdt_cny_prices,
+    format_okx_prices,
+    is_price_command,
+    is_realtime_rate_command,
+    parse_okx_c2c_usdt_cny_prices,
+    parse_okx_exchange_rate_price,
+)
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr.batch_processor import (
     LiveOcrBatchProgress as BaseLiveOcrBatchProgress,
@@ -82,6 +89,7 @@ from services.ocr.result_pipeline import (
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.file_cleanup import cleanup_expired_output_images
+from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image, reply_trc20_verify_image
 from utils.text_utils import split_html_message
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
@@ -159,12 +167,6 @@ PHOTO_RATE_LIMIT_PER_USER = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_USER", "5
 OCR_PROGRESS_ENABLED = os.getenv("OCR_PROGRESS_ENABLED", "1").strip() == "1"
 OCR_PROGRESS_MIN_IMAGES = max(1, int(os.getenv("OCR_PROGRESS_MIN_IMAGES", "3")))
 OCR_PROGRESS_UPDATE_SECONDS = max(0.5, float(os.getenv("OCR_PROGRESS_UPDATE_SECONDS", "1.5")))
-OKX_C2C_USDT_CNY_URL = (
-    "https://www.okx.com/v3/c2c/tradingOrders/books"
-    "?quoteCurrency=cny&baseCurrency=usdt&side=sell&paymentMethod=all&userType=all&showTrade=false"
-)
-OKX_EXCHANGE_RATE_URL = "https://www.okx.com/api/v5/market/exchange-rate"
-OKX_HTTP_HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 TELEGRAM_TEXT_LIMIT = 4096
 PROCESS_STARTED_AT = time.time()
 
@@ -2750,133 +2752,6 @@ async def send_html_chunks(context: ContextTypes.DEFAULT_TYPE, chat_id: int, tex
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
-
-
-TRC20_ADDRESS_RE = re.compile(r"(?<![A-Za-z0-9])T[1-9A-HJ-NP-Za-km-z]{33}(?![A-Za-z0-9])")
-
-
-def extract_trc20_address(text: str) -> str | None:
-    match = TRC20_ADDRESS_RE.search(text.strip())
-    return match.group(0) if match else None
-
-
-def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc" if bold else "",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        r"C:\Windows\Fonts\msyhbd.ttc" if bold else r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\simhei.ttf",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).exists():
-            try:
-                return ImageFont.truetype(candidate, size=size)
-            except OSError:
-                continue
-    return ImageFont.load_default()
-
-
-def _center_text(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str, font: ImageFont.ImageFont, fill: str) -> None:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    width = bbox[2] - bbox[0]
-    height = bbox[3] - bbox[1]
-    x = box[0] + (box[2] - box[0] - width) / 2
-    y = box[1] + (box[3] - box[1] - height) / 2 - 2
-    draw.text((x, y), text, font=font, fill=fill)
-
-
-def make_trc20_verify_image(address: str, created_at: datetime | None = None) -> BytesIO:
-    created_at = created_at or datetime.now(LEDGER_TZ)
-    timestamp = created_at.astimezone(LEDGER_TZ).strftime("%Y-%m-%d %H:%M:%S")
-    width, height = 860, 300
-    image = Image.new("RGB", (width, height), "#0aa77c")
-    draw = ImageDraw.Draw(image)
-
-    title_font = _font(40, bold=True)
-    subtitle_font = _font(20)
-    address_font = _font(34, bold=True)
-    time_font = _font(20)
-
-    _center_text(draw, (0, 34, width, 80), "USDT防篡改验证核对", title_font, "#fff238")
-    _center_text(draw, (0, 78, width, 112), "（请双方谨慎核对地址是否与图中一致，如有误停止付款）", subtitle_font, "#003b30")
-
-    bar = (34, 128, width - 34, 200)
-    draw.rounded_rectangle(bar, radius=4, fill="#e87700")
-    _center_text(draw, bar, address, address_font, "#ffffff")
-
-    draw.rounded_rectangle((34, 222, width - 34, 268), radius=4, fill="#08936e")
-    _center_text(draw, (34, 222, width - 34, 268), f"生成时间：{timestamp}", time_font, "#ffffff")
-
-    output = BytesIO()
-    image.save(output, format="PNG")
-    output.seek(0)
-    output.name = "trc20-verify.png"
-    return output
-
-
-async def reply_trc20_verify_image(message, address: str) -> None:
-    image = make_trc20_verify_image(address)
-    await message.reply_photo(photo=image, caption=address)
-
-
-def parse_okx_c2c_usdt_cny_prices(payload: dict, limit: int = 5) -> list[Decimal]:
-    sell_orders = payload.get("data", {}).get("sell", [])
-    if not sell_orders:
-        raise ValueError("empty OKX C2C sell order book")
-    prices: list[Decimal] = []
-    for order in sell_orders:
-        price = order.get("price")
-        if price is None:
-            continue
-        prices.append(Decimal(str(price)))
-        if len(prices) >= limit:
-            break
-    if not prices:
-        raise ValueError("missing OKX C2C prices")
-    return prices
-
-
-def parse_okx_exchange_rate_price(payload: dict) -> Decimal:
-    data = payload.get("data", [])
-    if not data:
-        raise ValueError("empty OKX exchange-rate data")
-    price = data[0].get("usdCny")
-    if price is None:
-        raise ValueError("missing OKX usdCny")
-    return Decimal(str(price))
-
-
-def format_okx_prices(prices: list[Decimal], source: str) -> str:
-    lines = ["欧意USDT/CNY 最新5档"]
-    lines.extend(f"{index}. {_format_calc_result(price)}" for index, price in enumerate(prices, start=1))
-    lines.append(f"来源：{source}")
-    return "\n".join(lines)
-
-
-def is_price_command(text: str) -> bool:
-    normalized = text.strip()
-    lowered = normalized.lower()
-    return normalized == "币价" or lowered in {"bj", "z0"} or normalized == "/price"
-
-
-def is_realtime_rate_command(text: str) -> bool:
-    return text.strip() == "设置实时汇率"
-
-
-async def fetch_okx_usdt_cny_prices() -> tuple[list[Decimal], str]:
-    async with httpx.AsyncClient(timeout=15, headers=OKX_HTTP_HEADERS) as client:
-        try:
-            response = await client.get(OKX_C2C_USDT_CNY_URL)
-            response.raise_for_status()
-            return parse_okx_c2c_usdt_cny_prices(response.json(), limit=5), "OKX C2C卖单"
-        except Exception:
-            logger.exception("OKX C2C USDT/CNY price fetch failed, falling back to exchange-rate")
-        response = await client.get(OKX_EXCHANGE_RATE_URL)
-        response.raise_for_status()
-        return [parse_okx_exchange_rate_price(response.json())], "OKX官方USD/CNY汇率"
 
 
 async def reply_okx_price(message) -> None:
