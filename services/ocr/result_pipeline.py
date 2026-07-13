@@ -200,8 +200,8 @@ def format_reply(results: list[Any], hooks: ResultPipelineHooks) -> str:
     sections: list[str] = []
     if pubg_cards:
         pubg_summary = (
-            f"<b>本次识别{hooks.pubg_label}：<code>【 {len(pubg_cards)} 】</code>{hooks.count_suffix}</b>\n"
-            f"<b>本次识别PUBG图片：<code>【 {pubg_image_count} 】</code>张</b>"
+            f"<b>本次识别{hooks.pubg_label}：</b><code>【 {len(pubg_cards)} 】</code><b>{hooks.count_suffix}</b>\n"
+            f"<b>本次识别PUBG图片：</b><code>【 {pubg_image_count} 】</code><b>张</b>"
         )
         if expected_pubg_total and len(pubg_cards) < expected_pubg_total:
             pubg_summary += (
@@ -216,8 +216,8 @@ def format_reply(results: list[Any], hooks: ResultPipelineHooks) -> str:
 
     if psn_lines:
         psn_summary = (
-            f"<b>本次识别{hooks.psn_label}：<code>【 {len(psn_cards)} 】</code>{hooks.count_suffix}</b>\n"
-            f"<b>本次识别PSN图片：<code>【 {psn_image_count} 】</code>张</b>"
+            f"<b>本次识别{hooks.psn_label}：</b><code>【 {len(psn_cards)} 】</code><b>{hooks.count_suffix}</b>\n"
+            f"<b>本次识别PSN图片：</b><code>【 {psn_image_count} 】</code><b>张</b>"
         )
         if psn_uncertain:
             psn_summary += (
