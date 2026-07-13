@@ -137,7 +137,12 @@ from services.group.group_service import (
     group_welcome_message,
     parse_class_mode_command as _class_mode_command,
 )
-from services.group.lifecycle_service import GroupLifecycleHooks, handle_bot_chat_member as handle_bot_chat_member_service
+from services.group.lifecycle_service import (
+    GroupLifecycleHooks,
+    handle_bot_chat_member as handle_bot_chat_member_service,
+    handle_left_chat_member as handle_left_chat_member_service,
+    handle_new_chat_members as handle_new_chat_members_service,
+)
 from services.notify.notify_service import (
     NotifyController,
     chunked as notify_chunked,
@@ -2792,19 +2797,37 @@ def extract_broadcast_all_text(text: str, command: str) -> str:
 
 
 async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.effective_chat or not update.effective_user:
+    if not update.message or not update.effective_chat:
         return
     remember_bot_chat(update)
     bot_user = await context.bot.get_me()
-    for member in update.message.new_chat_members or []:
-        if member.id == bot_user.id:
-            ledger_store.set_chat_owner(update.effective_chat.id, update.effective_user.id)
-            logger.info(
-                "Set ledger owner for chat %s to inviter %s.",
-                update.effective_chat.id,
-                update.effective_user.id,
-            )
-            break
+    await handle_new_chat_members_service(
+        update,
+        context,
+        GroupLifecycleHooks(
+            store=ledger_store,
+            welcome_sent_at=welcome_sent_at,
+            welcome_message=group_welcome_message,
+        ),
+        bot_user.id,
+    )
+
+
+async def handle_left_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message or not update.effective_chat:
+        return
+    remember_bot_chat(update)
+    bot_user = await context.bot.get_me()
+    await handle_left_chat_member_service(
+        update,
+        context,
+        GroupLifecycleHooks(
+            store=ledger_store,
+            welcome_sent_at=welcome_sent_at,
+            welcome_message=group_welcome_message,
+        ),
+        bot_user.id,
+    )
 
 
 async def handle_bot_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

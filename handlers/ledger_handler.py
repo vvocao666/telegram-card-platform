@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from services.ledger.ledger_service import (
     handle_ledger_callback,
+    handle_left_chat_member,
     handle_ledger_text,
     handle_new_chat_members,
     handle_priority_ledger_text,

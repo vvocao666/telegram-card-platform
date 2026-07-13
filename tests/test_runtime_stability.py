@@ -66,5 +66,6 @@ def test_production_entrypoint_registers_existing_membership_and_cutoff_handlers
     source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
     assert "ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)" in source
+    assert "filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_chat_member" in source
     assert '"set_cutoff"' in source
     assert '"cutoff"' in source

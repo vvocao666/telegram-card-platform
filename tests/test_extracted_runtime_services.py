@@ -4,7 +4,12 @@ import asyncio
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from services.group.lifecycle_service import GroupLifecycleHooks, handle_bot_chat_member
+from services.group.lifecycle_service import (
+    GroupLifecycleHooks,
+    handle_bot_chat_member,
+    handle_left_chat_member,
+    handle_new_chat_members,
+)
 from services.ledger.telegram_service import LedgerTextHooks, handle_ledger_text
 from services.ocr.history_service import CardHistoryDuplicate, CardHistoryHooks, append_history_duplicates
 from services.status.remote_metrics import record_remote_ocr_status
@@ -129,3 +134,53 @@ def test_group_lifecycle_service_initializes_and_welcomes_once() -> None:
 
 async def _capture_async(calls: list[tuple], payload: dict) -> None:
     calls.append(("send", payload))
+
+
+def test_member_join_and_leave_messages_are_safe_and_distinct() -> None:
+    calls: list[tuple] = []
+    store = SimpleNamespace(set_chat_owner=lambda *args: calls.append(("owner", *args)))
+    hooks = GroupLifecycleHooks(store=store, welcome_sent_at={}, welcome_message=lambda: "welcome")
+    member = SimpleNamespace(
+        id=22,
+        is_bot=False,
+        username=None,
+        full_name="A < B",
+        first_name="A",
+        last_name="B",
+    )
+    message = SimpleNamespace(new_chat_members=[member], left_chat_member=member)
+    update = SimpleNamespace(
+        message=message,
+        effective_chat=SimpleNamespace(id=-300),
+        effective_user=SimpleNamespace(id=9),
+    )
+    bot = SimpleNamespace(send_message=lambda **kwargs: _capture_async(calls, kwargs))
+    context = SimpleNamespace(bot=bot)
+
+    asyncio.run(handle_new_chat_members(update, context, hooks, bot_user_id=99))
+    asyncio.run(handle_left_chat_member(update, context, hooks, bot_user_id=99))
+
+    sent = [call[1] for call in calls if call[0] == "send"]
+    assert sent[0]["text"] == '💐欢迎<a href="tg://user?id=22">A &lt; B</a>加入该群~'
+    assert sent[1]["text"] == '<a href="tg://user?id=22">A &lt; B</a>离开了本群，聚是满天星，散是一团火~'
+    assert all(payload["parse_mode"] == "HTML" for payload in sent)
+
+
+def test_member_lifecycle_skips_bot_accounts_and_sets_inviter_for_own_bot() -> None:
+    calls: list[tuple] = []
+    store = SimpleNamespace(set_chat_owner=lambda *args: calls.append(("owner", *args)))
+    hooks = GroupLifecycleHooks(store=store, welcome_sent_at={}, welcome_message=lambda: "welcome")
+    own_bot = SimpleNamespace(id=99, is_bot=True)
+    other_bot = SimpleNamespace(id=100, is_bot=True)
+    update = SimpleNamespace(
+        message=SimpleNamespace(new_chat_members=[own_bot, other_bot], left_chat_member=other_bot),
+        effective_chat=SimpleNamespace(id=-300),
+        effective_user=SimpleNamespace(id=9),
+    )
+    bot = SimpleNamespace(send_message=lambda **kwargs: _capture_async(calls, kwargs))
+    context = SimpleNamespace(bot=bot)
+
+    asyncio.run(handle_new_chat_members(update, context, hooks, bot_user_id=99))
+    asyncio.run(handle_left_chat_member(update, context, hooks, bot_user_id=99))
+
+    assert calls == [("owner", -300, 9)]

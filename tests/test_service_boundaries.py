@@ -248,7 +248,10 @@ def test_group_service_preserves_command_and_welcome_contract():
     assert parse_class_mode_command("上课") is None
     text = group_welcome_message()
     assert "记账与卡密识别机器人已加入本群" in text
-    assert "<code>设置实时汇率</code>" in text
+    assert "发送图片可自动识别 PUBG / PSN 卡密" in text
+    assert "• 群记账功能" in text
+    assert "查看实时汇率：采用欧意 USDT/CNY 最新 1 档价格更新本群汇率" in text
+    assert "设置日切：设置每日账务日切时间" in text
     assert "日切：每天 00:00（北京时间）" in text
 
 

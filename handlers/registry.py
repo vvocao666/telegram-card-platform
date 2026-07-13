@@ -39,6 +39,7 @@ from handlers.ledger_handler import (
     handle_class_mode_notice_once,
     handle_ledger_add_group_menu,
     handle_ledger_callback,
+    handle_left_chat_member,
     handle_ledger_command,
     handle_ledger_menu,
     handle_new_chat_members,
@@ -110,5 +111,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(handle_ledger_callback, pattern=r"^ledger:"))
     app.add_handler(ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_chat_member))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ledger_command))
