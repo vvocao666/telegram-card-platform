@@ -109,6 +109,9 @@ def test_background_tasks_start_once_and_close_cleanly():
         async def remote_loop():
             await wait_forever.wait()
 
+        async def daily_stats_loop():
+            await wait_forever.wait()
+
         app = type("App", (), {"bot_data": {}})()
         options = {
             "cleanup_enabled": True,
@@ -117,20 +120,24 @@ def test_background_tasks_start_once_and_close_cleanly():
             "remote_enabled": True,
             "remote_url": "http://127.0.0.1:8000",
             "remote_probe_loop": remote_loop,
+            "daily_stats_loop": daily_stats_loop,
         }
         await start_managed_background_tasks(app, **options)
         cleanup_task = app.bot_data["server_file_cleanup_task"]
         remote_task = app.bot_data["remote_ocr_probe_task"]
+        daily_stats_task = app.bot_data["daily_ocr_stats_task"]
         await start_managed_background_tasks(app, **options)
 
         assert cleanup_calls == [True]
         assert app.bot_data["server_file_cleanup_task"] is cleanup_task
         assert app.bot_data["remote_ocr_probe_task"] is remote_task
+        assert app.bot_data["daily_ocr_stats_task"] is daily_stats_task
 
         await stop_managed_background_tasks(app, close_callbacks=(lambda: close_calls.append(True),))
         assert app.bot_data == {}
         assert cleanup_task.cancelled()
         assert remote_task.cancelled()
+        assert daily_stats_task.cancelled()
         assert close_calls == [True]
 
     asyncio.run(scenario())

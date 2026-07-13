@@ -107,6 +107,7 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
+from services.ocr.daily_stats_report import daily_ocr_stats_loop
 from services.ocr.history_service import (
     CardHistoryDuplicate,
     CardHistoryHooks,
@@ -562,6 +563,12 @@ async def start_background_tasks(app: Application) -> None:
         remote_enabled=REMOTE_OCR_ENABLED,
         remote_url=REMOTE_OCR_URL,
         remote_probe_loop=remote_ocr_probe_loop,
+        daily_stats_loop=lambda: daily_ocr_stats_loop(
+            app.bot,
+            parse_chat_id(OWNER_CHAT_ID),
+            audit_root=DEFAULT_AUDIT_ROOT,
+            logger=logger,
+        ),
     )
 
 
