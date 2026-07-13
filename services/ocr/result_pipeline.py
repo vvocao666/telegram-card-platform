@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Any, Callable, Pattern
 
 
+BLUE_LINK = "https://t.me/"
+
+
 @dataclass(frozen=True)
 class ResultPipelineHooks:
     occurrence_type: type
@@ -28,6 +31,11 @@ class ResultPipelineHooks:
     manual_review_summary: str
     pubg_label: str
     psn_label: str
+
+
+def _linked_count(value: int) -> str:
+    """将统计数字显示为 Telegram 蓝色链接，保持账单数字的交互样式一致。"""
+    return f'<a href="{BLUE_LINK}"><b>【 {value} 】</b></a>'
 
 
 def count_unique_pubg_markers(
@@ -200,8 +208,8 @@ def format_reply(results: list[Any], hooks: ResultPipelineHooks) -> str:
     sections: list[str] = []
     if pubg_cards:
         pubg_summary = (
-            f"<b>本次识别{hooks.pubg_label}：</b><code>【 {len(pubg_cards)} 】</code><b>{hooks.count_suffix}</b>\n"
-            f"<b>本次识别PUBG图片：</b><code>【 {pubg_image_count} 】</code><b>张</b>"
+            f"<b>本次识别{hooks.pubg_label}：</b>{_linked_count(len(pubg_cards))}<b>{hooks.count_suffix}</b>\n"
+            f"<b>本次识别PUBG图片：</b>{_linked_count(pubg_image_count)}<b>张</b>"
         )
         if expected_pubg_total and len(pubg_cards) < expected_pubg_total:
             pubg_summary += (
@@ -216,8 +224,8 @@ def format_reply(results: list[Any], hooks: ResultPipelineHooks) -> str:
 
     if psn_lines:
         psn_summary = (
-            f"<b>本次识别{hooks.psn_label}：</b><code>【 {len(psn_cards)} 】</code><b>{hooks.count_suffix}</b>\n"
-            f"<b>本次识别PSN图片：</b><code>【 {psn_image_count} 】</code><b>张</b>"
+            f"<b>本次识别{hooks.psn_label}：</b>{_linked_count(len(psn_cards))}<b>{hooks.count_suffix}</b>\n"
+            f"<b>本次识别PSN图片：</b>{_linked_count(psn_image_count)}<b>张</b>"
         )
         if psn_uncertain:
             psn_summary += (

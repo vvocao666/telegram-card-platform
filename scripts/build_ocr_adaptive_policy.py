@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from services.ocr.adaptive_optimizer import (
     build_adaptive_policy_candidates,
@@ -20,7 +26,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    audit_files = sorted(args.audit_dir.glob("*-audit.json"))
+    audit_files = sorted(args.audit_dir.rglob("*-audit.json"))
     cases = load_adaptive_audit_cases(audit_files)
     candidates = build_adaptive_policy_candidates(cases)
     write_adaptive_policy_candidates(args.output, candidates)
