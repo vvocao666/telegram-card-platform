@@ -68,7 +68,9 @@ owner-hybrid 不能拥有 Cloud Deploy 缺失的业务功能。它只通过 `.en
 
 ```text
 bot.py                  启动、Application 创建和 handler 注册
+config/application.py   唯一的 Telegram Application 构建入口
 config/                 配置、日志、常量
+handlers/registry.py    唯一的生产 handler 注册表与顺序契约
 handlers/               Telegram Update 接入层
 services/ocr/           OCR、候选、校验、纠错、学习、字体和缓存
 services/ocr/provider_router.py  Remote 状态、熔断和 provider 统计计算
@@ -79,6 +81,8 @@ services/broadcast/     群组广播
 services/forward/       转发服务
 services/price/         价格查询
 services/trc20/         TRC20 地址校验
+services/background_tasks.py 后台任务启动、去重和关闭
+services/file_cleanup.py     临时图片与审计文件安全清理
 services/runtime.py     兼容层和主要运行时编排
 storage/                数据库、模型和 repositories
 tests/                  回归测试、真实案例和 benchmark
@@ -87,7 +91,7 @@ systemd/                Linux 服务与定时备份
 feature_backups/        历史稳定备份
 ```
 
-`services/runtime.py` 第一轮行为保持型拆分后约 4216 行，仍是当前最大维护风险。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
+`services/runtime.py` 多轮行为保持型拆分后约 3761 行，仍是当前最大维护风险。生产 handler 注册、Application 构建、后台任务生命周期、文件清理、状态、价格、群组、TRC20、审计、图片顺序和限流已经迁出。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
 
 永久约束：后续优化不得继续向 `services/runtime.py` 或 Windows Worker 的 `server.py` 堆积算法和业务实现。`runtime.py` 只保留兼容入口与编排，`server.py` 只保留 FastAPI 接口与调度；新增算法必须进入职责明确、可独立测试的小模块。
 

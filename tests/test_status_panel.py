@@ -30,10 +30,10 @@ def fake_update(user_id=123, chat_id=-100):
 
 
 def test_status_commands_are_registered():
-    bot_py = Path("bot.py").read_text(encoding="utf-8")
+    registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
-    assert 'CommandHandler(["status", "ocr_status"], status_panel_command)' in bot_py
-    assert r'^/状态' in bot_py
+    assert 'CommandHandler(["status", "ocr_status"], status_panel_command)' in registry_source
+    assert r'^/状态' in registry_source
 
 
 def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):

@@ -63,7 +63,7 @@ def test_ocrspace_reuses_http_client_between_images(monkeypatch, tmp_path):
 
 
 def test_production_entrypoint_registers_existing_membership_and_cutoff_handlers():
-    source = Path("bot.py").read_text(encoding="utf-8")
+    source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
     assert "ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER)" in source
     assert '"set_cutoff"' in source

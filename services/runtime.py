@@ -21,8 +21,7 @@ from dotenv import load_dotenv
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, ApplicationHandlerStop, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
-from telegram.request import HTTPXRequest
+from telegram.ext import Application, ApplicationHandlerStop, ContextTypes, filters
 
 from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDGER_ADD_GROUP
 from handlers.start_handler import (
@@ -95,7 +94,12 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
-from services.file_cleanup import cleanup_expired_output_images
+from services.background_tasks import (
+    periodic_cleanup_loop,
+    start_managed_background_tasks,
+    stop_managed_background_tasks,
+)
+from services.file_cleanup import cleanup_server_file_records
 from services.forward.audit_service import (
     audit_photo_file_ids,
     audit_source_text,
@@ -380,26 +384,6 @@ def normalize_text(text: str) -> str:
     return re.sub(r"((?:密码|卡号|CDK|CDKEY)\s*\d*[:：]?)\s*([SP5$][0ODQU][7TIL/?])", r"\1 \2", text)
 
 
-def is_within_cleanup_root(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def remove_path(path: Path) -> None:
-    if path.is_symlink():
-        path.unlink(missing_ok=True)
-        return
-    if path.is_dir():
-        for child in path.iterdir():
-            remove_path(child)
-        path.rmdir()
-    else:
-        path.unlink(missing_ok=True)
-
-
 def parse_ocrspace_api_keys(raw_keys: str, fallback_key: str = "") -> list[str]:
     keys: list[str] = []
     for value in [*raw_keys.replace(";", ",").split(","), fallback_key]:
@@ -518,66 +502,39 @@ PUBG_PREFIX_TAIL_RE = re.compile(r"7[0-9]{3}")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
-    if not CLEANUP_ENABLED:
-        return 0
-    cutoff = (now if now is not None else time.time()) - CLEANUP_AFTER_SECONDS
-    removed = 0
-
-    temp_root = Path(tempfile.gettempdir())
-    for path in temp_root.glob("s07_card_*"):
-        try:
-            if path.stat().st_mtime <= cutoff and is_within_cleanup_root(path, temp_root):
-                remove_path(path)
-                removed += 1
-        except FileNotFoundError:
-            continue
-        except OSError:
-            logger.warning("Failed to clean temp path: %s", path)
-
-    output_root = CLEANUP_OUTPUTS_DIR
-    if not output_root.is_absolute():
-        output_root = Path.cwd() / output_root
-    audit_root = DEFAULT_AUDIT_ROOT
-    if not audit_root.is_absolute():
-        audit_root = Path.cwd() / audit_root
-    removed += cleanup_expired_output_images(output_root, cutoff, logger=logger)
-    removed += cleanup_expired_audits(audit_root)
-    if removed:
-        logger.info("Cleaned %s old server file record(s).", removed)
-    return removed
+    return cleanup_server_file_records(
+        enabled=CLEANUP_ENABLED,
+        after_seconds=CLEANUP_AFTER_SECONDS,
+        outputs_dir=CLEANUP_OUTPUTS_DIR,
+        audit_root=DEFAULT_AUDIT_ROOT,
+        cleanup_audits=cleanup_expired_audits,
+        logger=logger,
+        now=now,
+        temp_root=Path(tempfile.gettempdir()),
+    )
 
 
 async def server_file_cleanup_loop() -> None:
-    while True:
-        await asyncio.sleep(CLEANUP_CHECK_SECONDS)
-        await asyncio.to_thread(cleanup_server_files)
+    await periodic_cleanup_loop(CLEANUP_CHECK_SECONDS, cleanup_server_files)
 
 
 async def start_background_tasks(app: Application) -> None:
-    if CLEANUP_ENABLED:
-        await asyncio.to_thread(cleanup_server_files)
-        app.bot_data["server_file_cleanup_task"] = asyncio.create_task(server_file_cleanup_loop())
-    if REMOTE_OCR_ENABLED and REMOTE_OCR_URL:
-        app.bot_data["remote_ocr_probe_task"] = asyncio.create_task(remote_ocr_probe_loop())
+    await start_managed_background_tasks(
+        app,
+        cleanup_enabled=CLEANUP_ENABLED,
+        cleanup=cleanup_server_files,
+        cleanup_loop=server_file_cleanup_loop,
+        remote_enabled=REMOTE_OCR_ENABLED,
+        remote_url=REMOTE_OCR_URL,
+        remote_probe_loop=remote_ocr_probe_loop,
+    )
 
 
 async def stop_background_tasks(app: Application) -> None:
-    task = app.bot_data.get("server_file_cleanup_task")
-    if isinstance(task, asyncio.Task):
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-    remote_task = app.bot_data.get("remote_ocr_probe_task")
-    if isinstance(remote_task, asyncio.Task):
-        remote_task.cancel()
-        try:
-            await remote_task
-        except asyncio.CancelledError:
-            pass
-    close_remote_http_client()
-    close_ocrspace_http_client()
+    await stop_managed_background_tasks(
+        app,
+        close_callbacks=(close_remote_http_client, close_ocrspace_http_client),
+    )
 
 
 def repair_digit(char: str) -> str:
@@ -3786,60 +3743,16 @@ async def notify_members_command(update: Update, context: ContextTypes.DEFAULT_T
 
 
 def main() -> None:
-    if not BOT_TOKEN:
-        raise RuntimeError("Please set BOT_TOKEN in .env first")
+    from config.application import build_telegram_application
+    from config.logging_config import configure_logging
+    from handlers.registry import register_handlers
 
-    request_kwargs = {
-        "connect_timeout": TELEGRAM_TIMEOUT,
-        "read_timeout": TELEGRAM_TIMEOUT,
-        "write_timeout": TELEGRAM_TIMEOUT,
-        "pool_timeout": TELEGRAM_TIMEOUT,
-    }
-    if PROXY_URL:
-        request_kwargs["proxy_url"] = PROXY_URL
-
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .request(HTTPXRequest(**request_kwargs))
-        .get_updates_request(HTTPXRequest(**request_kwargs))
-        .post_init(start_background_tasks)
-        .post_shutdown(stop_background_tasks)
-        .build()
+    configure_logging()
+    app = build_telegram_application(
+        register_handlers=register_handlers,
+        post_init=start_background_tasks,
+        post_shutdown=stop_background_tasks,
     )
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("id", show_id))
-    app.add_handler(CommandHandler("version", show_version))
-    app.add_handler(CommandHandler(["status", "ocr_status"], status_panel_command))
-    app.add_handler(MessageHandler(filters.Regex(r"^/状态(?:@\w+)?(?:\s|$)"), status_panel_command))
-    app.add_handler(
-        MessageHandler(
-            filters.Regex(f"^({re.escape(TEXT_LEDGER_ADD_GROUP)}|记账拉机器人进群)$"),
-            handle_ledger_add_group_menu,
-        )
-    )
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_LEDGER)}$"), handle_ledger_menu))
-    app.add_handler(MessageHandler(filters.Regex(f"^{re.escape(TEXT_ADD_GROUP)}$"), handle_add_group_menu))
-    app.add_handler(CommandHandler("broadcast", start_broadcast))
-    app.add_handler(MessageHandler(filters.Regex(r"^广播$") & filters.ChatType.PRIVATE, start_broadcast))
-    app.add_handler(CommandHandler("broadcast_preview", broadcast_preview_command))
-    app.add_handler(CommandHandler("broadcast_cancel", broadcast_cancel_command))
-    app.add_handler(CommandHandler(["notify_all", "at_all"], notify_all_command))
-    app.add_handler(CommandHandler("notify_members", notify_members_command))
-    app.add_handler(MessageHandler(filters.Regex(r"^通知所有人(?:\s|$)") & filters.ChatType.GROUPS, notify_all_command))
-    app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
-    app.add_handler(
-        CommandHandler(
-            ["help", "bill", "fullbill", "yesterday", "undo", "clear", "in", "income", "out", "payout", "set_cutoff", "cutoff"],
-            handle_ledger_text,
-        )
-    )
-    app.add_handler(CallbackQueryHandler(handle_ledger_callback, pattern=r"^ledger:"))
-    app.add_handler(ChatMemberHandler(handle_bot_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_chat_members))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_ledger_text))
     logger.info("Bot is starting. Version=%s.", BOT_VERSION)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

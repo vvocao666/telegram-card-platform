@@ -575,10 +575,10 @@ def test_partial_cloud_complement_keeps_remote_image_order(monkeypatch, tmp_path
 
 
 def test_remote_ocr_status_command_is_registered():
-    bot_py = Path("bot.py").read_text(encoding="utf-8")
+    registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
-    assert "remote_ocr_status_command" in bot_py
-    assert 'CommandHandler("remote_ocr_status", remote_ocr_status_command)' in bot_py
+    assert "remote_ocr_status_command" in registry_source
+    assert 'CommandHandler("remote_ocr_status", remote_ocr_status_command)' in registry_source
 
 
 def test_remote_ocr_logs_success_and_fallback(monkeypatch, tmp_path, caplog):

@@ -4,7 +4,9 @@ from pathlib import Path
 
 from PIL import Image
 
+from handlers.registry import register_handlers
 from handlers.start_handler import add_group_keyboard, main_menu_keyboard, start_help_text
+from services.background_tasks import start_managed_background_tasks, stop_managed_background_tasks
 from services.forward.audit_service import audit_photo_file_ids, audit_source_text, update_is_private_chat
 from services.group.group_service import group_welcome_message, parse_class_mode_command
 from services.ocr.photo_rate_limiter import check_photo_rate_limit, photo_rate_chat, photo_rate_user
@@ -44,17 +46,91 @@ def test_service_modules_do_not_import_runtime():
         Path("services/price/price_service.py"),
         Path("services/group/group_service.py"),
         Path("services/forward/audit_service.py"),
+        Path("services/background_tasks.py"),
+        Path("services/file_cleanup.py"),
         Path("services/ocr/photo_rate_limiter.py"),
         Path("services/ocr/photo_sequence.py"),
         Path("services/status/status_service.py"),
         Path("services/status/system_info.py"),
         Path("services/trc20/verify_service.py"),
         Path("handlers/start_handler.py"),
+        Path("handlers/registry.py"),
+        Path("config/application.py"),
         Path("config/constants.py"),
         Path("utils/permission_utils.py"),
         Path("utils/telegram_utils.py"),
     ):
         assert "services.runtime" not in module_path.read_text(encoding="utf-8")
+
+
+def test_runtime_keeps_no_duplicate_handler_registry():
+    source = Path("services/runtime.py").read_text(encoding="utf-8")
+
+    assert ".add_handler(" not in source
+    assert "from handlers.registry import register_handlers" in source
+
+
+def test_handler_registry_preserves_critical_order_and_groups():
+    class App:
+        def __init__(self):
+            self.handlers = []
+
+        def add_handler(self, handler, group=0):
+            self.handlers.append((handler, group))
+
+    app = App()
+    register_handlers(app)
+    callbacks = [handler.callback.__name__ for handler, _group in app.handlers]
+
+    assert callbacks[0:3] == ["start", "show_id", "show_version"]
+    assert callbacks.index("handle_class_mode_command") < callbacks.index("handle_priority_ledger_text")
+    assert callbacks.index("handle_priority_ledger_text") < callbacks.index("handle_photo")
+    assert callbacks[-1] == "handle_ledger_text"
+    assert next(group for handler, group in app.handlers if handler.callback.__name__ == "handle_class_mode_command") == -2
+    assert next(group for handler, group in app.handlers if handler.callback.__name__ == "handle_priority_ledger_text") == -1
+
+
+def test_background_tasks_start_once_and_close_cleanly():
+    async def scenario():
+        cleanup_calls = []
+        close_calls = []
+        wait_forever = asyncio.Event()
+
+        def cleanup():
+            cleanup_calls.append(True)
+            return 0
+
+        async def cleanup_loop():
+            await wait_forever.wait()
+
+        async def remote_loop():
+            await wait_forever.wait()
+
+        app = type("App", (), {"bot_data": {}})()
+        options = {
+            "cleanup_enabled": True,
+            "cleanup": cleanup,
+            "cleanup_loop": cleanup_loop,
+            "remote_enabled": True,
+            "remote_url": "http://127.0.0.1:8000",
+            "remote_probe_loop": remote_loop,
+        }
+        await start_managed_background_tasks(app, **options)
+        cleanup_task = app.bot_data["server_file_cleanup_task"]
+        remote_task = app.bot_data["remote_ocr_probe_task"]
+        await start_managed_background_tasks(app, **options)
+
+        assert cleanup_calls == [True]
+        assert app.bot_data["server_file_cleanup_task"] is cleanup_task
+        assert app.bot_data["remote_ocr_probe_task"] is remote_task
+
+        await stop_managed_background_tasks(app, close_callbacks=(lambda: close_calls.append(True),))
+        assert app.bot_data == {}
+        assert cleanup_task.cancelled()
+        assert remote_task.cancelled()
+        assert close_calls == [True]
+
+    asyncio.run(scenario())
 
 
 def test_start_handler_preserves_help_and_menu_contract():

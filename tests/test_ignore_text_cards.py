@@ -129,11 +129,11 @@ def test_chinese_learn_cards_command_still_works(monkeypatch, tmp_path):
 
 
 def test_photo_and_status_handlers_remain_registered():
-    bot_py = Path("bot.py").read_text(encoding="utf-8")
+    registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
-    assert "MessageHandler(filters.PHOTO, handle_photo)" in bot_py
-    assert 'CommandHandler(["status", "ocr_status"], status_panel_command)' in bot_py
-    assert r'^/状态' in bot_py
-    assert 'CommandHandler("learn_cards", learn_cards_command)' in bot_py
-    assert r"^/?学习卡密" in bot_py
-    assert "auto_learn_cards_text" not in bot_py
+    assert "MessageHandler(filters.PHOTO, handle_photo)" in registry_source
+    assert 'CommandHandler(["status", "ocr_status"], status_panel_command)' in registry_source
+    assert r'^/状态' in registry_source
+    assert 'CommandHandler("learn_cards", learn_cards_command)' in registry_source
+    assert r"^/?学习卡密" in registry_source
+    assert "auto_learn_cards_text" not in registry_source

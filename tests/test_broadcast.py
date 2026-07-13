@@ -261,8 +261,8 @@ def test_notify_members_shows_cached_counts(monkeypatch):
 
 
 def test_broadcast_and_notify_commands_are_registered():
-    bot_py = Path("bot.py").read_text(encoding="utf-8")
+    registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
-    assert 'CommandHandler("broadcast", start_broadcast)' in bot_py
-    assert 'CommandHandler(["notify_all", "at_all"], notify_all_command)' in bot_py
-    assert 'CommandHandler("notify_members", notify_members_command)' in bot_py
+    assert 'CommandHandler("broadcast", start_broadcast)' in registry_source
+    assert 'CommandHandler(["notify_all", "at_all"], notify_all_command)' in registry_source
+    assert 'CommandHandler("notify_members", notify_members_command)' in registry_source
