@@ -50,6 +50,7 @@ def test_service_modules_do_not_import_runtime():
         Path("services/broadcast/broadcast_service.py"),
         Path("services/file_cleanup.py"),
         Path("services/notify/notify_service.py"),
+        Path("services/ocr/command_service.py"),
         Path("services/ocr/photo_rate_limiter.py"),
         Path("services/ocr/photo_sequence.py"),
         Path("services/status/status_service.py"),

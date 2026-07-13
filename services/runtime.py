@@ -44,6 +44,7 @@ from services.price.price_service import (
     parse_okx_exchange_rate_price,
 )
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
+from services.ocr import command_service as ocr_command_service
 from services.ocr.batch_processor import (
     LiveOcrBatchProgress as BaseLiveOcrBatchProgress,
     OcrBatchProgress as BaseOcrBatchProgress,
@@ -2711,147 +2712,103 @@ async def show_version(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 def ocr_debug_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str:
-    if context.args:
-        return " ".join(context.args)
-    if update.message and update.message.reply_to_message:
-        return update.message.reply_to_message.text or update.message.reply_to_message.caption or ""
-    return ""
+    return ocr_command_service.debug_input(update, context)
 
 
 async def ocr_debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    raw_text = ocr_debug_input(update, context)
-    if not raw_text:
-        await update.message.reply_text("Usage: /ocr_debug raw_ocr_text")
-        return
-    await update.message.reply_text(format_ocr_debug(raw_text, card_type="PUBG"))
+    await ocr_command_service.debug_command(
+        update,
+        context,
+        is_owner=is_owner_update,
+        formatter=format_ocr_debug,
+    )
 
 
 async def ocr_candidates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    raw_text = ocr_debug_input(update, context)
-    if not raw_text:
-        await update.message.reply_text("Usage: /ocr_candidates raw_ocr_text")
-        return
-    await update.message.reply_text(format_ocr_candidates_debug(raw_text, card_type="PUBG"))
+    await ocr_command_service.candidates_command(
+        update,
+        context,
+        is_owner=is_owner_update,
+        formatter=format_ocr_candidates_debug,
+    )
 
 
 async def ocr_font_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    await update.message.reply_text(format_ocr_font_stats_plus(font_repository))
+    await ocr_command_service.text_command(
+        update,
+        is_owner=is_owner_update,
+        build_text=lambda: format_ocr_font_stats_plus(font_repository),
+    )
 
 
 async def ocr_review_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    await update.message.reply_text(format_ocr_review(OCR_CANDIDATES_PATH))
+    await ocr_command_service.text_command(
+        update,
+        is_owner=is_owner_update,
+        build_text=lambda: format_ocr_review(OCR_CANDIDATES_PATH),
+    )
 
 
 async def ocr_export_fonts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    path = export_font_templates(Path("outputs") / "font_templates.json")
-    if not path.exists():
-        await update.message.reply_text("font_templates.json not found")
-        return
-    with path.open("rb") as template_file:
-        await update.message.reply_document(document=template_file, filename="font_templates.json")
+    await ocr_command_service.export_fonts_command(
+        update,
+        is_owner=is_owner_update,
+        export_templates=export_font_templates,
+        templates_path=Path("outputs") / "font_templates.json",
+    )
 
 
 async def ocr_import_fonts_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    payload = command_body(update, "ocr_import_fonts")
-    if not payload and update.message.reply_to_message and update.message.reply_to_message.document:
-        document = update.message.reply_to_message.document
-        tg_file = await context.bot.get_file(document.file_id)
-        temp_dir = Path(tempfile.mkdtemp(prefix="ocr_font_import_"))
-        temp_path = temp_dir / (document.file_name or "font_templates.json")
-        try:
-            await tg_file.download_to_drive(custom_path=temp_path)
-            payload = temp_path.read_text(encoding="utf-8")
-        finally:
-            try:
-                temp_path.unlink(missing_ok=True)
-                temp_dir.rmdir()
-            except OSError:
-                pass
-    if not payload:
-        await update.message.reply_text("Usage: /ocr_import_fonts JSON 或回复 font_templates.json 文件")
-        return
-    try:
-        count = import_font_templates(payload, Path("outputs") / "font_templates.json")
-    except Exception as exc:
-        await update.message.reply_text(f"OCR font import failed: {exc}")
-        return
-    await update.message.reply_text(f"OCR font templates imported: {count}")
+    await ocr_command_service.import_fonts_command(
+        update,
+        context,
+        is_owner=is_owner_update,
+        import_templates=import_font_templates,
+        templates_path=Path("outputs") / "font_templates.json",
+    )
 
 
 async def ocr_version_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    await update.message.reply_text(format_ocr_version(Path("."), current_version=BOT_VERSION))
+    await ocr_command_service.text_command(
+        update,
+        is_owner=is_owner_update,
+        build_text=lambda: format_ocr_version(Path("."), current_version=BOT_VERSION),
+    )
 
 
 async def ocr_cache_today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
-    lines = [
-        "OCR Cache Today",
-        f"Date: {summary.date}",
-        f"Images: {summary.images}",
-        f"OCR cards: {summary.ocr_count}",
-        f"Path: {summary.path}",
-        "First 10:",
-        *(summary.first_cards or ("-",)),
-    ]
-    await update.message.reply_text("\n".join(lines))
+    await ocr_command_service.cache_today_command(
+        update,
+        is_owner=is_owner_update,
+        cache_path=TODAY_OCR_CACHE_PATH,
+        summary_reader=today_ocr_cache_summary,
+    )
 
 
 async def ocr_health_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    summary = today_ocr_cache_summary(TODAY_OCR_CACHE_PATH)
-    lines = [
-        "OCR Health",
-        f"Provider: {OCR_PROVIDER}",
-        f"OCRSpace keys: {len(OCR_SPACE_API_KEYS)}",
-        f"Local fallback: {LOCAL_FALLBACK}",
-        f"Today cache: {'ready' if summary.exists else 'missing'}",
-        f"Today images: {summary.images}",
-        f"Today OCR cards: {summary.ocr_count}",
-    ]
-    await update.message.reply_text("\n".join(lines))
+    await ocr_command_service.health_command(
+        update,
+        is_owner=is_owner_update,
+        provider=OCR_PROVIDER,
+        ocrspace_key_count=len(OCR_SPACE_API_KEYS),
+        local_fallback=LOCAL_FALLBACK,
+        cache_path=TODAY_OCR_CACHE_PATH,
+        summary_reader=today_ocr_cache_summary,
+    )
 
 
 async def remote_ocr_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    available, reason = await asyncio.to_thread(remote_ocr_available)
-    remote_calls = int(remote_ocr_status["today_remote_calls"])
-    lines = [
-        "Remote OCR Status",
-        f"remote_enabled: {REMOTE_OCR_ENABLED}",
-        f"remote_url: {REMOTE_OCR_URL or '-'}",
-        f"remote_health: {available}",
-        f"health_reason: {reason}",
-        f"last_success_at: {remote_ocr_status['last_success_at'] or '-'}",
-        f"last_failed_at: {remote_ocr_status['last_failed_at'] or '-'}",
-        f"last_error: {remote_ocr_status['last_error'] or '-'}",
-        f"today_remote_calls: {remote_ocr_status['today_remote_calls']}",
-        f"today_remote_success: {remote_ocr_status['today_remote_success']}",
-        f"today_remote_failed: {remote_ocr_status['today_remote_failed']}",
-        f"today_fallback_count: {remote_ocr_status['today_fallback_count']}",
-        f"avg_remote_latency_ms: {avg_remote_latency_ms()}",
-        f"enhanced_rate: {percent_rate(int(remote_ocr_status['today_enhanced_used']), remote_calls)}",
-        f"cache_hit_rate: {percent_rate(int(remote_ocr_status['today_cache_hits']), remote_calls)}",
-        f"current_provider: {current_ocr_provider()}",
-    ]
-    await update.message.reply_text("\n".join(lines))
+    await ocr_command_service.remote_status_command(
+        update,
+        is_owner=is_owner_update,
+        remote_available=remote_ocr_available,
+        remote_enabled=REMOTE_OCR_ENABLED,
+        remote_url=REMOTE_OCR_URL,
+        status=remote_ocr_status,
+        average_latency=avg_remote_latency_ms,
+        percent=percent_rate,
+        current_provider=current_ocr_provider,
+    )
 
 
 async def status_panel_allowed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -2884,48 +2841,20 @@ async def status_panel_command(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 def command_body(update: Update, command: str) -> str:
-    if not update.message or not update.message.text:
-        return ""
-    text = update.message.text
-    first_line, _, rest = text.partition("\n")
-    if first_line.strip().split(maxsplit=1)[0].split("@", 1)[0] != f"/{command}":
-        return text
-    inline = first_line.strip().split(maxsplit=1)
-    values = []
-    if len(inline) > 1:
-        values.append(inline[1])
-    if rest:
-        values.append(rest)
-    return "\n".join(values).strip()
+    return ocr_command_service.command_body(update, command)
 
 
 def learn_cards_body(update: Update) -> str:
-    text = command_body(update, "learn_cards")
-    stripped = text.strip()
-    chinese_command = stripped[1:] if stripped.startswith("/") else stripped
-    if chinese_command == "学习卡密":
-        return ""
-    if chinese_command.startswith("学习卡密"):
-        return chinese_command[len("学习卡密") :].lstrip(" \t\r\n")
-    return text
+    return ocr_command_service.learn_cards_body(update)
 
 
 async def learn_cards_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    text = learn_cards_body(update)
-    if not text:
-        await update.message.reply_text("请在“学习卡密”后粘贴人工确认的卡密列表。")
-        return
-    preview = build_learning_preview(text)
-    if not preview.ocr_cache_found:
-        await update.message.reply_text(preview.message)
-        return
-    if preview.card_count < 5:
-        await update.message.reply_text(f"仅检测到 {preview.card_count} 条合法卡密，至少需要 5 条才进入批量学习确认。")
-        return
-    pending_learning_texts[update.effective_user.id] = text
-    await update.message.reply_text(preview.message)
+    await ocr_command_service.learn_cards_command(
+        update,
+        is_owner=is_owner_update,
+        preview_builder=build_learning_preview,
+        pending_texts=pending_learning_texts,
+    )
 
 
 async def auto_learn_cards_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2933,26 +2862,28 @@ async def auto_learn_cards_text(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def learn_confirm_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update) or not update.effective_user:
-        return
-    text = pending_learning_texts.pop(update.effective_user.id, "")
-    if not text:
-        await update.message.reply_text("没有待确认的OCR学习任务。")
-        return
-    await update.message.reply_text(execute_learning(text))
+    await ocr_command_service.learn_confirm_command(
+        update,
+        is_owner=is_owner_update,
+        pending_texts=pending_learning_texts,
+        execute=execute_learning,
+    )
 
 
 async def learn_cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update) or not update.effective_user:
-        return
-    pending_learning_texts.pop(update.effective_user.id, None)
-    await update.message.reply_text("已取消今日OCR学习。")
+    await ocr_command_service.learn_cancel_command(
+        update,
+        is_owner=is_owner_update,
+        pending_texts=pending_learning_texts,
+    )
 
 
 async def ocr_learning_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not is_owner_update(update):
-        return
-    await update.message.reply_text(format_learning_stats())
+    await ocr_command_service.text_command(
+        update,
+        is_owner=is_owner_update,
+        build_text=format_learning_stats,
+    )
 
 
 def ledger_owner_ids(chat_id: int | None = None) -> set[int]:
