@@ -87,7 +87,7 @@ class BotFormattingTests(unittest.TestCase):
             reply = bot.format_source_reply(updates, results)
 
             self.assertIn("S07304-EGWK-7K2G-4NVLH", reply)
-            self.assertIn("\u672c\u6b21\u8bc6\u522b\u6210\u529fPUBG\u5361\u5bc6\uff1a1\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09", reply)
+            self.assertIn("<b>本次识别PUBG卡密：<code>【 1 】</code>个</b>", reply)
             self.assertFalse(bot.should_send_audit(updates))
         finally:
             bot.OWNER_CHAT_ID = old_owner
@@ -273,6 +273,15 @@ class BotFormattingTests(unittest.TestCase):
         self.assertNotIn("\u0401", reply)
         self.assertNotIn("\u041a", reply)
 
+    def test_ocr_summary_uses_bold_blue_count_without_copy_hint(self):
+        reply = bot.format_reply(
+            [bot.OcrResult(cards=("S07336-AAAA-BBBB-CCCCC",))]
+        )
+
+        self.assertIn("<b>本次识别PUBG卡密：<code>【 1 】</code>个</b>", reply)
+        self.assertIn("<b>本次识别PUBG图片：<code>【 1 】</code>张</b>", reply)
+        self.assertNotIn("点击卡密复制", reply)
+
     def test_psn_limit_is_applied_before_summary_and_output(self):
         reply = bot.format_reply(
             [
@@ -291,7 +300,8 @@ class BotFormattingTests(unittest.TestCase):
         self.assertIn("AAAA-BBBB-CCCC", reply)
         self.assertIn("DDDD-EEEE-FFFF", reply)
         self.assertNotIn("GGGG-HHHH-IIII", reply)
-        self.assertIn("PSN\u5361\u5bc6\uff1a2\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09", reply)
+        self.assertIn("<b>本次识别PSN卡密：<code>【 2 】</code>个</b>", reply)
+        self.assertNotIn("点击卡密复制", reply)
 
     def test_labeled_psn_suppresses_unlabeled_noise(self):
         ordered = bot.prefer_labeled_psn_ordered(
@@ -306,7 +316,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertEqual(["X498-XRRB-3QGD"], ordered)
         self.assertIn("X498-XRRB-3QGD", reply)
         self.assertNotIn("Q00E-8UUX-86VX", reply)
-        self.assertIn("PSN\u5361\u5bc6\uff1a1\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09", reply)
+        self.assertIn("<b>本次识别PSN卡密：<code>【 1 】</code>个</b>", reply)
 
     def test_labeled_psn_takes_only_first_code_after_label(self):
         ordered = bot.prefer_labeled_psn_ordered(
@@ -352,13 +362,13 @@ class BotFormattingTests(unittest.TestCase):
         )
 
         self.assertIn("<b>【PUBG\u5361\u5bc6】</b>", reply)
-        self.assertIn("<b>\u672c\u6b21\u8bc6\u522b\u6210\u529fPUBG\u5361\u5bc6\uff1a3\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09</b>", reply)
+        self.assertIn("<b>本次识别PUBG卡密：<code>【 3 】</code>个</b>", reply)
         self.assertIn("<blockquote>S07240-EVOO-N5GW-9A2KZ", reply)
-        self.assertIn("\u672c\u6b21\u8bc6\u522bPUBG\u56fe\u7247\uff1a3\u5f20", reply)
+        self.assertIn("<b>本次识别PUBG图片：<code>【 3 】</code>张</b>", reply)
         self.assertIn("<b>【PSN\u5361\u5bc6】</b>", reply)
-        self.assertIn("<b>\u672c\u6b21\u8bc6\u522b\u6210\u529fPSN\u5361\u5bc6\uff1a6\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09</b>", reply)
+        self.assertIn("<b>本次识别PSN卡密：<code>【 6 】</code>个</b>", reply)
         self.assertIn("<blockquote>MELG-BTF8-JCJN", reply)
-        self.assertIn("\u672c\u6b21\u8bc6\u522bPSN\u56fe\u7247\uff1a4\u5f20", reply)
+        self.assertIn("<b>本次识别PSN图片：<code>【 4 】</code>张</b>", reply)
         self.assertNotIn("\u8bc6\u522b\u6a21\u7cca", reply)
 
     def test_duplicate_pubg_cards_are_reported_by_image(self):
@@ -374,8 +384,8 @@ class BotFormattingTests(unittest.TestCase):
         self.assertIn("<blockquote>S07304-EGWK-7K2G-4NVLH</blockquote>", reply)
         self.assertNotIn("<code>S07304-EGWK-7K2G-4NVLH</code>", reply)
         self.assertNotIn("<pre>S07304-EGWK-7K2G-4NVLH</pre>", reply)
-        self.assertIn("\u672c\u6b21\u8bc6\u522b\u6210\u529fPUBG\u5361\u5bc6\uff1a1\u4e2a", reply)
-        self.assertIn("\u672c\u6b21\u8bc6\u522bPUBG\u56fe\u7247\uff1a3\u5f20", reply)
+        self.assertIn("<b>本次识别PUBG卡密：<code>【 1 】</code>个</b>", reply)
+        self.assertIn("<b>本次识别PUBG图片：<code>【 3 】</code>张</b>", reply)
         self.assertIn("\u91cd\u590d\u5361\u5bc6\uff1a\u7b2c2\u5f20\u7b2c3\u5f20\u4e0e\u7b2c1\u5f20\u91cd\u590d", reply)
 
     def test_pubg_ocr_variant_with_extra_character_is_suppressed(self):
@@ -692,8 +702,8 @@ class BotFormattingTests(unittest.TestCase):
         )
 
         self.assertEqual(reply.count("MELG-BTF8-JCJN"), 1)
-        self.assertIn("\u672c\u6b21\u8bc6\u522b\u6210\u529fPSN\u5361\u5bc6\uff1a1\u4e2a\uff08\u70b9\u51fb\u5361\u5bc6\u590d\u5236\uff09", reply)
-        self.assertIn("\u672c\u6b21\u8bc6\u522bPSN\u56fe\u7247\uff1a2\u5f20", reply)
+        self.assertIn("<b>本次识别PSN卡密：<code>【 1 】</code>个</b>", reply)
+        self.assertIn("<b>本次识别PSN图片：<code>【 2 】</code>张</b>", reply)
         self.assertIn("\u91cd\u590d\u5361\u5bc6\uff1a\u7b2c2\u5f20\u4e0e\u7b2c1\u5f20\u91cd\u590d", reply)
 
     def test_cleanup_removes_only_old_server_file_records(self):
