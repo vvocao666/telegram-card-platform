@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
 import time
 from collections import Counter, defaultdict
@@ -90,6 +89,13 @@ from services.ocr.result_pipeline import (
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.file_cleanup import cleanup_expired_output_images
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image, reply_trc20_verify_image
+from services.status.status_service import StatusPanelSnapshot, render_status_panel
+from services.status.system_info import (
+    git_output,
+    process_memory_mb,
+    process_uptime_text as _process_uptime_text,
+    service_active_state,
+)
 from utils.text_utils import split_html_message
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
@@ -1711,57 +1717,8 @@ def format_time_value(value: object) -> str:
     return parsed.astimezone(LEDGER_TZ).strftime("%H:%M:%S")
 
 
-def process_memory_mb() -> str:
-    try:
-        if os.name == "posix":
-            statm = Path("/proc/self/statm")
-            if statm.exists():
-                pages = int(statm.read_text(encoding="utf-8").split()[1])
-                return f"{pages * os.sysconf('SC_PAGE_SIZE') / 1024 / 1024:.1f} MB"
-    except Exception:
-        pass
-    return "unknown"
-
-
 def process_uptime_text() -> str:
-    seconds = max(0, int(time.time() - PROCESS_STARTED_AT))
-    hours, remainder = divmod(seconds, 3600)
-    minutes, _ = divmod(remainder, 60)
-    if hours:
-        return f"{hours}小时{minutes}分钟"
-    return f"{minutes}分钟"
-
-
-def git_output(args: list[str]) -> str:
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=Path("."),
-            capture_output=True,
-            text=True,
-            timeout=1.5,
-            check=False,
-        )
-    except Exception:
-        return "unknown"
-    value = (result.stdout or "").strip()
-    return value or "unknown"
-
-
-def service_active_state() -> str:
-    if os.name != "posix":
-        return "unknown"
-    try:
-        result = subprocess.run(
-            ["systemctl", "is-active", "telegram-card-platform"],
-            capture_output=True,
-            text=True,
-            timeout=1.5,
-            check=False,
-        )
-    except Exception:
-        return "unknown"
-    return (result.stdout or "").strip() or "unknown"
+    return _process_uptime_text(PROCESS_STARTED_AT)
 
 
 def remote_worker_health() -> tuple[bool, dict[str, object], str]:
@@ -1839,66 +1796,46 @@ def build_status_panel() -> str:
     worker_status = str(worker_payload.get("status", "ok" if worker_ok else "offline"))
     worker_gpu = str(worker_payload.get("gpu", "unknown"))
     worker_engine = str(worker_payload.get("engine", "unknown"))
-    extra_fields = []
+    extra_fields: list[str] = []
     for key in ("pipeline_loaded", "opencv", "cached", "stats"):
         if key in worker_payload:
             extra_fields.append(f"{key}: {worker_payload[key]}")
-    worker_extra = "\n".join(extra_fields)
     current_provider = REMOTE_OCR_LABEL if worker_ok else "OCR.space"
-    lines = [
-        "━━━━━━━━━━━━━━",
-        "📊 机器人状态",
-        "━━━━━━━━━━━━━━",
-        "",
-        "🤖 阿里云机器人",
-        f"状态：{'运行中' if service_state == 'active' else service_state}",
-        "版本：v2.2-status-panel",
-        f"服务：telegram-card-platform {service_state}{'/running' if service_state == 'active' else ''}",
-        f"分支：{branch}",
-        f"Commit：{commit}",
-        f"内存：{process_memory_mb()}",
-        f"运行时间：{process_uptime_text()}",
-        f"ledger.sqlite3：{'存在' if LEDGER_DB_PATH.exists() else '缺失'}",
-        "",
-        f"🖥 {REMOTE_OCR_LABEL}",
-        f"启用：{'是' if REMOTE_OCR_ENABLED else '否'}",
-        f"状态：{'在线' if worker_ok else '离线'}",
-        f"status：{worker_status if worker_ok else worker_error}",
-        f"GPU：{worker_gpu}",
-        f"引擎：{worker_engine}",
-        f"地址：{safe_remote_url()}",
-        f"平均延迟：{avg_remote_latency_ms()} ms",
-        f"最近成功：{format_time_value(remote_ocr_status.get('last_success_at'))}",
-        f"最近失败：{format_time_value(remote_ocr_status.get('last_failed_at'))}",
-        f"最近错误：{remote_ocr_status.get('last_error') or '无'}",
-    ]
-    if worker_extra:
-        lines.append(worker_extra)
-    lines.extend(
-        [
-            "",
-            "🔁 OCR 路由",
-            f"当前主引擎：{current_provider}",
-            "备用引擎：OCR.space",
-            f"OCR.space fallback：{'可用' if OCR_SPACE_API_KEYS else '未配置'}",
-            f"今日 Remote 调用：{remote_calls}",
-            f"成功：{remote_ocr_status['today_remote_success']}",
-            f"失败：{remote_ocr_status['today_remote_failed']}",
-            f"Fallback：{remote_ocr_status['today_fallback_count']}",
-            f"缓存命中率：{percent_rate(int(remote_ocr_status['today_cache_hits']), remote_calls)}",
-            f"OpenCV增强率：{percent_rate(int(remote_ocr_status['today_enhanced_used']), remote_calls)}",
-            "",
-            "📦 今日识别",
-            f"图片：{cache_counts['images']} 张",
-            f"卡密：{cache_counts['cards']} 个",
-            f"PUBG卡密：{cache_counts['pubg']} 个",
-            f"PSN卡密：{cache_counts['psn']} 个",
-            f"重复：{cache_counts['duplicates']} 个",
-            "",
-            "━━━━━━━━━━━━━━",
-        ]
+    return render_status_panel(
+        StatusPanelSnapshot(
+            service_state=service_state,
+            branch=branch,
+            commit=commit,
+            memory=process_memory_mb(),
+            uptime=process_uptime_text(),
+            ledger_exists=LEDGER_DB_PATH.exists(),
+            remote_label=REMOTE_OCR_LABEL,
+            remote_enabled=REMOTE_OCR_ENABLED,
+            worker_ok=worker_ok,
+            worker_status=worker_status if worker_ok else worker_error,
+            worker_gpu=worker_gpu,
+            worker_engine=worker_engine,
+            remote_url=safe_remote_url(),
+            avg_remote_latency_ms=avg_remote_latency_ms(),
+            last_success=format_time_value(remote_ocr_status.get("last_success_at")),
+            last_failed=format_time_value(remote_ocr_status.get("last_failed_at")),
+            last_error=str(remote_ocr_status.get("last_error") or "无"),
+            current_provider=current_provider,
+            ocrspace_available=bool(OCR_SPACE_API_KEYS),
+            remote_calls=remote_calls,
+            remote_success=int(remote_ocr_status["today_remote_success"]),
+            remote_failed=int(remote_ocr_status["today_remote_failed"]),
+            fallback_count=int(remote_ocr_status["today_fallback_count"]),
+            cache_hit_rate=percent_rate(int(remote_ocr_status["today_cache_hits"]), remote_calls),
+            enhanced_rate=percent_rate(int(remote_ocr_status["today_enhanced_used"]), remote_calls),
+            image_count=cache_counts["images"],
+            card_count=cache_counts["cards"],
+            pubg_count=cache_counts["pubg"],
+            psn_count=cache_counts["psn"],
+            duplicate_count=cache_counts["duplicates"],
+            worker_extra=extra_fields,
+        )
     )
-    return "\n".join(lines)
 
 
 def record_remote_ocr_status(
