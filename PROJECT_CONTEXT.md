@@ -101,6 +101,8 @@ feature_backups/        历史稳定备份
 
 真实图片基准入口为 `scripts/run_ocr_image_benchmark.py`，清单格式见 `benchmarks/ocr/README.md`。人工真值图片必须放在被 Git 忽略的 `benchmarks/ocr/private/`，不得上传用户图片或把 OCR 自身输出冒充 Ground Truth。基准必须同时统计精确匹配、漏识别、误识别、类型串类、顺序、p50 和 p95。
 
+每日视觉审计可通过 `services/ocr/adaptive_optimizer.py` 聚合图片字体、版式、清晰度与失败类型，只生成影子 `secondary_verification` 候选。候选不得自动改代码、自动部署或生成全局字符替换；只有同一套真实 benchmark 显示精确匹配增加，且漏识别、误识别、串类、顺序均不退化时，才允许人工批准后另行接入。
+
 ## 5. 当前功能边界
 
 主项目是卡密识别机器人，同时保留完整记账功能。不要因为存在独立 `telegram-ledger-bot` 仓库而删除或弱化本项目记账功能。

@@ -3,6 +3,7 @@ __pycache__/
 .env
 .venv/
 benchmarks/ocr/private/
+outputs/ocr_adaptive_policy_candidates.json
 workers/rtx5070/venv/
 workers/rtx5070/logs/
 workers/rtx5070/__pycache__/
