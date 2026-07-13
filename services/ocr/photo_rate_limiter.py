@@ -57,3 +57,6 @@ async def warn_photo_rate_limited(message, key: tuple[str, int], text: str, *, w
         return
     photo_rate_warned_at[key] = now
     await message.reply_text(text)
+def batch_capacity_reached(current_count: int, maximum_images: int) -> bool:
+    """判断批次是否达到显式硬上限；0 表示仅使用并发和频率限制。"""
+    return maximum_images > 0 and current_count >= maximum_images

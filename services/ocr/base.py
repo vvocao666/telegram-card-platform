@@ -12,7 +12,7 @@ class OcrTextResult:
 
 
 class OcrProvider(Protocol):
-    """OCR 供应商接口，方便后续接腾讯 OCR、Qwen 视觉模型或本地 PaddleOCR。"""
+    """OCR Provider 的最小文本接口。"""
 
     def recognize(self, image_path: Path) -> OcrTextResult:
         ...

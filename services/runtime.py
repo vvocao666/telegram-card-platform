@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
 import html
 import json
 import logging
 import os
 import re
+import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal  # noqa: F401 - compatibility export
 from pathlib import Path
 
-import httpx
+import httpx  # noqa: F401 - compatibility export for provider client injection
 import pytesseract
 from dotenv import load_dotenv
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
@@ -57,9 +57,9 @@ from services.ocr.batch_processor import (
     order_batch_results,
     order_batch_updates,
 )
-from services.ocr.pubg_prefix_consensus import recover_single_prefix_digit_error
-from services.ocr.remote_variant_policy import remote_variants_conflict
-from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image
+from services.ocr.pubg_prefix_consensus import recover_single_prefix_digit_error  # noqa: F401 - provider compatibility export
+from services.ocr.remote_variant_policy import remote_variants_conflict  # noqa: F401 - provider compatibility export
+from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image  # noqa: F401 - provider compatibility exports
 from services.ocr.correction_engine import apply_corrections
 from services.ocr.admin_commands import (
     export_font_templates,
@@ -74,9 +74,10 @@ from services.ocr.font_repository import FontRepository
 from services.ocr.http_client_pool import (
     close_ocrspace_http_client,
     close_remote_http_client,
-    get_ocrspace_http_client,
+    get_ocrspace_http_client,  # noqa: F401 - provider compatibility export
     get_remote_http_client,
 )
+from services.ocr.ocrspace_provider import recognize_ocrspace
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.correction_service import (
     apply_card_corrections as preserve_one_time_card_result,
@@ -95,6 +96,8 @@ from services.ocr.provider_router import (
     percent_rate as provider_percent_rate,
     safe_remote_url as provider_safe_remote_url,
 )
+from services.ocr.provider_orchestration import route_ocr
+from services.ocr.remote_provider import recognize_remote
 from services.ocr.result_pipeline import (
     ResultPipelineHooks,
     count_unique_pubg_markers,
@@ -177,6 +180,7 @@ from services.ocr.audit_cache import (
 from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
 from services.ocr.photo_rate_limiter import (
+    batch_capacity_reached,
     check_photo_rate_limit,
     photo_rate_chat,  # noqa: F401 - compatibility export
     photo_rate_user,  # noqa: F401 - compatibility export
@@ -244,7 +248,7 @@ CLEANUP_OUTPUTS_DIR = Path(os.getenv("CLEANUP_OUTPUTS_DIR", "outputs")).expandus
 LEDGER_DB_PATH = Path(os.getenv("LEDGER_DB_PATH", "outputs/ledger.sqlite3")).expanduser()
 OCR_CANDIDATES_PATH = Path(os.getenv("OCR_CANDIDATES_PATH", "outputs/ocr_candidates.json")).expanduser()
 TODAY_OCR_CACHE_PATH = Path(os.getenv("TODAY_OCR_CACHE_PATH", "outputs/today_ocr_cache.json")).expanduser()
-PHOTO_BATCH_MAX_IMAGES = max(1, int(os.getenv("PHOTO_BATCH_MAX_IMAGES", "50")))
+PHOTO_BATCH_MAX_IMAGES = max(0, int(os.getenv("PHOTO_BATCH_MAX_IMAGES", "0")))
 PHOTO_RATE_WINDOW_SECONDS = max(10, int(os.getenv("PHOTO_RATE_WINDOW_SECONDS", "60")))
 PHOTO_RATE_LIMIT_PER_CHAT = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_CHAT", "80")))
 PHOTO_RATE_LIMIT_PER_USER = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_USER", "50")))
@@ -693,7 +697,7 @@ def is_pubg_image_text(text: str) -> bool:
     # 中文说明：缺失 S0 的 PUBG 前缀只允许 7 + 三位数字，避免 PSN 尾段如 7LML 被误判成 PUBG 图。
     if not re.search(r"(?<![A-Z0-9])7[0-9]{3}", normalized):
         normalized = re.sub(r"(?<![A-Z0-9])7[A-Z0-9]{3}", "XXXX", normalized)
-    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}[\s\-_|:锛氾紱;,.锛屻€倈]+[A-Z0-9]{4}", normalized):
+    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}", normalized):
         return True
     if "S07" in normalized:
         return True
@@ -766,7 +770,7 @@ def rebuild_split_pubg_prefix_card(prefix_line: str, tail_line: str) -> str:
     prefix_match = re.search(r"S073\s*$", clean_pubg_fragment(prefix_line, from_prefix=False))
     if not prefix_match:
         return ""
-    tail_match = re.match(r"^\s*([0-9]{2})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{4})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{4})[\s\-_|:锛氾紱;,.锛屻€倈]+([A-Z0-9]{5})(?![A-Z0-9])", normalize_text(tail_line))
+    tail_match = re.match(r"^\s*([0-9]{2})[\s\-_|:：；;,.，。/\\]+([A-Z0-9]{4})[\s\-_|:：；;,.，。/\\]+([A-Z0-9]{4})[\s\-_|:：；;,.，。/\\]+([A-Z0-9]{5})(?![A-Z0-9])", normalize_text(tail_line))
     if not tail_match:
         return ""
     card = f"S073{tail_match.group(1)}-{tail_match.group(2)}-{tail_match.group(3)}-{tail_match.group(4)}"
@@ -1375,169 +1379,12 @@ def run_ocrspace(
     psn_expected_count: int | None = None,
     pubg_expected_count: int | None = None,
 ) -> OcrResult:
-    global ocrspace_cooldown_until
-    if time.time() < ocrspace_cooldown_until:
-        logger.warning("OCR.space is cooling down after rate limit.")
-        return OcrResult(cards=tuple(), pubg_expected_count=pubg_expected_count, psn_expected_count=psn_expected_count)
-    if not OCR_SPACE_API_KEYS:
-        return OcrResult(cards=tuple(), pubg_expected_count=pubg_expected_count, psn_expected_count=psn_expected_count)
-
-    upload_path: Path | None = None
-    raw_chunks: list[str] = []
-    all_cards: list[str] = []
-    all_psn_ordered: list[str] = []
-    ocr_stats = {
-        "ocr_fixed_count": 0,
-        "ocr_missing_count": 0,
-        "ocr_false_negative": 0,
-        "ocr_character_confusion": 0,
-    }
-    uncertain_total = 0
-    try:
-        upload_path = prepare_ocrspace_image(image_path)
-        started_at = time.monotonic()
-        # 复用连接池，避免每张图片重复建立 TLS 连接。
-        with nullcontext(get_ocrspace_http_client(OCR_SPACE_TIMEOUT)) as client:
-            for engine in OCR_SPACE_ENGINES:
-                if time.monotonic() - started_at >= OCR_SPACE_TOTAL_TIMEOUT:
-                    logger.warning("OCRSPACE FAILED reason=total_timeout")
-                    break
-                response = None
-                now = time.time()
-                available_keys = [key for key in OCR_SPACE_API_KEYS if ocrspace_key_cooldowns.get(key, 0) <= now]
-                if not available_keys:
-                    ocrspace_cooldown_until = max(
-                        ocrspace_cooldown_until,
-                        min(ocrspace_key_cooldowns.values(), default=now + OCR_SPACE_429_COOLDOWN_SECONDS),
-                    )
-                    logger.warning("All OCR.space keys are cooling down.")
-                    break
-                for key_index, api_key in enumerate(available_keys, start=1):
-                    elapsed = time.monotonic() - started_at
-                    remaining_timeout = OCR_SPACE_TOTAL_TIMEOUT - elapsed
-                    if remaining_timeout <= 0:
-                        logger.warning("OCRSPACE FAILED reason=total_timeout")
-                        break
-                    with upload_path.open("rb") as image_file:
-                        request_started_at = time.monotonic()
-                        try:
-                            response = client.post(
-                                "https://api.ocr.space/parse/image",
-                                data={
-                                    "apikey": api_key,
-                                    "language": "eng",
-                                    "OCREngine": engine,
-                                    "scale": "true",
-                                    "detectOrientation": "true",
-                                    "isTable": "false",
-                                },
-                                files={
-                                    "file": (
-                                        upload_path.name,
-                                        image_file,
-                                        "image/png" if upload_path.suffix.lower() == ".png" else "image/jpeg",
-                                    )
-                                },
-                                timeout=max(0.5, min(OCR_SPACE_TIMEOUT, remaining_timeout)),
-                            )
-                        except httpx.TimeoutException as exc:
-                            latency_ms = int((time.monotonic() - request_started_at) * 1000)
-                            logger.warning(
-                                "OCRSPACE FAILED engine=%s key_index=%s latency_ms=%s reason=%s",
-                                engine,
-                                key_index,
-                                latency_ms,
-                                exc.__class__.__name__,
-                            )
-                            response = None
-                            break
-                    if response is None:
-                        break
-                    if response.status_code != 429:
-                        break
-                    ocrspace_key_cooldowns[api_key] = time.time() + OCR_SPACE_429_COOLDOWN_SECONDS
-                    logger.warning(
-                        "OCR.space key #%s rate limited; trying next key.",
-                        key_index,
-                    )
-                    response = None
-                if response is None:
-                    continue
-                response.raise_for_status()
-                payload = response.json()
-                if payload.get("IsErroredOnProcessing"):
-                    logger.warning("OCR.space engine %s error: %s", engine, payload.get("ErrorMessage"))
-                    continue
-
-                chunks = [parsed.get("ParsedText", "") for parsed in payload.get("ParsedResults", []) or []]
-                raw_text = "\n".join(chunk for chunk in chunks if chunk)
-                if raw_text:
-                    raw_chunks.append(raw_text)
-
-                if is_pubg_image_text(raw_text):
-                    legacy_cards, unresolved = extract_source_anchored_pubg_cards(raw_text)
-                    enhanced_cards, enhanced_stats = [], {
-                        "ocr_fixed_count": 0,
-                        "ocr_missing_count": 0,
-                        "ocr_false_negative": 0,
-                        "ocr_character_confusion": 0,
-                    }
-                    uncertain_total += int(unresolved)
-                else:
-                    legacy_cards = extract_cards(raw_text)
-                    enhanced_cards, enhanced_stats = enhanced_ocrspace_pubg_cards(raw_text, legacy_cards)
-                ocr_stats = merge_ocr_stats(ocr_stats, enhanced_stats)
-                cards, uncertain, card_corrections = settle_and_correct_pubg_cards(enhanced_cards + legacy_cards)
-                psn_ordered = psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint)
-                all_cards.extend(cards)
-                all_psn_ordered.extend(psn_ordered)
-                uncertain_total += uncertain
-                if remote_ocr_is_circuit_open() and (cards or psn_ordered):
-                    logger.info("OCRSPACE FAST PATH engine=%s cards=%s psn=%s", engine, len(cards), len(psn_ordered))
-                    break
-        merged_cards, conflict_count = merge_card_variants(all_cards)
-        psn_ordered = limit_psn_ordered(prefer_labeled_psn_ordered(raw_chunks, all_psn_ordered), psn_expected_count)
-        psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
-        psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])
-        uncertain_total += conflict_count
-        corrected_merged_cards, correction_uncertain, card_corrections = settle_and_correct_pubg_cards(merged_cards)
-        uncertain_total += correction_uncertain
-        if corrected_merged_cards or psn_cards or psn_uncertain:
-            merged_raw_text = "\n".join(raw_chunks)
-            return OcrResult(
-                        cards=tuple(corrected_merged_cards),
-                        psn_cards=tuple(psn_cards),
-                        psn_uncertain=tuple(psn_uncertain),
-                        psn_ordered=tuple(psn_ordered),
-                        pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, merged_raw_text),
-                        psn_expected_count=psn_expected_count,
-                        raw_text=merged_raw_text,
-                        uncertain_count=uncertain_total,
-                        ocr_fixed_count=ocr_stats["ocr_fixed_count"],
-                        ocr_missing_count=ocr_stats["ocr_missing_count"],
-                        ocr_false_negative=ocr_stats["ocr_false_negative"],
-                        ocr_character_confusion=ocr_stats["ocr_character_confusion"],
-                        corrections_applied=card_corrections,
-                    )
-    except Exception:
-        logger.exception("OCR.space request failed")
-        return OcrResult(cards=tuple())
-    finally:
-        if upload_path:
-            upload_path.unlink(missing_ok=True)
-
-    merged_raw_text = "\n".join(raw_chunks)
-    return OcrResult(
-        cards=tuple(),
-        psn_cards=tuple(),
-        pubg_expected_count=merge_pubg_expected_count(pubg_expected_count, merged_raw_text),
+    return recognize_ocrspace(
+        sys.modules[__name__],
+        image_path,
+        psn_hint=psn_hint,
         psn_expected_count=psn_expected_count,
-        raw_text=merged_raw_text,
-        uncertain_count=uncertain_total,
-        ocr_fixed_count=ocr_stats["ocr_fixed_count"],
-        ocr_missing_count=ocr_stats["ocr_missing_count"],
-        ocr_false_negative=ocr_stats["ocr_false_negative"],
-        ocr_character_confusion=ocr_stats["ocr_character_confusion"],
+        pubg_expected_count=pubg_expected_count,
     )
 
 
@@ -1883,120 +1730,13 @@ def run_remote_ocr(
     psn_expected_count: int | None = None,
     pubg_expected_count: int | None = None,
 ) -> OcrResult | None:
-    if not REMOTE_OCR_ENABLED or not REMOTE_OCR_URL:
-        return None
-    if remote_ocr_is_circuit_open():
-        logger.info("REMOTE OCR SKIP reason=%s", remote_ocr_circuit_reason())
-        return None
-
-    started_at = time.time()
-    record_remote_ocr_start()
-    logger.info("REMOTE OCR START url=%s", REMOTE_OCR_URL)
-    try:
-        client = get_remote_http_client(REMOTE_OCR_TIMEOUT)
-        with image_path.open("rb") as image_file:
-            response = client.post(
-                f"{REMOTE_OCR_URL}/ocr",
-                files={"file": (image_path.name, image_file, "image/jpeg")},
-        )
-        latency_ms = int((time.time() - started_at) * 1000)
-        if response.status_code != 200:
-            record_remote_ocr_status(False, latency_ms, error=f"status {response.status_code}")
-            mark_remote_ocr_offline(f"status {response.status_code}")
-            return None
-        payload = response.json()
-        if payload.get("ok") is not True:
-            record_remote_ocr_status(False, latency_ms, error="ok=false")
-            return None
-        variant_conflict = remote_variants_conflict(payload)
-        worker_cards = payload.get("cards")
-        if not isinstance(worker_cards, list):
-            worker_cards = []
-
-        text_items = payload.get("texts", []) or []
-        ordered_lines = ordered_ocr_text_lines(text_items)
-        ordered_line_cards, has_unresolved_pubg_fragment = extract_cards_from_ordered_lines(ordered_lines)
-        text_values: list[str] = []
-        for item in text_items:
-            if isinstance(item, dict):
-                value = str(item.get("text", "")).strip()
-            else:
-                value = str(item).strip()
-            if value:
-                text_values.append(value)
-        if REMOTE_OCR_TRUST_CARDS:
-            for item in worker_cards:
-                if isinstance(item, dict):
-                    value = str(item.get("text", "")).strip()
-                else:
-                    value = str(item).strip()
-                if value:
-                    text_values.append(value)
-
-        raw_text = "\n".join(text_values)
-        text_raw = "\n".join(line.text for line in ordered_lines)
-        worker_text = "\n".join(ocr_item_text(item) for item in worker_cards)
-        if ordered_lines and is_pubg_image_text(text_raw):
-            extracted_cards = merge_text_rebuilt_and_worker_cards(
-                ordered_line_cards,
-                extract_cards(worker_text),
-                [line.text for line in ordered_lines],
-            )
-        else:
-            extracted_cards = ordered_line_cards or extract_cards(raw_text)
-        recovered_prefix_cards = recover_single_prefix_digit_error(
-            [line.text for line in ordered_lines],
-            extracted_cards,
-        )
-        for insert_at, recovered_card in recovered_prefix_cards:
-            extracted_cards.insert(min(insert_at, len(extracted_cards)), recovered_card)
-            logger.warning(
-                "PUBG PREFIX CONSENSUS RECOVERED card=%s source=same_image_majority",
-                recovered_card,
-            )
-        cards, uncertain, card_corrections = settle_and_correct_pubg_cards(extracted_cards)
-        psn_ordered = limit_psn_ordered(psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint), psn_expected_count)
-        psn_cards = exact_unique_psn([card for card in psn_ordered if not card.endswith(FUZZY_SUFFIX)])
-        psn_uncertain = exact_unique_text([card for card in psn_ordered if card.endswith(FUZZY_SUFFIX)])
-        if not cards and not psn_cards and not psn_uncertain:
-            record_remote_ocr_status(False, latency_ms, error="no valid cards")
-            return None
-
-        card_count = len(cards) + len(psn_cards) + len(psn_uncertain)
-        remote_pubg_expected_count = merge_pubg_expected_count(pubg_expected_count, raw_text)
-        ordered_pubg_markers = sum(
-            1
-            for line in ordered_lines
-            if PUBG_PREFIX_RE.search(normalize_text(line.text))
-        )
-        if ordered_pubg_markers:
-            remote_pubg_expected_count = max(remote_pubg_expected_count or 0, ordered_pubg_markers)
-        mark_remote_ocr_online()
-        record_remote_ocr_status(
-            True,
-            latency_ms,
-            card_count=card_count,
-            text_count=len(text_values),
-            enhanced_used=bool(payload.get("enhanced_used")),
-            cache_hit=bool(payload.get("cached")),
-        )
-        return OcrResult(
-            cards=tuple(cards),
-            psn_cards=tuple(psn_cards),
-            psn_uncertain=tuple(psn_uncertain),
-            psn_ordered=tuple(psn_ordered),
-            pubg_expected_count=remote_pubg_expected_count,
-            psn_expected_count=psn_expected_count,
-            raw_text=raw_text,
-            uncertain_count=uncertain,
-            corrections_applied=card_corrections,
-            has_unresolved_pubg_fragment=has_unresolved_pubg_fragment or variant_conflict,
-        )
-    except Exception as exc:
-        latency_ms = int((time.time() - started_at) * 1000)
-        record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
-        mark_remote_ocr_offline(type(exc).__name__)
-        return None
+    return recognize_remote(
+        sys.modules[__name__],
+        image_path,
+        psn_hint=psn_hint,
+        psn_expected_count=psn_expected_count,
+        pubg_expected_count=pubg_expected_count,
+    )
 
 
 def run_ocr(
@@ -2005,161 +1745,8 @@ def run_ocr(
     psn_expected_count: int | None = None,
     pubg_expected_count: int | None = None,
 ) -> OcrResult:
-    remote = run_remote_ocr(
-        image_path,
-        psn_hint=psn_hint,
-        psn_expected_count=psn_expected_count,
-        pubg_expected_count=pubg_expected_count,
-    )
-    if remote is not None and is_thin_strip_image(image_path) and OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
-        cloud = run_ocrspace(
-            image_path,
-            psn_hint=psn_hint,
-            psn_expected_count=psn_expected_count,
-            pubg_expected_count=pubg_expected_count,
-        )
-        selected, changed = choose_thin_strip_result(remote, cloud, valid_card=valid_card)
-        if selected is cloud:
-            selected = replace(
-                cloud,
-                raw_text=(
-                    f"[REMOTE]\n{remote.raw_text.strip()}\n"
-                    f"[OCRSPACE]\n{cloud.raw_text.strip()}"
-                ).strip(),
-            )
-            if changed:
-                logger.warning(
-                    "OCR THIN STRIP CONFLICT remote=%s cloud=%s selected=ocrspace",
-                    list(remote.cards),
-                    list(cloud.cards),
-                )
-            else:
-                logger.info("OCR THIN STRIP VERIFIED card=%s", cloud.cards[0])
-            return selected
-    needs_complement = False
-    complement_reason = ""
-    if remote is not None:
-        needs_complement, complement_reason = remote_needs_ocrspace_complement(remote)
-    if (
-        remote is not None
-        and needs_complement
-        and OCR_PROVIDER == "ocrspace"
-        and OCR_SPACE_API_KEYS
-    ):
-        record_remote_ocr_fallback(complement_reason)
-        fallback = run_ocrspace(
-            image_path,
-            psn_hint=psn_hint,
-            psn_expected_count=psn_expected_count,
-            pubg_expected_count=pubg_expected_count,
-        )
-        if len(fallback.cards) >= len(remote.cards):
-            merged, conflict_count = merge_without_guessing(list(fallback.cards), list(remote.cards))
-        else:
-            # 备用 OCR 只识别出部分卡密时保留 Remote 的图片内顺序，避免补检导致倒序。
-            merged, conflict_count = merge_without_guessing(list(remote.cards), list(fallback.cards))
-        settled_cards, correction_conflicts, card_corrections = settle_and_correct_pubg_cards(merged)
-        merged_psn = exact_unique_psn(list(remote.psn_cards) + list(fallback.psn_cards))
-        merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(fallback.psn_uncertain))
-        merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(fallback.psn_ordered), psn_expected_count)
-        merged_raw_text = remote.raw_text + "\n" + fallback.raw_text
-        if settled_cards or is_pubg_image_text(merged_raw_text):
-            merged_psn = []
-            merged_psn_uncertain = []
-            merged_psn_ordered = []
-        if settled_cards or merged_psn or merged_psn_uncertain:
-            return OcrResult(
-                cards=tuple(settled_cards),
-                psn_cards=tuple(merged_psn),
-                psn_uncertain=tuple(merged_psn_uncertain),
-                psn_ordered=tuple(merged_psn_ordered),
-                pubg_expected_count=max(pubg_expected_count or 0, len(settled_cards)) or None,
-                psn_expected_count=psn_expected_count,
-                raw_text=merged_raw_text,
-                uncertain_count=remote.uncertain_count + fallback.uncertain_count + conflict_count + correction_conflicts,
-                ocr_fixed_count=remote.ocr_fixed_count + fallback.ocr_fixed_count,
-                ocr_missing_count=remote.ocr_missing_count + fallback.ocr_missing_count,
-                ocr_false_negative=remote.ocr_false_negative + fallback.ocr_false_negative,
-                ocr_character_confusion=remote.ocr_character_confusion + fallback.ocr_character_confusion,
-                corrections_applied=tuple(
-                    list(remote.corrections_applied)
-                    + list(fallback.corrections_applied)
-                    + list(card_corrections)
-                ),
-            )
-
-    if remote is not None:
-        logger.info(
-            "OCR FAST PATH provider=remote cards=%s psn=%s markers=%s",
-            len(remote.cards),
-            len(remote.psn_cards) + len(remote.psn_uncertain),
-            count_pubg_markers(remote.raw_text) or 0,
-        )
-        return remote
-
-    if OCR_PROVIDER == "ocrspace" and OCR_SPACE_API_KEYS:
-        record_remote_ocr_fallback(remote_ocr_fallback_reason())
-        remote = run_ocrspace(
-            image_path,
-            psn_hint=psn_hint,
-            psn_expected_count=psn_expected_count,
-            pubg_expected_count=pubg_expected_count,
-        )
-        if (remote.cards or remote.psn_cards or remote.psn_uncertain) and not VERIFY_WITH_LOCAL and not LOCAL_COMPLEMENT:
-            return remote
-        if not LOCAL_FALLBACK and not VERIFY_WITH_LOCAL:
-            return remote
-
-        local = run_local_ocr(
-            image_path,
-            psn_hint=psn_hint,
-            psn_expected_count=psn_expected_count,
-            pubg_expected_count=pubg_expected_count,
-        )
-        merged, uncertain = merge_without_guessing(list(remote.cards), list(local.cards))
-        merged_psn = exact_unique_psn(list(remote.psn_cards) + list(local.psn_cards))
-        merged_psn_uncertain = exact_unique_text(list(remote.psn_uncertain) + list(local.psn_uncertain))
-        merged_psn_ordered = limit_psn_ordered(list(remote.psn_ordered) + list(local.psn_ordered), psn_expected_count)
-        settled_cards, conflict_count, card_corrections = settle_and_correct_pubg_cards(merged)
-        merged_raw_text = remote.raw_text + "\n" + local.raw_text
-        if settled_cards or is_pubg_image_text(merged_raw_text):
-            merged_psn = []
-            merged_psn_uncertain = []
-            merged_psn_ordered = []
-        uncertain += remote.uncertain_count + local.uncertain_count + conflict_count
-        if settled_cards or merged_psn or merged_psn_uncertain:
-            return OcrResult(
-                cards=tuple(settled_cards),
-                psn_cards=tuple(merged_psn),
-                psn_uncertain=tuple(merged_psn_uncertain),
-                psn_ordered=tuple(merged_psn_ordered),
-                pubg_expected_count=pubg_expected_count,
-                psn_expected_count=psn_expected_count,
-                raw_text=merged_raw_text,
-                uncertain_count=uncertain,
-                ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
-                ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
-                ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
-                ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
-                corrections_applied=tuple(list(remote.corrections_applied) + list(local.corrections_applied) + list(card_corrections)),
-            )
-        return OcrResult(
-            cards=tuple(),
-            psn_cards=tuple(),
-            psn_uncertain=tuple(merged_psn_uncertain),
-            psn_ordered=tuple(merged_psn_ordered),
-            pubg_expected_count=pubg_expected_count,
-            psn_expected_count=psn_expected_count,
-            raw_text=merged_raw_text,
-            uncertain_count=uncertain,
-            ocr_fixed_count=remote.ocr_fixed_count + local.ocr_fixed_count,
-            ocr_missing_count=remote.ocr_missing_count + local.ocr_missing_count,
-            ocr_false_negative=remote.ocr_false_negative + local.ocr_false_negative,
-            ocr_character_confusion=remote.ocr_character_confusion + local.ocr_character_confusion,
-            corrections_applied=tuple(list(remote.corrections_applied) + list(local.corrections_applied)),
-        )
-
-    return run_local_ocr(
+    return route_ocr(
+        sys.modules[__name__],
         image_path,
         psn_hint=psn_hint,
         psn_expected_count=psn_expected_count,
@@ -2191,43 +1778,45 @@ async def download_message_photo(message, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -> tuple[OcrResult, Path | None]:
-    image_path = await download_photo(update, context)
-    caption = update.message.caption if update.message and update.message.caption else ""
-    psn_hint = "PSN" in normalize_text(caption)
-    psn_expected_count = parse_psn_expected_count(caption)
-    pubg_expected_count = parse_pubg_expected_count(caption)
-    message = update.message
-    photo = message.photo[-1] if message and message.photo else None
-    chat = update.effective_chat
-    user = update.effective_user
+    image_path: Path | None = None
     audit_record = None
-    try:
-        audit_record = await asyncio.to_thread(
-            stage_ocr_audit_image,
-            image_path,
-            message_id=message.message_id if message else 0,
-            file_unique_id=getattr(photo, "file_unique_id", ""),
-            media_group_id=str(getattr(message, "media_group_id", "") or ""),
-            source_chat_id=getattr(chat, "id", 0),
-            source_chat_title=str(getattr(chat, "title", "") or ""),
-            source_user_id=getattr(user, "id", 0),
-            source_username=str(getattr(user, "username", "") or ""),
-        )
-    except Exception:
-        logger.exception("Failed to stage OCR audit image")
-    try:
-        async with ocr_semaphore:
+    async with ocr_semaphore:
+        image_path = await download_photo(update, context)
+        caption = update.message.caption if update.message and update.message.caption else ""
+        psn_hint = "PSN" in normalize_text(caption)
+        psn_expected_count = parse_psn_expected_count(caption)
+        pubg_expected_count = parse_pubg_expected_count(caption)
+        message = update.message
+        photo = message.photo[-1] if message and message.photo else None
+        chat = update.effective_chat
+        user = update.effective_user
+        try:
+            audit_record = await asyncio.to_thread(
+                stage_ocr_audit_image,
+                image_path,
+                message_id=message.message_id if message else 0,
+                file_unique_id=getattr(photo, "file_unique_id", ""),
+                media_group_id=str(getattr(message, "media_group_id", "") or ""),
+                source_chat_id=getattr(chat, "id", 0),
+                source_chat_title=str(getattr(chat, "title", "") or ""),
+                source_user_id=getattr(user, "id", 0),
+                source_username=str(getattr(user, "username", "") or ""),
+            )
+        except Exception:
+            logger.exception("Failed to stage OCR audit image")
+        try:
             result = await asyncio.to_thread(run_ocr, image_path, psn_hint, psn_expected_count, pubg_expected_count)
             return replace(result, source_caption=caption.strip()), audit_record
-    except Exception as exc:
-        mark_ocr_audit_failed(audit_record, str(exc))
-        raise
-    finally:
-        try:
-            image_path.unlink(missing_ok=True)
-            image_path.parent.rmdir()
-        except OSError:
-            pass
+        except Exception as exc:
+            mark_ocr_audit_failed(audit_record, str(exc))
+            raise
+        finally:
+            if image_path is not None:
+                try:
+                    image_path.unlink(missing_ok=True)
+                    image_path.parent.rmdir()
+                except OSError:
+                    pass
 
 
 def result_location(index: int, result: OcrResult) -> str:
@@ -3043,7 +2632,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await warn_photo_rate_limited(update.message, ("rate", chat_id), rate_limit_reason)
         return
     owner_photo = is_owner_update(update)
-    if not owner_photo and len(chat_buffers[chat_id]) >= PHOTO_BATCH_MAX_IMAGES:
+    if not owner_photo and batch_capacity_reached(len(chat_buffers[chat_id]), PHOTO_BATCH_MAX_IMAGES):
         await warn_photo_rate_limited(
             update.message,
             ("batch", chat_id),

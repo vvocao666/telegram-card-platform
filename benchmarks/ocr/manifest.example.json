@@ -1,0 +1,11 @@
+{
+  "cases": [
+    {
+      "name": "confirmed-thin-strip-001",
+      "image": "private/images/confirmed-thin-strip-001.png",
+      "profile": "thin_strip",
+      "expected_pubg": ["S07336-ABCD-EFGH-JKLMN"],
+      "expected_psn": []
+    }
+  ]
+}

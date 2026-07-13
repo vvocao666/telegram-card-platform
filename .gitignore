@@ -2,6 +2,10 @@ __pycache__/
 *.py[cod]
 .env
 .venv/
+benchmarks/ocr/private/
+workers/rtx5070/venv/
+workers/rtx5070/logs/
+workers/rtx5070/__pycache__/
 outputs/
 work/
 backups/

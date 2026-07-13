@@ -93,9 +93,13 @@ systemd/                Linux 服务与定时备份
 feature_backups/        历史稳定备份
 ```
 
-`services/runtime.py` 多轮行为保持型拆分后约 3533 行，仍是当前最大维护风险。生产 handler 注册、Application 构建、后台任务生命周期、文件清理、广播与通知、状态、价格、群组、TRC20、审计、OCR 管理命令、图片顺序和限流已经迁出。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
+`services/runtime.py` 多轮行为保持型拆分后约 2789 行，仍是当前最大维护风险。本轮已把 Remote OCR、OCR.space 和 provider 路由编排迁入 `services/ocr/remote_provider.py`、`services/ocr/ocrspace_provider.py`、`services/ocr/provider_orchestration.py`，`runtime.py` 只保留兼容委托入口。生产 handler 注册、Application 构建、后台任务生命周期、文件清理、广播与通知、状态、价格、群组、TRC20、审计、OCR 管理命令、图片顺序和限流也已迁出。以后继续逐步拆分编排职责，但必须先锁定测试，采用兼容委托和小步接管方式，不能整体重写或改变行为。
 
 永久约束：后续优化不得继续向 `services/runtime.py` 或 Windows Worker 的 `server.py` 堆积算法和业务实现。`runtime.py` 只保留兼容入口与编排，`server.py` 只保留 FastAPI 接口与调度；新增算法必须进入职责明确、可独立测试的小模块。
+
+批量图片默认不设硬数量上限（`PHOTO_BATCH_MAX_IMAGES=0`），所有已接收图片都进入队列；实际下载与 OCR 工作始终受 `OCR_CONCURRENCY` 限制，禁止以无限并发换速度，也禁止静默丢弃超过固定张数的图片。
+
+真实图片基准入口为 `scripts/run_ocr_image_benchmark.py`，清单格式见 `benchmarks/ocr/README.md`。人工真值图片必须放在被 Git 忽略的 `benchmarks/ocr/private/`，不得上传用户图片或把 OCR 自身输出冒充 Ground Truth。基准必须同时统计精确匹配、漏识别、误识别、类型串类、顺序、p50 和 p95。
 
 ## 5. 当前功能边界
 
@@ -145,6 +149,9 @@ Remote 离线冷却期 -> 当前批次后续图片跳过 Remote，直接 OCR.spa
 - OCR.space 并发不能破坏 Telegram 图片接收顺序。
 
 本地 Windows Worker 当前模型：
+
+- 可复制源已纳入 `workers/rtx5070/`，用于版本审计、测试和新机器复现。
+- 实际运行目录仍为 `D:\gpu_ocr`；部署时从仓库复制，不在生产云服务器安装 GPU 依赖。
 
 - `PP-OCRv6_medium_det`
 - `PP-OCRv6_medium_rec`
