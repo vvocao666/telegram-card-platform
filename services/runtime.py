@@ -104,6 +104,7 @@ from services.status.system_info import (
 )
 from utils.text_utils import split_html_message
 from utils.permission_utils import parse_chat_id, update_user_is_owner, update_user_or_chat_is_owner
+from utils.telegram_utils import reply_html_chunks, send_html_chunks
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
     cleanup_expired_audits,
@@ -180,7 +181,6 @@ PHOTO_RATE_LIMIT_PER_USER = max(1, int(os.getenv("PHOTO_RATE_LIMIT_PER_USER", "5
 OCR_PROGRESS_ENABLED = os.getenv("OCR_PROGRESS_ENABLED", "1").strip() == "1"
 OCR_PROGRESS_MIN_IMAGES = max(1, int(os.getenv("OCR_PROGRESS_MIN_IMAGES", "3")))
 OCR_PROGRESS_UPDATE_SECONDS = max(0.5, float(os.getenv("OCR_PROGRESS_UPDATE_SECONDS", "1.5")))
-TELEGRAM_TEXT_LIMIT = 4096
 PROCESS_STARTED_AT = time.time()
 
 SUCCESS_PREFIX = "\u672c\u6b21\u8bc6\u522b\u6210\u529f"
@@ -2673,26 +2673,6 @@ def format_cards_only(results: list[OcrResult]) -> str:
     if not sections:
         sections.append("\u672a\u8bc6\u522b\u5230\u5361\u5bc6")
     return "\n\n".join(sections)
-
-
-async def reply_html_chunks(message, text: str, **kwargs) -> None:
-    chunks = split_html_message(text)
-    for index, chunk in enumerate(chunks):
-        await message.reply_text(
-            chunk,
-            parse_mode=ParseMode.HTML,
-            **(kwargs if index == 0 else {}),
-        )
-
-
-async def send_html_chunks(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str) -> None:
-    for chunk in split_html_message(text):
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=chunk,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
 
 
 async def reply_okx_price(message) -> None:

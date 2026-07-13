@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from services.price.price_service import format_okx_prices, parse_okx_c2c_usdt_c
 from services.status.status_service import StatusPanelSnapshot, render_status_panel
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image
 from utils.permission_utils import parse_chat_id, update_user_is_owner, update_user_or_chat_is_owner
+from utils.telegram_utils import reply_html_chunks, send_html_chunks
 
 
 def test_price_service_preserves_five_level_format():
@@ -37,6 +39,7 @@ def test_service_modules_do_not_import_runtime():
         Path("services/status/system_info.py"),
         Path("services/trc20/verify_service.py"),
         Path("utils/permission_utils.py"),
+        Path("utils/telegram_utils.py"),
     ):
         assert "services.runtime" not in module_path.read_text(encoding="utf-8")
 
@@ -106,3 +109,33 @@ def test_permission_utils_preserve_owner_matching_contract():
     assert update_user_is_owner(update, "123") is True
     assert update_user_is_owner(update, "456") is False
     assert update_user_or_chat_is_owner(update, "456") is True
+
+
+def test_telegram_utils_preserve_chunk_send_contract(monkeypatch):
+    monkeypatch.setattr("utils.telegram_utils.split_html_message", lambda text: ["first", "second"])
+
+    class Message:
+        def __init__(self):
+            self.calls = []
+
+        async def reply_text(self, text, **kwargs):
+            self.calls.append((text, kwargs))
+
+    class Bot:
+        def __init__(self):
+            self.calls = []
+
+        async def send_message(self, **kwargs):
+            self.calls.append(kwargs)
+
+    message = Message()
+    bot = Bot()
+    context = type("Context", (), {"bot": bot})()
+
+    asyncio.run(reply_html_chunks(message, "content", reply_markup="keyboard"))
+    asyncio.run(send_html_chunks(context, 123, "content"))
+
+    assert message.calls[0][1]["reply_markup"] == "keyboard"
+    assert "reply_markup" not in message.calls[1][1]
+    assert [call["text"] for call in bot.calls] == ["first", "second"]
+    assert all(call["disable_web_page_preview"] is True for call in bot.calls)
