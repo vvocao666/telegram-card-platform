@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ast
+from contextlib import nullcontext
 import html
 import json
 import logging
@@ -52,6 +53,7 @@ from services.ocr.admin_commands import (
 from services.ocr.debug_commands import ocr_candidates as format_ocr_candidates_debug
 from services.ocr.debug_commands import ocr_debug as format_ocr_debug
 from services.ocr.font_repository import FontRepository
+from services.ocr.http_client_pool import close_ocrspace_http_client, get_ocrspace_http_client
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
@@ -539,6 +541,7 @@ async def stop_background_tasks(app: Application) -> None:
         except asyncio.CancelledError:
             pass
     close_remote_http_client()
+    close_ocrspace_http_client()
 
 
 def repair_digit(char: str) -> str:
@@ -1377,7 +1380,8 @@ def run_ocrspace(
     try:
         upload_path = prepare_ocrspace_image(image_path)
         started_at = time.monotonic()
-        with httpx.Client(timeout=OCR_SPACE_TIMEOUT) as client:
+        # 复用连接池，避免每张图片重复建立 TLS 连接。
+        with nullcontext(get_ocrspace_http_client(OCR_SPACE_TIMEOUT)) as client:
             for engine in OCR_SPACE_ENGINES:
                 if time.monotonic() - started_at >= OCR_SPACE_TOTAL_TIMEOUT:
                     logger.warning("OCRSPACE FAILED reason=total_timeout")

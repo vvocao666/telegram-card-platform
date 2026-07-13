@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
+from services.ocr.image_pixels import flattened_pixels
+
 
 DEFAULT_PREPROCESS_DIR = Path("outputs/preprocess")
 MAX_SIDE = 3000
@@ -56,7 +58,7 @@ def _build_variants(source: Image.Image) -> list[PreprocessVariant]:
 
 def crop_card_roi(image: Image.Image) -> tuple[Image.Image, bool]:
     gray = ImageOps.grayscale(image)
-    pixels = list(gray.getdata())
+    pixels = flattened_pixels(gray)
     threshold = max(60, min(210, int(sum(pixels) / max(len(pixels), 1)) - 20))
     dark = [(index % gray.width, index // gray.width) for index, value in enumerate(pixels) if value < threshold]
     if not dark:
@@ -74,7 +76,7 @@ def crop_card_roi(image: Image.Image) -> tuple[Image.Image, bool]:
 
 def image_quality_score(image: Image.Image) -> float:
     gray = ImageOps.grayscale(image)
-    pixels = list(gray.getdata())
+    pixels = flattened_pixels(gray)
     if not pixels:
         return 0.0
     mean = sum(pixels) / len(pixels)

@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from services.ocr.image_pixels import flattened_pixels
+
 
 @dataclass(frozen=True)
 class FontFingerprint:
@@ -30,7 +32,7 @@ def build_font_fingerprint(
     if crop_box:
         source = source.crop(crop_box)
     gray = ImageOps.grayscale(source)
-    pixels = list(gray.getdata())
+    pixels = flattened_pixels(gray)
     threshold = _otsu_like_threshold(pixels)
     dark_pixels = [(index % gray.width, index // gray.width) for index, value in enumerate(pixels) if value < threshold]
     bbox = _dark_bbox(dark_pixels, gray.size)
