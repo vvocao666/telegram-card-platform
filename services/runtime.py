@@ -88,6 +88,12 @@ from services.ocr.result_pipeline import (
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.file_cleanup import cleanup_expired_output_images
+from services.group.group_service import (
+    CLASS_OFF_NOTICE,
+    CLASS_ON_NOTICE,
+    group_welcome_message,
+    parse_class_mode_command as _class_mode_command,
+)
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image, reply_trc20_verify_image
 from services.status.status_service import StatusPanelSnapshot, render_status_panel
 from services.status.system_info import (
@@ -97,6 +103,7 @@ from services.status.system_info import (
     service_active_state,
 )
 from utils.text_utils import split_html_message
+from utils.permission_utils import parse_chat_id, update_user_is_owner, update_user_or_chat_is_owner
 from services.ocr.audit_cache import (
     DEFAULT_AUDIT_ROOT,
     cleanup_expired_audits,
@@ -185,9 +192,6 @@ MANUAL_REVIEW_SUMMARY = "\u9700\u4eba\u5de5\u6838\u5b9e"
 PUBG_LABEL = "PUBG\u5361\u5bc6"
 PSN_LABEL = "PSN\u5361\u5bc6"
 FUZZY_SUFFIX = "\uff08\u8bc6\u522b\u6a21\u7cca\uff09"
-CLASS_ON_NOTICE = "✅本群已上课，开始接收卡密。"
-CLASS_OFF_NOTICE = "❌本群已下课，已经停止接收卡密；\n\n请您【勿发卡密以及撤回卡密】，如卡密丢失概不负责，谢谢。"
-CLASS_COMMAND_RE = re.compile(r"^/(上课|下课)(?:@\w+)?\s*$")
 
 if not TESSERACT_CMD:
     win_tesseract = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
@@ -3118,8 +3122,7 @@ def owner_user_id() -> int | None:
 
 
 def is_owner_update(update: Update | None) -> bool:
-    owner_id = owner_user_id()
-    return bool(owner_id is not None and update and update.effective_user and update.effective_user.id == owner_id)
+    return update_user_is_owner(update, OWNER_CHAT_ID)
 
 
 def ledger_actor_from_message(message) -> LedgerActor | None:
@@ -3210,13 +3213,6 @@ async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await reply_ledger(update.message, result.text)
         return True
     return False
-
-
-def _class_mode_command(text: str) -> str | None:
-    match = CLASS_COMMAND_RE.match((text or "").strip())
-    if not match:
-        return None
-    return "on" if match.group(1) == "上课" else "off"
 
 
 async def handle_class_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3316,26 +3312,6 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
                 update.effective_user.id,
             )
             break
-
-
-def group_welcome_message() -> str:
-    return (
-        "🎉 记账与卡密识别机器人已加入本群\n\n"
-        "主要功能：\n"
-        "• 发送图片可识别 PUBG / PSN 卡密\n"
-        "• <code>+10000</code>：新增入款\n"
-        "• <code>-100 备注</code>：新增下发\n"
-        "• <code>账单</code>：查看当前账单\n"
-        "• <code>设置汇率 10</code>：设置群汇率\n"
-        "• <code>设置费率 10</code>：设置群费率\n"
-        "• <code>设置实时汇率</code>：采用欧意 USDT/CNY 最新 1 档价格更新本群汇率\n"
-        "• <code>设置日切 1点</code>：设置每日账务日切时间\n"
-        "• <code>使用说明</code>：查看完整功能说明\n\n"
-        "当前默认设置：\n"
-        "汇率：1\n"
-        "费率：0%\n"
-        "日切：每天 00:00（北京时间）"
-    )
 
 
 async def handle_bot_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3444,20 +3420,8 @@ def cleanup_audit_photo_paths(paths: list[Path]) -> None:
             logger.warning("Failed to clean audit photo temp path: %s", path)
 
 
-def parse_chat_id(value: str) -> int | None:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def update_is_from_owner(update: Update | None) -> bool:
-    owner_id = parse_chat_id(OWNER_CHAT_ID)
-    if owner_id is None or not update:
-        return False
-    if update.effective_user and update.effective_user.id == owner_id:
-        return True
-    return bool(update.effective_chat and update.effective_chat.id == owner_id)
+    return update_user_or_chat_is_owner(update, OWNER_CHAT_ID)
 
 
 def update_is_private_chat(update: Update | None) -> bool:

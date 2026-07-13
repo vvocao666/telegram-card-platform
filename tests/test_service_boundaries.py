@@ -3,9 +3,11 @@ from pathlib import Path
 
 from PIL import Image
 
+from services.group.group_service import group_welcome_message, parse_class_mode_command
 from services.price.price_service import format_okx_prices, parse_okx_c2c_usdt_cny_prices
 from services.status.status_service import StatusPanelSnapshot, render_status_panel
 from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image
+from utils.permission_utils import parse_chat_id, update_user_is_owner, update_user_or_chat_is_owner
 
 
 def test_price_service_preserves_five_level_format():
@@ -30,9 +32,11 @@ def test_trc20_service_preserves_address_and_image_contract():
 def test_service_modules_do_not_import_runtime():
     for module_path in (
         Path("services/price/price_service.py"),
+        Path("services/group/group_service.py"),
         Path("services/status/status_service.py"),
         Path("services/status/system_info.py"),
         Path("services/trc20/verify_service.py"),
+        Path("utils/permission_utils.py"),
     ):
         assert "services.runtime" not in module_path.read_text(encoding="utf-8")
 
@@ -80,3 +84,25 @@ def test_status_service_preserves_panel_contract():
     assert "opencv: True" in text
     assert "缓存命中率：25.0%" in text
     assert "图片：2 张" in text
+
+
+def test_group_service_preserves_command_and_welcome_contract():
+    assert parse_class_mode_command("/上课") == "on"
+    assert parse_class_mode_command("/下课@card_bot") == "off"
+    assert parse_class_mode_command("上课") is None
+    text = group_welcome_message()
+    assert "记账与卡密识别机器人已加入本群" in text
+    assert "<code>设置实时汇率</code>" in text
+    assert "日切：每天 00:00（北京时间）" in text
+
+
+def test_permission_utils_preserve_owner_matching_contract():
+    user = type("User", (), {"id": 123})()
+    chat = type("Chat", (), {"id": 456})()
+    update = type("Update", (), {"effective_user": user, "effective_chat": chat})()
+
+    assert parse_chat_id("123") == 123
+    assert parse_chat_id("invalid") is None
+    assert update_user_is_owner(update, "123") is True
+    assert update_user_is_owner(update, "456") is False
+    assert update_user_or_chat_is_owner(update, "456") is True
