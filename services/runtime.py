@@ -12,7 +12,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from decimal import Decimal  # noqa: F401 - compatibility export
 from pathlib import Path
 
 import httpx
@@ -21,17 +21,21 @@ from dotenv import load_dotenv
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, ApplicationHandlerStop, ContextTypes, filters
+from telegram.ext import Application, ApplicationHandlerStop, ContextTypes, filters  # noqa: F401 - compatibility export
 
-from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDGER_ADD_GROUP
+from config.constants import BOT_VERSION, TEXT_ADD_GROUP, TEXT_LEDGER, TEXT_LEDGER_ADD_GROUP  # noqa: F401 - compatibility exports
 from handlers.start_handler import (
     add_group_keyboard,
-    handle_add_group_menu,
-    main_menu_keyboard,
-    start,
-    start_help_text,
+    handle_add_group_menu,  # noqa: F401 - compatibility export
+    main_menu_keyboard,  # noqa: F401 - compatibility export
+    start,  # noqa: F401 - compatibility export
+    start_help_text,  # noqa: F401 - compatibility export
 )
-from services.calculator import calculate_expression, format_calc_result as _format_calc_result, normalize_calc_expression
+from services.calculator import (
+    calculate_expression,
+    format_calc_result as _format_calc_result,
+    normalize_calc_expression,  # noqa: F401 - compatibility export
+)
 from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
@@ -40,8 +44,8 @@ from services.price.price_service import (
     format_okx_prices,
     is_price_command,
     is_realtime_rate_command,
-    parse_okx_c2c_usdt_cny_prices,
-    parse_okx_exchange_rate_price,
+    parse_okx_c2c_usdt_cny_prices,  # noqa: F401 - compatibility export
+    parse_okx_exchange_rate_price,  # noqa: F401 - compatibility export
 )
 from services.ocr.candidate_audit import append_candidate_audit, build_candidate_audit
 from services.ocr import command_service as ocr_command_service
@@ -76,8 +80,8 @@ from services.ocr.http_client_pool import (
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
 from services.ocr.correction_service import (
     apply_card_corrections as preserve_one_time_card_result,
-    learn_card_corrections_from_reply,
-    learn_ocr_sample_from_replied_photo,
+    learn_card_corrections_from_reply,  # noqa: F401 - compatibility export
+    learn_ocr_sample_from_replied_photo,  # noqa: F401 - compatibility export
 )
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
@@ -100,6 +104,15 @@ from services.ocr.result_pipeline import (
     result_card_lines as pipeline_result_card_lines,
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
+from services.ocr.history_service import (
+    CardHistoryDuplicate,
+    CardHistoryHooks,
+    append_history_duplicates as append_history_duplicates_service,
+    card_history_day_key as card_history_day_key_service,
+    format_history_time as format_history_time_service,
+    register_card_history as register_card_history_service,
+    source_username_only as source_username_only_service,
+)
 from services.background_tasks import (
     periodic_cleanup_loop,
     start_managed_background_tasks,
@@ -108,9 +121,9 @@ from services.background_tasks import (
 from services.broadcast.broadcast_service import BroadcastController
 from services.file_cleanup import cleanup_server_file_records
 from services.forward.audit_service import (
-    audit_photo_file_ids,
+    audit_photo_file_ids,  # noqa: F401 - compatibility export
     audit_source_text,
-    chat_label,
+    chat_label,  # noqa: F401 - compatibility export
     cleanup_audit_photo_paths,
     download_audit_photo_paths,
     send_audit_bot_message as _send_audit_bot_message,
@@ -124,21 +137,29 @@ from services.group.group_service import (
     group_welcome_message,
     parse_class_mode_command as _class_mode_command,
 )
+from services.group.lifecycle_service import GroupLifecycleHooks, handle_bot_chat_member as handle_bot_chat_member_service
 from services.notify.notify_service import (
     NotifyController,
     chunked as notify_chunked,
     extract_notify_all_text as notify_extract_all_text,
     html_mention_for_member as notify_html_mention,
 )
-from services.trc20.verify_service import extract_trc20_address, make_trc20_verify_image, reply_trc20_verify_image
-from services.status.status_service import StatusPanelSnapshot, render_status_panel
+from services.trc20.verify_service import (
+    extract_trc20_address,
+    make_trc20_verify_image,  # noqa: F401 - compatibility export
+    reply_trc20_verify_image,
+)
 from services.status.system_info import (
     git_output,
     process_memory_mb,
     process_uptime_text as _process_uptime_text,
     service_active_state,
 )
-from utils.text_utils import split_html_message
+from services.status.status_service import StatusPanelSnapshot, render_status_panel  # noqa: F401 - compatibility exports
+from services.status.panel_builder import StatusPanelHooks, build_status_panel as build_status_panel_service
+from services.status.remote_metrics import record_remote_ocr_status as record_remote_ocr_status_service
+from services.ledger.telegram_service import LedgerTextHooks, handle_ledger_text as handle_ledger_text_service
+from utils.text_utils import split_html_message  # noqa: F401 - compatibility export
 from utils.permission_utils import parse_chat_id, update_user_is_owner, update_user_or_chat_is_owner
 from utils.telegram_utils import reply_html_chunks, send_html_chunks
 from services.ocr.audit_cache import (
@@ -152,17 +173,17 @@ from services.ocr.validator import validate_candidate
 from services.ocr.duplicate_detector import canonical_card
 from services.ocr.photo_rate_limiter import (
     check_photo_rate_limit,
-    photo_rate_chat,
-    photo_rate_user,
-    photo_rate_warned_at,
+    photo_rate_chat,  # noqa: F401 - compatibility export
+    photo_rate_user,  # noqa: F401 - compatibility export
+    photo_rate_warned_at,  # noqa: F401 - compatibility export
     warn_photo_rate_limited as _warn_photo_rate_limited,
 )
 from services.ocr.photo_sequence import (
     assign_photo_sequence,
     forget_photo_sequences,
     photo_display_order,
-    photo_sequence,
-    photo_sequence_by_update,
+    photo_sequence,  # noqa: F401 - compatibility export
+    photo_sequence_by_update,  # noqa: F401 - compatibility export used by ordering tests
 )
 from storage.repositories.ledger_storage import LedgerStore
 
@@ -281,14 +302,6 @@ class OrderedCardOccurrence:
     x: int
     duplicate_key: str
     display: str = ""
-
-
-@dataclass(frozen=True)
-class CardHistoryDuplicate:
-    card_type: str
-    card: str
-    first_seen_at: str
-    first_source_user: str
 
 
 chat_buffers: dict[int, list[Update]] = defaultdict(list)
@@ -1772,55 +1785,24 @@ def today_cache_counts() -> dict[str, int]:
 
 
 def build_status_panel() -> str:
-    ensure_remote_ocr_today()
-    worker_ok, worker_payload, worker_error = remote_worker_health()
-    remote_ocr_status["remote_health"] = worker_ok
-    remote_calls = int(remote_ocr_status["today_remote_calls"])
-    cache_counts = today_cache_counts()
-    service_state = service_active_state()
-    branch = git_output(["branch", "--show-current"])
-    commit = git_output(["rev-parse", "--short", "HEAD"])
-    worker_status = str(worker_payload.get("status", "ok" if worker_ok else "offline"))
-    worker_gpu = str(worker_payload.get("gpu", "unknown"))
-    worker_engine = str(worker_payload.get("engine", "unknown"))
-    extra_fields: list[str] = []
-    for key in ("pipeline_loaded", "opencv", "cached", "stats"):
-        if key in worker_payload:
-            extra_fields.append(f"{key}: {worker_payload[key]}")
-    current_provider = REMOTE_OCR_LABEL if worker_ok else "OCR.space"
-    return render_status_panel(
-        StatusPanelSnapshot(
-            service_state=service_state,
-            branch=branch,
-            commit=commit,
-            memory=process_memory_mb(),
-            uptime=process_uptime_text(),
-            ledger_exists=LEDGER_DB_PATH.exists(),
+    return build_status_panel_service(
+        StatusPanelHooks(
+            ensure_today=ensure_remote_ocr_today,
+            worker_health=remote_worker_health,
+            cache_counts=today_cache_counts,
+            service_state=service_active_state,
+            git_output=git_output,
+            process_memory_mb=process_memory_mb,
+            process_uptime_text=process_uptime_text,
+            safe_remote_url=safe_remote_url,
+            average_remote_latency_ms=avg_remote_latency_ms,
+            format_time_value=format_time_value,
+            percent_rate=percent_rate,
+            status=remote_ocr_status,
+            ledger_path=LEDGER_DB_PATH,
             remote_label=REMOTE_OCR_LABEL,
             remote_enabled=REMOTE_OCR_ENABLED,
-            worker_ok=worker_ok,
-            worker_status=worker_status if worker_ok else worker_error,
-            worker_gpu=worker_gpu,
-            worker_engine=worker_engine,
-            remote_url=safe_remote_url(),
-            avg_remote_latency_ms=avg_remote_latency_ms(),
-            last_success=format_time_value(remote_ocr_status.get("last_success_at")),
-            last_failed=format_time_value(remote_ocr_status.get("last_failed_at")),
-            last_error=str(remote_ocr_status.get("last_error") or "无"),
-            current_provider=current_provider,
             ocrspace_available=bool(OCR_SPACE_API_KEYS),
-            remote_calls=remote_calls,
-            remote_success=int(remote_ocr_status["today_remote_success"]),
-            remote_failed=int(remote_ocr_status["today_remote_failed"]),
-            fallback_count=int(remote_ocr_status["today_fallback_count"]),
-            cache_hit_rate=percent_rate(int(remote_ocr_status["today_cache_hits"]), remote_calls),
-            enhanced_rate=percent_rate(int(remote_ocr_status["today_enhanced_used"]), remote_calls),
-            image_count=cache_counts["images"],
-            card_count=cache_counts["cards"],
-            pubg_count=cache_counts["pubg"],
-            psn_count=cache_counts["psn"],
-            duplicate_count=cache_counts["duplicates"],
-            worker_extra=extra_fields,
         )
     )
 
@@ -1835,44 +1817,19 @@ def record_remote_ocr_status(
     enhanced_used: bool = False,
     cache_hit: bool = False,
 ) -> None:
-    now = remote_ocr_now()
-    ensure_remote_ocr_today(now)
-    if health_check:
-        remote_ocr_status["remote_health"] = ok
-        remote_ocr_status["last_checked_at"] = now.isoformat(timespec="seconds")
-        if ok:
-            logger.info("REMOTE OCR HEALTH OK")
-        else:
-            logger.info("REMOTE OCR HEALTH FAILED reason=%s", error)
-        return
-
-    if ok:
-        remote_ocr_status["today_remote_success"] += 1
-        remote_ocr_status["today_remote_latency_total_ms"] += latency_ms
-        if enhanced_used:
-            remote_ocr_status["today_enhanced_used"] += 1
-        if cache_hit:
-            remote_ocr_status["today_cache_hits"] += 1
-        remote_ocr_status["last_success_at"] = now.isoformat(timespec="seconds")
-        logger.info(
-            "REMOTE OCR SUCCESS latency_ms=%s cards=%s texts=%s enhanced_used=%s",
-            latency_ms,
-            card_count,
-            text_count,
-            str(enhanced_used).lower(),
-        )
-    else:
-        remote_ocr_status["today_remote_failed"] += 1
-        remote_ocr_status["last_failed_at"] = now.isoformat(timespec="seconds")
-        logger.info("REMOTE OCR FAILED reason=%s", error)
-    remote_ocr_status.update(
-        {
-            "last_ok": ok,
-            "last_error": error[:200],
-            "last_latency_ms": latency_ms,
-            "last_card_count": card_count,
-            "last_checked_at": now.isoformat(timespec="seconds"),
-        }
+    record_remote_ocr_status_service(
+        status=remote_ocr_status,
+        logger=logger,
+        now_factory=remote_ocr_now,
+        ensure_today=ensure_remote_ocr_today,
+        ok=ok,
+        latency_ms=latency_ms,
+        card_count=card_count,
+        text_count=text_count,
+        error=error,
+        health_check=health_check,
+        enhanced_used=enhanced_used,
+        cache_hit=cache_hit,
     )
 
 
@@ -1892,26 +1849,26 @@ def remote_ocr_available(force_probe: bool = False) -> tuple[bool, str]:
     ):
         ok, _payload, reason = cached  # type: ignore[misc]
         return bool(ok), str(reason)
-    start = time.time()
+    started_at = time.time()
     try:
         client = get_remote_http_client(REMOTE_OCR_TIMEOUT)
         response = client.get(f"{REMOTE_OCR_URL}/health")
-        latency_ms = int((time.time() - start) * 1000)
+        latency_ms = int((time.time() - started_at) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"health status {response.status_code}", health_check=True)
             mark_remote_ocr_offline(f"health status {response.status_code}")
-            remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, f"status={response.status_code}")})
+            remote_ocr_health_cache.update({"checked_at": started_at, "result": (False, {}, f"status={response.status_code}")})
             return False, f"status={response.status_code}"
         record_remote_ocr_status(True, latency_ms, card_count=remote_ocr_status.get("last_card_count", 0), health_check=True)
         mark_remote_ocr_online()
         payload = response.json()
-        remote_ocr_health_cache.update({"checked_at": start, "result": (True, payload if isinstance(payload, dict) else {}, "ok")})
+        remote_ocr_health_cache.update({"checked_at": started_at, "result": (True, payload if isinstance(payload, dict) else {}, "ok")})
         return True, "ok"
     except Exception as exc:
-        latency_ms = int((time.time() - start) * 1000)
+        latency_ms = int((time.time() - started_at) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__, health_check=True)
         mark_remote_ocr_offline(type(exc).__name__)
-        remote_ocr_health_cache.update({"checked_at": start, "result": (False, {}, type(exc).__name__)})
+        remote_ocr_health_cache.update({"checked_at": started_at, "result": (False, {}, type(exc).__name__)})
         return False, type(exc).__name__
 
 
@@ -1927,7 +1884,7 @@ def run_remote_ocr(
         logger.info("REMOTE OCR SKIP reason=%s", remote_ocr_circuit_reason())
         return None
 
-    start = time.time()
+    started_at = time.time()
     record_remote_ocr_start()
     logger.info("REMOTE OCR START url=%s", REMOTE_OCR_URL)
     try:
@@ -1937,7 +1894,7 @@ def run_remote_ocr(
                 f"{REMOTE_OCR_URL}/ocr",
                 files={"file": (image_path.name, image_file, "image/jpeg")},
         )
-        latency_ms = int((time.time() - start) * 1000)
+        latency_ms = int((time.time() - started_at) * 1000)
         if response.status_code != 200:
             record_remote_ocr_status(False, latency_ms, error=f"status {response.status_code}")
             mark_remote_ocr_offline(f"status {response.status_code}")
@@ -2031,7 +1988,7 @@ def run_remote_ocr(
             has_unresolved_pubg_fragment=has_unresolved_pubg_fragment or variant_conflict,
         )
     except Exception as exc:
-        latency_ms = int((time.time() - start) * 1000)
+        latency_ms = int((time.time() - started_at) * 1000)
         record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
         mark_remote_ocr_offline(type(exc).__name__)
         return None
@@ -2296,11 +2253,7 @@ def format_underlined_card_code(card: str) -> str:
 
 
 def source_username_only(source_user: str) -> str:
-    match = re.search(r"@[A-Za-z0-9_]+", source_user)
-    if match:
-        return match.group(0)
-    parts = [part.strip() for part in source_user.split("|") if part.strip()]
-    return parts[0] if parts else source_user.strip() or "Unknown"
+    return source_username_only_service(source_user)
 
 
 def result_pipeline_hooks() -> ResultPipelineHooks:
@@ -2354,75 +2307,30 @@ def apply_card_corrections(chat_id: int, result: OcrResult) -> OcrResult:
 
 
 def card_history_day_key(chat_id: int, now: datetime | None = None) -> str:
-    reset_hour = ledger_store.get_ledger_reset_hour(chat_id)
-    local_now = (now or datetime.now(LEDGER_TZ)).astimezone(LEDGER_TZ)
-    day = local_now.date()
-    if local_now.hour < reset_hour:
-        day -= timedelta(days=1)
-    return day.isoformat()
+    return card_history_day_key_service(chat_id, card_history_hooks(), now)
 
 
 def format_history_time(created_at: str) -> str:
-    parsed = datetime.fromisoformat(created_at)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(LEDGER_TZ).strftime("%H:%M:%S")
+    return format_history_time_service(created_at, LEDGER_TZ)
+
+
+def card_history_hooks() -> CardHistoryHooks:
+    return CardHistoryHooks(
+        store=ledger_store,
+        ledger_timezone=LEDGER_TZ,
+        fuzzy_suffix=FUZZY_SUFFIX,
+        result_card_lines=result_card_lines,
+        user_label=user_label,
+        format_card=format_underlined_card_code,
+    )
 
 
 def register_card_history(updates: list[Update], results: list[OcrResult]) -> list[CardHistoryDuplicate]:
-    if not updates:
-        return []
-    chat = updates[-1].effective_chat
-    if not chat:
-        return []
-    chat_id = chat.id
-    day_key = card_history_day_key(chat_id)
-    ledger_store.clear_recognized_cards_before(day_key)
-    duplicates: list[CardHistoryDuplicate] = []
-    seen_reported: set[tuple[str, str]] = set()
-    for update, result in zip(updates, results):
-        source_user = user_label(update)
-        source_message_id = update.message.message_id if update.message else None
-        pubg_cards, psn_lines = result_card_lines([result])
-        for card_type, cards in (("PUBG", pubg_cards), ("PSN", [card for card in psn_lines if not card.endswith(FUZZY_SUFFIX)])):
-            for card in cards:
-                record = ledger_store.record_recognized_card(
-                    chat_id=chat_id,
-                    card_type=card_type,
-                    card=card,
-                    day_key=day_key,
-                    source_user=source_user,
-                    source_message_id=source_message_id,
-                )
-                key = (card_type, card)
-                if record is None or key in seen_reported:
-                    continue
-                seen_reported.add(key)
-                duplicates.append(
-                    CardHistoryDuplicate(
-                        card_type=card_type,
-                        card=card,
-                        first_seen_at=record.created_at,
-                        first_source_user=record.source_user,
-                    )
-                )
-    return duplicates
+    return register_card_history_service(updates, results, card_history_hooks())
 
 
 def append_history_duplicates(reply: str, duplicates: list[CardHistoryDuplicate]) -> str:
-    if not duplicates:
-        return reply
-    lines = ["<b>今日重复出现卡密</b>"]
-    for duplicate in duplicates:
-        source_user = html.escape(source_username_only(duplicate.first_source_user))
-        lines.extend(
-            [
-                f"{duplicate.card_type}：{format_underlined_card_code(duplicate.card)}",
-                "已出现过",
-                f"首次 {format_history_time(duplicate.first_seen_at)} 来自 | {source_user} |",
-            ]
-        )
-    return reply + "\n\n" + "\n".join(lines)
+    return append_history_duplicates_service(reply, duplicates, card_history_hooks())
 
 
 def format_cards_only(results: list[OcrResult]) -> str:
@@ -2780,62 +2688,24 @@ async def reply_ledger(message, text: str) -> None:
 
 
 async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE, allow_trc20: bool = True) -> bool:
-    if not update.message or not update.effective_chat:
-        return False
-    remember_bot_chat(update)
-    remember_ledger_user(update)
-    ensure_private_ledger_owner(update)
-    normalized_text = (update.message.text or "").strip()
-    if normalized_text in {"开启识别", "打开识别", "启用识别"}:
-        if update.effective_user and update.effective_user.id not in ledger_owner_ids(update.effective_chat.id):
-            await update.message.reply_text("只有拉机器人进群的人可以开启识别。")
-            return True
-        ledger_store.set_recognition_enabled(update.effective_chat.id, True)
-        await update.message.reply_text("卡密识别已开启。")
-        return True
-    if normalized_text in {"关闭识别", "停止识别", "停用识别", "暂停识别"}:
-        if update.effective_user and update.effective_user.id not in ledger_owner_ids(update.effective_chat.id):
-            await update.message.reply_text("只有拉机器人进群的人可以关闭识别。")
-            return True
-        ledger_store.set_recognition_enabled(update.effective_chat.id, False)
-        await update.message.reply_text("卡密识别已关闭，后续图片不会识别卡密。发送“开启识别”可重新开启。")
-        return True
-    trc20_address = extract_trc20_address(update.message.text or "") if allow_trc20 else None
-    if trc20_address:
-        await reply_trc20_verify_image(update.message, trc20_address)
-        return True
-    if await set_realtime_ledger_rate(update):
-        return True
-    if is_price_command(update.message.text or ""):
-        await reply_okx_price(update.message)
-        return True
-    calculation = calculate_expression(update.message.text or "")
-    if calculation is not None:
-        await update.message.reply_text(calculation)
-        return True
-    reply_message = update.message.reply_to_message
-    reply_user = ledger_actor_from_message(reply_message) if reply_message else None
-    reply_text = None
-    reply_message_id = None
-    if reply_message:
-        reply_text = reply_message.text or reply_message.caption
-        reply_message_id = reply_message.message_id
-
-    result = handle_ledger_command_text(
+    hooks = LedgerTextHooks(
         store=ledger_store,
-        chat_id=update.effective_chat.id,
-        actor=ledger_actor(update),
-        text=update.message.text or "",
-        owner_ids=ledger_owner_ids(update.effective_chat.id),
-        reply_user=reply_user,
-        reply_text=reply_text,
-        message_id=update.message.message_id,
-        reply_message_id=reply_message_id,
+        remember_bot_chat=remember_bot_chat,
+        remember_ledger_user=remember_ledger_user,
+        ensure_private_owner=ensure_private_ledger_owner,
+        owner_ids=ledger_owner_ids,
+        extract_trc20_address=extract_trc20_address,
+        reply_trc20_verify_image=reply_trc20_verify_image,
+        set_realtime_rate=set_realtime_ledger_rate,
+        is_price_command=is_price_command,
+        reply_okx_price=reply_okx_price,
+        calculate_expression=calculate_expression,
+        actor_from_update=ledger_actor,
+        actor_from_message=ledger_actor_from_message,
+        handle_command_text=handle_ledger_command_text,
+        reply_ledger=reply_ledger,
     )
-    if result:
-        await reply_ledger(update.message, result.text)
-        return True
-    return False
+    return await handle_ledger_text_service(update, hooks, allow_trc20=allow_trc20)
 
 
 async def handle_class_mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2938,32 +2808,14 @@ async def handle_new_chat_members(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def handle_bot_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.my_chat_member or not update.effective_chat:
-        return
-    chat = update.effective_chat
-    chat_type = getattr(chat, "type", "")
-    if chat_type not in {"group", "supergroup"}:
-        return
-    old_status = getattr(update.my_chat_member.old_chat_member, "status", "")
-    new_status = getattr(update.my_chat_member.new_chat_member, "status", "")
-    if old_status not in {"left", "kicked"} or new_status not in {"member", "administrator"}:
-        return
-    now = time.monotonic()
-    if now - welcome_sent_at.get(chat.id, 0) < 300:
-        return
-    welcome_sent_at[chat.id] = now
-    title = getattr(chat, "title", "") or str(chat.id)
-    ledger_store.remember_bot_chat(chat.id, title, chat_type)
-    ledger_store.ensure_chat(chat.id)
-    inviter_id = update.effective_user.id if update.effective_user else 0
-    if inviter_id:
-        ledger_store.set_chat_owner(chat.id, inviter_id)
-    await context.bot.send_message(
-        chat_id=chat.id,
-        text=group_welcome_message(),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("使用说明", callback_data="ledger:help")]]),
-        disable_web_page_preview=True,
+    await handle_bot_chat_member_service(
+        update,
+        context,
+        GroupLifecycleHooks(
+            store=ledger_store,
+            welcome_sent_at=welcome_sent_at,
+            welcome_message=group_welcome_message,
+        ),
     )
 
 
