@@ -54,7 +54,13 @@ def review_conflicting_thin_strip(
         runtime.logger.warning("OCR THIN STRIP REVIEW FAILED reason=%s", type(exc).__name__)
         return _drop_unconfirmed_conflict(result, original_cards)
 
-    confirmed = _confirmed_candidate(runtime, original_cards, remote, cloud)
+    confirmed = _confirmed_candidate(
+        runtime,
+        original_cards,
+        remote,
+        cloud,
+        original_raw_text=str(getattr(result, "raw_text", "")),
+    )
     if confirmed:
         runtime.logger.info("OCR THIN STRIP REVIEW CONFIRMED card=%s", confirmed)
         review_raw = _review_raw_text(remote, cloud)
@@ -115,13 +121,32 @@ def _raw_pubg_cards(runtime: Any, raw_text: str) -> list[str]:
     return result
 
 
-def _confirmed_candidate(runtime: Any, originals: tuple[str, ...], remote: Any, cloud: Any) -> str | None:
-    if remote is None or cloud is None:
-        return None
+def _confirmed_candidate(
+    runtime: Any,
+    originals: tuple[str, ...],
+    remote: Any,
+    cloud: Any,
+    *,
+    original_raw_text: str,
+) -> str | None:
+    """确认细长图冲突候选，避免因另一端短暂离线而丢卡。
+
+    通常仍要求 Remote 和 OCR.space 在复核图上达成一致。只有原始选择已明确
+    来自 OCR.space，且 OCR.space 对独立裁剪增强图再次读出同一卡时，才允许
+    在 Remote 临时冷却或超时时保留该卡；这不是字符替换，也不会在其他路径生效。
+    """
     remote_cards = _same_slot_cards(runtime, originals, getattr(remote, "cards", ()))
     cloud_cards = _same_slot_cards(runtime, originals, getattr(cloud, "cards", ()))
     shared = [card for card in remote_cards if card in cloud_cards]
-    return shared[0] if len(shared) == 1 else None
+    if len(shared) == 1:
+        return shared[0]
+
+    if "[OCRSPACE]" not in original_raw_text or len(originals) != 1:
+        return None
+    original = originals[0]
+    if cloud_cards == [original]:
+        return original
+    return None
 
 
 def _same_slot_cards(runtime: Any, originals: tuple[str, ...], candidates: Any) -> list[str]:

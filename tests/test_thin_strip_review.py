@@ -98,6 +98,28 @@ def test_unconfirmed_thin_strip_conflict_is_not_output_as_a_false_card(tmp_path)
     assert result.has_unresolved_pubg_fragment is True
 
 
+def test_ocrspace_repeat_confirms_conflict_when_remote_review_is_temporarily_unavailable(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07336-BFE9-UMA7-L33X8"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=(
+            "[REMOTE]\nS07336-BFE9-UMA7-L33X6\n"
+            "[OCRSPACE]\nS07336-BFE9-UMA7-L33X8"
+        ),
+        uncertain_count=1,
+    )
+    runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == (confirmed,)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+    assert runtime.remote_calls == 1
+    assert runtime.cloud_calls == 1
+
+
 def test_complete_non_conflicting_thin_strip_uses_no_extra_ocr(tmp_path):
     image = make_thin_image(tmp_path)
     initial = Result(
