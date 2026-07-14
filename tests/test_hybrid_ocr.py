@@ -696,7 +696,8 @@ def test_remote_ocr_status_command_outputs_requested_fields(monkeypatch):
 
     text = replies[0]
     assert "remote_enabled:" in text
-    assert "remote_url:" in text
+    assert "remote_configured:" in text
+    assert "remote_url:" not in text
     assert "remote_health: True" in text
     assert "last_success_at: 2026-06-22T10:00:00+08:00" in text
     assert "last_failed_at: 2026-06-22T10:01:00+08:00" in text

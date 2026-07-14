@@ -1674,7 +1674,6 @@ def build_status_panel() -> str:
             git_output=git_output,
             process_memory_mb=process_memory_mb,
             process_uptime_text=process_uptime_text,
-            safe_remote_url=safe_remote_url,
             average_remote_latency_ms=avg_remote_latency_ms,
             format_time_value=format_time_value,
             percent_rate=percent_rate,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,6 @@ class StatusPanelSnapshot:
     worker_status: str
     worker_gpu: str
     worker_engine: str
-    remote_url: str
     avg_remote_latency_ms: int
     last_success: str
     last_failed: str
@@ -35,7 +34,14 @@ class StatusPanelSnapshot:
     pubg_count: int
     psn_count: int
     duplicate_count: int
-    worker_extra: list[str] = field(default_factory=list)
+    worker_cpu_status: str = "未启用"
+    worker_gpu_tasks: int = 0
+    worker_cpu_tasks: int = 0
+    worker_gpu_avg_ms: int = 0
+    worker_cpu_avg_ms: int = 0
+    worker_queue_depth: int = 0
+    worker_cache_hits: int = 0
+    worker_conflicts: int = 0
 
 
 def render_status_panel(snapshot: StatusPanelSnapshot) -> str:
@@ -61,17 +67,27 @@ def render_status_panel(snapshot: StatusPanelSnapshot) -> str:
         f"status：{snapshot.worker_status}",
         f"GPU：{snapshot.worker_gpu}",
         f"引擎：{snapshot.worker_engine}",
-        f"地址：{snapshot.remote_url}",
         f"平均延迟：{snapshot.avg_remote_latency_ms} ms",
         f"最近成功：{snapshot.last_success}",
         f"最近失败：{snapshot.last_failed}",
         f"最近错误：{snapshot.last_error}",
     ]
-    lines.extend(snapshot.worker_extra)
     lines.extend(
         [
             "",
+            "【本地识别】",
+            f"GPU：{'在线' if snapshot.worker_ok else '离线'}",
+            f"CPU OCR：{snapshot.worker_cpu_status}",
+            f"GPU Worker任务：{snapshot.worker_gpu_tasks}",
+            f"CPU Worker任务：{snapshot.worker_cpu_tasks}",
+            f"GPU 平均耗时：{snapshot.worker_gpu_avg_ms or '暂无'}{' ms' if snapshot.worker_gpu_avg_ms else ''}",
+            f"CPU 平均耗时：{snapshot.worker_cpu_avg_ms or '暂无'}{' ms' if snapshot.worker_cpu_avg_ms else ''}",
+            f"当前队列：{snapshot.worker_queue_depth}",
+            f"Worker缓存命中：{snapshot.worker_cache_hits}",
+            f"冲突复核：{snapshot.worker_conflicts}",
+            "",
             "🔁 OCR 路由",
+            f"Remote：{'已配置' if snapshot.remote_enabled else '未配置'}",
             f"当前主引擎：{snapshot.current_provider}",
             "备用引擎：OCR.space",
             f"OCR.space fallback：{'可用' if snapshot.ocrspace_available else '未配置'}",

@@ -198,7 +198,7 @@ async def remote_status_command(
     lines = [
         "Remote OCR Status",
         f"remote_enabled: {remote_enabled}",
-        f"remote_url: {remote_url or '-'}",
+        f"remote_configured: {bool(remote_url)}",
         f"remote_health: {available}",
         f"health_reason: {reason}",
         f"last_success_at: {status['last_success_at'] or '-'}",

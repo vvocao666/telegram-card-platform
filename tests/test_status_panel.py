@@ -59,10 +59,16 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     monkeypatch.setattr(bot, "TODAY_OCR_CACHE_PATH", cache_path)
     monkeypatch.setattr(bot, "LEDGER_DB_PATH", tmp_path / "ledger.sqlite3")
     monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
-    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://127.0.0.1:8000")
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://private-worker.example:8000")
     monkeypatch.setattr(bot, "REMOTE_OCR_LABEL", "RTX5070")
     bot.LEDGER_DB_PATH.write_text("", encoding="utf-8")
-    monkeypatch.setattr(bot, "remote_worker_health", lambda: (True, {"status": "ok", "gpu": "RTX5070", "engine": "paddlex_ocr", "opencv": True}, "ok"))
+    monkeypatch.setattr(bot, "remote_worker_health", lambda: (True, {
+        "status": "ok", "gpu": "RTX5070", "engine": "paddlex_ocr",
+        "cpu_ocr": {"enabled": True, "available": True, "shadow_only": True},
+        "stats": {"gpu_runs": 4, "gpu_latency_avg_ms": 203, "cpu_ocr_runs": 0,
+                  "cpu_ocr_avg_ms": 0, "cache_hits": 1, "cpu_conflicts": 0, "roi_reviews": 0},
+        "queue": {"active": 0, "queued": 0},
+    }, "ok"))
     monkeypatch.setattr(bot, "service_active_state", lambda: "active")
     monkeypatch.setattr(bot, "git_output", lambda args: "f557b1a" if args[0] == "rev-parse" else "main")
     bot.remote_ocr_status.update(
@@ -88,6 +94,10 @@ def test_status_panel_contains_requested_sections(monkeypatch, tmp_path):
     assert "GPU：RTX5070" in text
     assert "引擎：paddlex_ocr" in text
     assert "当前主引擎：RTX5070" in text
+    assert "CPU OCR：在线，未运行（影子验证）" in text
+    assert "GPU Worker任务：4" in text
+    assert "private-worker.example" not in text
+    assert "stats: {" not in text
     assert "缓存命中率：25.0%" in text
     assert "OpenCV增强率：50.0%" in text
     assert "图片：2 张" in text

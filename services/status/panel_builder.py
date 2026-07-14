@@ -16,7 +16,6 @@ class StatusPanelHooks:
     git_output: Callable[[list[str]], str]
     process_memory_mb: Callable[[], str]
     process_uptime_text: Callable[[], str]
-    safe_remote_url: Callable[[], str]
     average_remote_latency_ms: Callable[[], int]
     format_time_value: Callable[[object], str]
     percent_rate: Callable[[int, int], str]
@@ -34,11 +33,12 @@ def build_status_panel(hooks: StatusPanelHooks) -> str:
     remote_calls = int(hooks.status["today_remote_calls"])
     cache_counts = hooks.cache_counts()
     worker_status = str(worker_payload.get("status", "ok" if worker_ok else "offline"))
-    extra_fields = [
-        f"{key}: {worker_payload[key]}"
-        for key in ("pipeline_loaded", "opencv", "cached", "stats")
-        if key in worker_payload
-    ]
+    metrics = worker_payload.get("stats")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    queue = worker_payload.get("queue")
+    queue = queue if isinstance(queue, dict) else {}
+    cpu = worker_payload.get("cpu_ocr")
+    cpu = cpu if isinstance(cpu, dict) else {}
     current_provider = hooks.remote_label if worker_ok else "OCR.space"
     return render_status_panel(
         StatusPanelSnapshot(
@@ -54,7 +54,6 @@ def build_status_panel(hooks: StatusPanelHooks) -> str:
             worker_status=worker_status if worker_ok else worker_error,
             worker_gpu=str(worker_payload.get("gpu", "unknown")),
             worker_engine=str(worker_payload.get("engine", "unknown")),
-            remote_url=hooks.safe_remote_url(),
             avg_remote_latency_ms=hooks.average_remote_latency_ms(),
             last_success=hooks.format_time_value(hooks.status.get("last_success_at")),
             last_failed=hooks.format_time_value(hooks.status.get("last_failed_at")),
@@ -72,6 +71,34 @@ def build_status_panel(hooks: StatusPanelHooks) -> str:
             pubg_count=cache_counts["pubg"],
             psn_count=cache_counts["psn"],
             duplicate_count=cache_counts["duplicates"],
-            worker_extra=extra_fields,
+            worker_cpu_status=_cpu_status(worker_ok, cpu, metrics),
+            worker_gpu_tasks=_metric(metrics, "gpu_runs", "requests"),
+            worker_cpu_tasks=_metric(metrics, "cpu_ocr_runs"),
+            worker_gpu_avg_ms=_metric(metrics, "gpu_latency_avg_ms"),
+            worker_cpu_avg_ms=_metric(metrics, "cpu_ocr_avg_ms"),
+            worker_queue_depth=_metric(queue, "active") + _metric(queue, "queued"),
+            worker_cache_hits=_metric(metrics, "cache_hits"),
+            worker_conflicts=_metric(metrics, "cpu_conflicts") + _metric(metrics, "roi_reviews"),
         )
     )
+
+
+def _metric(values: dict[str, Any], *names: str) -> int:
+    for name in names:
+        try:
+            return max(0, int(values.get(name, 0)))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _cpu_status(worker_ok: bool, cpu: dict[str, Any], metrics: dict[str, Any]) -> str:
+    if not worker_ok:
+        return "离线"
+    if not cpu.get("enabled"):
+        return "未启用"
+    if not cpu.get("available"):
+        return "异常"
+    runs = _metric(metrics, "cpu_ocr_runs")
+    suffix = "影子验证" if cpu.get("shadow_only") else "受控复核"
+    return f"在线，{'已运行' if runs else '未运行'}（{suffix}）"

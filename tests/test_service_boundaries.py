@@ -219,7 +219,6 @@ def test_status_service_preserves_panel_contract():
             worker_status="ok",
             worker_gpu="RTX5070",
             worker_engine="paddlex_ocr",
-            remote_url="127.0.0.1:8000",
             avg_remote_latency_ms=600,
             last_success="12:00:00",
             last_failed="无",
@@ -237,14 +236,22 @@ def test_status_service_preserves_panel_contract():
             pubg_count=1,
             psn_count=1,
             duplicate_count=1,
-            worker_extra=["opencv: True"],
+            worker_cpu_status="在线，已运行（影子验证）",
+            worker_gpu_tasks=4,
+            worker_cpu_tasks=2,
+            worker_gpu_avg_ms=203,
+            worker_cpu_avg_ms=41,
+            worker_queue_depth=0,
+            worker_cache_hits=1,
+            worker_conflicts=0,
         )
     )
 
     assert "状态：运行中" in text
     assert "服务：telegram-card-platform active/running" in text
     assert "GPU：RTX5070" in text
-    assert "opencv: True" in text
+    assert "CPU OCR：在线，已运行（影子验证）" in text
+    assert "GPU Worker任务：4" in text
     assert "缓存命中率：25.0%" in text
     assert "图片：2 张" in text
 

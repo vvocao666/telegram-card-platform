@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+import logging
 from dataclasses import asdict
 from typing import Any
 
@@ -12,6 +13,8 @@ from model_registry import CpuModelStatus, validate_cpu_model
 
 
 CARD_RE = re.compile(r"(?<![A-Z0-9])(S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}|[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})(?![A-Z0-9])")
+PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])S07[0-9]{3}(?![0-9])")
+LOGGER = logging.getLogger("rtx5070_worker.cpu_ocr")
 
 
 class CpuOcrEngine:
@@ -22,6 +25,7 @@ class CpuOcrEngine:
         self._metrics = metrics
         self._status: CpuModelStatus | None = None
         self._ocr = None
+        self._last_error = ""
         self._lock = threading.Lock()
         self._semaphore = threading.BoundedSemaphore(max(1, config.cpu_ocr_workers))
 
@@ -37,6 +41,7 @@ class CpuOcrEngine:
             "model_fingerprint": status.model_fingerprint,
             "preprocess_version": PREPROCESS_VERSION,
             "error": status.error,
+            "last_error": self._last_error,
         }
 
     def inspect_gpu_lines(self, image_path: str, texts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -47,7 +52,7 @@ class CpuOcrEngine:
         started = time.monotonic()
         for item in texts:
             gpu_text = str(item.get("text", "")).upper()
-            if not CARD_RE.search(gpu_text) or not item.get("box"):
+            if not _is_cpu_roi_candidate(gpu_text) or not item.get("box"):
                 continue
             evidence = self._inspect_line(image_path, item)
             if evidence is None:
@@ -63,7 +68,9 @@ class CpuOcrEngine:
         return payload
 
     def _inspect_line(self, image_path: str, item: dict[str, Any]) -> dict[str, Any] | None:
+        started = time.monotonic()
         crop_path = write_roi_crop(image_path, item["box"])
+        self._metrics.observe("cpu_preprocess", int((time.monotonic() - started) * 1000))
         if not crop_path:
             return None
         try:
@@ -89,8 +96,10 @@ class CpuOcrEngine:
             text = "".join(str(row[1]) for row in result if len(row) > 1).upper().replace(" ", "")
             scores = [float(row[2]) for row in result if len(row) > 2]
             return text, (sum(scores) / len(scores) if scores else 0.0)
-        except Exception:
+        except Exception as exc:
+            self._last_error = type(exc).__name__
             self._metrics.increment("cpu_ocr_failures")
+            LOGGER.warning("CPU OCR ROI failed reason=%s", self._last_error)
             return "", 0.0
         finally:
             self._semaphore.release()
@@ -109,3 +118,8 @@ class CpuOcrEngine:
                 from rapidocr_onnxruntime import RapidOCR
                 self._ocr = RapidOCR()
             return self._ocr
+
+
+def _is_cpu_roi_candidate(text: str) -> bool:
+    """仅对 GPU 已定位的 PUBG 行做同 ROI 影子识别，允许该行尚未完整。"""
+    return bool(CARD_RE.search(text) or PUBG_PREFIX_RE.search(text))
