@@ -93,8 +93,8 @@ class CpuOcrEngine:
             result, _ = ocr(image_path, use_det=False, use_cls=False, use_rec=True)
             if not result:
                 return "", 0.0
-            text = "".join(str(row[1]) for row in result if len(row) > 1).upper().replace(" ", "")
-            scores = [float(row[2]) for row in result if len(row) > 2]
+            lines, scores = _recognition_lines(result)
+            text = "".join(lines).upper().replace(" ", "")
             return text, (sum(scores) / len(scores) if scores else 0.0)
         except Exception as exc:
             self._last_error = type(exc).__name__
@@ -123,3 +123,24 @@ class CpuOcrEngine:
 def _is_cpu_roi_candidate(text: str) -> bool:
     """仅对 GPU 已定位的 PUBG 行做同 ROI 影子识别，保留 S 首位误读为 5 的证据。"""
     return bool(CARD_RE.search(text) or PUBG_PREFIX_RE.search(text))
+
+
+def _recognition_lines(result: Any) -> tuple[list[str], list[float]]:
+    """兼容 RapidOCR 的行级和带坐标两种返回结构，绝不把置信度当作文本。"""
+    lines: list[str] = []
+    scores: list[float] = []
+    for row in result or ():
+        if not isinstance(row, (list, tuple)):
+            continue
+        if len(row) >= 3 and isinstance(row[1], str):
+            text, score = row[1], row[2]
+        elif len(row) >= 2 and isinstance(row[0], str):
+            text, score = row[0], row[1]
+        else:
+            continue
+        lines.append(text)
+        try:
+            scores.append(float(score))
+        except (TypeError, ValueError):
+            pass
+    return lines, scores

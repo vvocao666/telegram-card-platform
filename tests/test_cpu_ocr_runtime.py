@@ -76,3 +76,24 @@ def test_cpu_ocr_receives_roi_when_gpu_reads_pubg_leading_s_as_five(monkeypatch,
     )
 
     assert payload["lines"][0]["raw_text"] == "S07324-Z4ZH-S4Y7-NBRSB"
+
+
+def test_cpu_ocr_parses_rapidocr_line_only_response(monkeypatch, tmp_path):
+    image = tmp_path / "roi.png"
+    image.write_bytes(b"test")
+    crop = tmp_path / "crop.png"
+    crop.write_bytes(b"crop")
+    config = SimpleNamespace(cpu_ocr_workers=1, cpu_ocr_effective=True, cpu_shadow_only=True,
+                             cpu_can_affect_result=False, confirmation_mode="strict")
+    engine = cpu_ocr.CpuOcrEngine(config, WorkerMetrics())
+    monkeypatch.setattr(engine, "_model_status", lambda: SimpleNamespace(
+        available=True, version="test", model_fingerprint="test", error=""
+    ))
+    monkeypatch.setattr(engine, "_get_ocr", lambda: lambda *_args, **_kwargs: (
+        [["S07324-Z4ZH-S4Y7-NBRSB", 0.95]], [1.0]
+    ))
+
+    text, score = engine._recognize(str(crop))
+
+    assert text == "S07324-Z4ZH-S4Y7-NBRSB"
+    assert score == 0.95
