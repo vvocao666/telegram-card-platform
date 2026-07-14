@@ -4,6 +4,27 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from services.ocr.thin_strip_review import review_conflicting_thin_strip
+
+
+def _review_thin_strip(
+    runtime: Any,
+    image_path: Path,
+    result: Any,
+    *,
+    psn_hint: bool,
+    psn_expected_count: int | None,
+    pubg_expected_count: int | None,
+) -> Any:
+    return review_conflicting_thin_strip(
+        runtime,
+        image_path,
+        result,
+        psn_hint=psn_hint,
+        psn_expected_count=psn_expected_count,
+        pubg_expected_count=pubg_expected_count,
+    )
+
 
 def route_ocr(
     runtime: Any,
@@ -51,7 +72,14 @@ def route_ocr(
                 )
             else:
                 runtime.logger.info("OCR THIN STRIP VERIFIED card=%s", cloud.cards[0])
-            return selected
+            return _review_thin_strip(
+                runtime,
+                image_path,
+                selected,
+                psn_hint=psn_hint,
+                psn_expected_count=psn_expected_count,
+                pubg_expected_count=pubg_expected_count,
+            )
 
     needs_complement = False
     complement_reason = ""
@@ -97,7 +125,10 @@ def route_ocr(
             merged_psn_uncertain = []
             merged_psn_ordered = []
         if settled_cards or merged_psn or merged_psn_uncertain:
-            return runtime.OcrResult(
+            return _review_thin_strip(
+                runtime,
+                image_path,
+                runtime.OcrResult(
                 cards=tuple(settled_cards),
                 psn_cards=tuple(merged_psn),
                 psn_uncertain=tuple(merged_psn_uncertain),
@@ -122,6 +153,10 @@ def route_ocr(
                     + list(fallback.corrections_applied)
                     + list(card_corrections)
                 ),
+                ),
+                psn_hint=psn_hint,
+                psn_expected_count=psn_expected_count,
+                pubg_expected_count=pubg_expected_count,
             )
 
     if remote is not None:
@@ -131,7 +166,14 @@ def route_ocr(
             len(remote.psn_cards) + len(remote.psn_uncertain),
             runtime.count_pubg_markers(remote.raw_text) or 0,
         )
-        return remote
+        return _review_thin_strip(
+            runtime,
+            image_path,
+            remote,
+            psn_hint=psn_hint,
+            psn_expected_count=psn_expected_count,
+            pubg_expected_count=pubg_expected_count,
+        )
 
     if runtime.OCR_PROVIDER == "ocrspace" and runtime.OCR_SPACE_API_KEYS:
         runtime.record_remote_ocr_fallback(runtime.remote_ocr_fallback_reason())
@@ -144,9 +186,23 @@ def route_ocr(
         if (
             cloud.cards or cloud.psn_cards or cloud.psn_uncertain
         ) and not runtime.VERIFY_WITH_LOCAL and not runtime.LOCAL_COMPLEMENT:
-            return cloud
+            return _review_thin_strip(
+                runtime,
+                image_path,
+                cloud,
+                psn_hint=psn_hint,
+                psn_expected_count=psn_expected_count,
+                pubg_expected_count=pubg_expected_count,
+            )
         if not runtime.LOCAL_FALLBACK and not runtime.VERIFY_WITH_LOCAL:
-            return cloud
+            return _review_thin_strip(
+                runtime,
+                image_path,
+                cloud,
+                psn_hint=psn_hint,
+                psn_expected_count=psn_expected_count,
+                pubg_expected_count=pubg_expected_count,
+            )
 
         local = runtime.run_local_ocr(
             image_path,
