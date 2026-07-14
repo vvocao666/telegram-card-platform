@@ -9,8 +9,13 @@ def test_complete_five_prefix_pubg_requires_cloud_confirmation() -> None:
     assert requires_cloud_confirmation("S07999-ABCD-EFGH-IJKL") is False
 
 
-def test_four_character_tail_with_five_prefix_also_requires_cloud_confirmation() -> None:
-    assert requires_cloud_confirmation("507999-ABCD-EFGH-IJKL") is True
+def test_complete_recovered_prefix_on_second_ocr_line_requires_cloud_confirmation() -> None:
+    raw_text = "卡号：\n507324-Z4ZH-54Y7-NBRSB\n密码："
+    assert requires_cloud_confirmation(raw_text) is True
+
+
+def test_four_character_tail_does_not_match_pubg_structure() -> None:
+    assert requires_cloud_confirmation("507999-ABCD-EFGH-IJKL") is False
 
 
 def test_cloud_result_can_replace_same_slot_recovered_prefix_candidate() -> None:

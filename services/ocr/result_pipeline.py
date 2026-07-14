@@ -56,7 +56,7 @@ def count_unique_pubg_markers(
             anchor = [match.group(0)]
             body_match = body_pattern.match(line[match.end() :])
             if body_match:
-                expected_lengths = ({4}, {4}, {4, 5})
+                expected_lengths = ({4}, {4}, {5})
                 for value, allowed_lengths in zip(body_match.groups(), expected_lengths):
                     if value is None or len(value) not in allowed_lengths:
                         break

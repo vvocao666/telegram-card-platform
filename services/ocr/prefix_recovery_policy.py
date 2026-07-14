@@ -7,7 +7,7 @@ from services.ocr.pubg_candidate_merge import is_same_slot_conflict
 
 # 只识别 OCR 将 PUBG 固定首位 S 读成 5 的完整结构；正文字符不参与修复。
 OBSERVED_FIVE_PREFIX_PUBG_RE = re.compile(
-    r"(?<![A-Z0-9])50[0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}(?![A-Z0-9])"
+    r"(?<![A-Z0-9])50[0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])"
 )
 
 

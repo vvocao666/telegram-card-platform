@@ -6,6 +6,7 @@ from worker_config import load_worker_config, load_worker_env
 from worker_metrics import WorkerMetrics
 from worker_queue import WorkerQueueFull, WorkerTaskQueue
 from cpu_ocr import CpuOcrEngine
+from cpu_preprocess import CpuPreparationPool
 import asyncio
 import copy
 import hashlib
@@ -32,6 +33,7 @@ load_worker_env()
 WORKER_CONFIG = load_worker_config()
 WORKER_METRICS = WorkerMetrics()
 CPU_OCR = CpuOcrEngine(WORKER_CONFIG, WORKER_METRICS)
+CPU_PREPROCESSOR = CpuPreparationPool(WORKER_CONFIG, WORKER_METRICS)
 WORKER_QUEUE = WorkerTaskQueue(WORKER_CONFIG.queue_workers, WORKER_CONFIG.queue_capacity)
 
 app = FastAPI()
@@ -95,6 +97,7 @@ def _process_ocr(image_bytes, suffix):
 
     try:
         metrics = _image_metrics(image_bytes)
+        prepared_enhancement = CPU_PREPROCESSOR.start(image_bytes, suffix, metrics)
         original_result, latency_original_ms = _run_ocr_path(original_path)
         enhance_reason = _enhance_reason(metrics, original_result)
         enhanced_used = enhance_reason != "not_needed"
@@ -102,7 +105,9 @@ def _process_ocr(image_bytes, suffix):
         enhanced_result = _empty_ocr_result()
 
         if enhanced_used:
-            enhanced_path = _write_enhanced_image(image_bytes, suffix)
+            enhanced_path = CPU_PREPROCESSOR.result(prepared_enhancement)
+            if not enhanced_path:
+                enhanced_path = _write_enhanced_image(image_bytes, suffix)
             enhanced_result, latency_enhanced_ms = _run_ocr_path(enhanced_path or original_path)
             best, best_engine, selection = _choose_best_result(original_result, enhanced_result)
         else:
@@ -346,31 +351,9 @@ def _write_temp_file(data, suffix):
 
 
 def _write_enhanced_image(data, suffix):
-    if cv2 is None or np is None:
-        return _write_temp_file(data, suffix)
+    from cpu_preprocess import write_enhanced_image
 
-    try:
-        buffer = np.frombuffer(data, dtype=np.uint8)
-        image = cv2.imdecode(buffer, cv2.IMREAD_COLOR)
-        if image is None:
-            return _write_temp_file(data, suffix)
-
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(gray)
-        filtered = cv2.bilateralFilter(enhanced, 5, 50, 50)
-        blurred = cv2.GaussianBlur(filtered, (0, 0), 1.0)
-        sharpened = cv2.addWeighted(filtered, 1.6, blurred, -0.6, 0)
-        upscaled = cv2.resize(sharpened, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
-
-        output_suffix = suffix if suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp") else ".jpg"
-        success, encoded = cv2.imencode(output_suffix, upscaled)
-        if not success:
-            return _write_temp_file(data, suffix)
-
-        return _write_temp_file(encoded.tobytes(), output_suffix)
-    except Exception:
-        return _write_temp_file(data, suffix)
+    return write_enhanced_image(data, suffix) or _write_temp_file(data, suffix)
 
 
 def _cache_get(key):

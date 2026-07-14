@@ -2,17 +2,92 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-import cv2
+try:
+    import cv2
+    import numpy as np
+except Exception:  # Cloud Deploy test environments do not install Worker-only OpenCV.
+    cv2 = None
+    np = None
 
 
-PREPROCESS_VERSION = "roi-v1"
+PREPROCESS_VERSION = "roi-v2"
+
+
+def should_prepare_enhanced(metrics: dict[str, Any]) -> bool:
+    """Only prebuild variants for images that necessarily leave the GPU fast path."""
+    width = int(metrics.get("width", 0) or 0)
+    height = int(metrics.get("height", 0) or 0)
+    variance = float(metrics.get("image_variance", 0.0) or 0.0)
+    return width < 350 or height > 500 or variance < 80.0
+
+
+class CpuPreparationPool:
+    """Prepare a possible enhancement while the serialized GPU handles the original."""
+
+    def __init__(self, config: Any, metrics: Any) -> None:
+        self._enabled = bool(getattr(config, "cpu_preprocess_enabled", False))
+        self._metrics = metrics
+        workers = max(1, int(getattr(config, "cpu_preprocess_workers", 1)))
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="cpu-preprocess")
+
+    def start(self, image_bytes: bytes, suffix: str, metrics: dict[str, Any]) -> Future[str | None] | None:
+        if not self._enabled or not should_prepare_enhanced(metrics):
+            return None
+        return self._executor.submit(self._prepare, image_bytes, suffix)
+
+    def result(self, future: Future[str | None] | None) -> str | None:
+        if future is None:
+            return None
+        try:
+            return future.result()
+        except Exception:
+            return None
+
+    def _prepare(self, image_bytes: bytes, suffix: str) -> str | None:
+        started = time.monotonic()
+        try:
+            return write_enhanced_image(image_bytes, suffix)
+        finally:
+            self._metrics.observe("cpu_preprocess", int((time.monotonic() - started) * 1000))
+
+
+def write_enhanced_image(data: bytes, suffix: str) -> str | None:
+    """Use the existing OpenCV enhancement exactly once; return None on failure."""
+    if cv2 is None or np is None:
+        return None
+    try:
+        image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return None
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        filtered = cv2.bilateralFilter(enhanced, 5, 50, 50)
+        blurred = cv2.GaussianBlur(filtered, (0, 0), 1.0)
+        sharpened = cv2.addWeighted(filtered, 1.6, blurred, -0.6, 0)
+        upscaled = cv2.resize(sharpened, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
+        output_suffix = suffix if suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp") else ".jpg"
+        success, encoded = cv2.imencode(output_suffix, upscaled)
+        if not success:
+            return None
+        handle, target = tempfile.mkstemp(suffix=output_suffix)
+        with os.fdopen(handle, "wb") as output:
+            output.write(encoded.tobytes())
+        return target
+    except Exception:
+        return None
+    return None
 
 
 def write_roi_crop(image_path: str | Path, box: Any, *, scale: int = 3) -> str | None:
     """只根据 GPU 同图坐标裁剪单个文本 ROI，不跨行也不拼接。"""
+    if cv2 is None:
+        return None
     image = cv2.imread(str(image_path))
     if image is None:
         return None
