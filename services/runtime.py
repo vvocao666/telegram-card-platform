@@ -58,6 +58,7 @@ from services.ocr.batch_processor import (
     order_batch_updates,
 )
 from services.ocr.pubg_prefix_consensus import recover_single_prefix_digit_error  # noqa: F401 - provider compatibility export
+from services.ocr.prefix_recovery_policy import requires_cloud_confirmation
 from services.ocr.remote_variant_policy import remote_variants_conflict  # noqa: F401 - provider compatibility export
 from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image  # noqa: F401 - provider compatibility exports
 from services.ocr.correction_engine import apply_corrections
@@ -1186,6 +1187,8 @@ def remote_needs_ocrspace_complement(remote: OcrResult) -> tuple[bool, str]:
         return True, "remote complement"
     if remote.has_unresolved_pubg_fragment:
         return True, "remote unresolved pubg fragment"
+    if requires_cloud_confirmation(remote.raw_text):
+        return True, "recovered pubg prefix requires cloud confirmation"
     detected = max(count_pubg_markers(remote.raw_text) or 0, remote.pubg_expected_count or 0)
     if detected > len(remote.cards):
         return True, "remote pubg marker count mismatch"

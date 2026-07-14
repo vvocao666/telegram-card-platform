@@ -13,7 +13,7 @@ from model_registry import CpuModelStatus, validate_cpu_model
 
 
 CARD_RE = re.compile(r"(?<![A-Z0-9])(S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}|[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})(?![A-Z0-9])")
-PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])S07[0-9]{3}(?![0-9])")
+PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])(?:S|5)0[0-9]{4}(?![0-9])")
 LOGGER = logging.getLogger("rtx5070_worker.cpu_ocr")
 
 
@@ -121,5 +121,5 @@ class CpuOcrEngine:
 
 
 def _is_cpu_roi_candidate(text: str) -> bool:
-    """仅对 GPU 已定位的 PUBG 行做同 ROI 影子识别，允许该行尚未完整。"""
+    """仅对 GPU 已定位的 PUBG 行做同 ROI 影子识别，保留 S 首位误读为 5 的证据。"""
     return bool(CARD_RE.search(text) or PUBG_PREFIX_RE.search(text))

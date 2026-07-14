@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
+from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 
 
 def _review_thin_strip(
@@ -98,6 +99,33 @@ def route_ocr(
             psn_expected_count=psn_expected_count,
             pubg_expected_count=pubg_expected_count,
         )
+        if complement_reason == "recovered pubg prefix requires cloud confirmation":
+            confirmed = choose_cloud_same_slot_card(
+                tuple(remote.cards),
+                tuple(fallback.cards),
+                valid_card=runtime.valid_card,
+            )
+            if confirmed:
+                runtime.logger.warning(
+                    "OCRSPACE PREFIX REVIEW SELECTED card=%s remote=%s",
+                    confirmed,
+                    list(remote.cards),
+                )
+                return _review_thin_strip(
+                    runtime,
+                    image_path,
+                    replace(
+                        fallback,
+                        cards=(confirmed,),
+                        raw_text=(
+                            f"[REMOTE]\n{remote.raw_text.strip()}\n"
+                            f"[OCRSPACE_PREFIX_REVIEW]\n{fallback.raw_text.strip()}"
+                        ).strip(),
+                    ),
+                    psn_hint=psn_hint,
+                    psn_expected_count=psn_expected_count,
+                    pubg_expected_count=pubg_expected_count,
+                )
         if len(fallback.cards) >= len(remote.cards):
             merged, conflict_count = runtime.merge_without_guessing(
                 list(fallback.cards), list(remote.cards)
