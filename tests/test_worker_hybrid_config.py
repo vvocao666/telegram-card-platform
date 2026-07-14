@@ -30,3 +30,12 @@ def test_worker_config_reads_bounded_queue(monkeypatch):
     monkeypatch.setenv("LOCAL_WORKER_QUEUE_CAPACITY", "999")
     config = module.load_worker_config()
     assert config.queue_capacity == 128
+
+
+def test_worker_env_file_overrides_stale_service_flag(tmp_path, monkeypatch):
+    module = load_module("worker_config")
+    target = tmp_path / "hybrid.env"
+    target.write_text("LOCAL_CPU_OCR_CAN_AFFECT_RESULT=true\n", encoding="utf-8")
+    monkeypatch.setenv("LOCAL_CPU_OCR_CAN_AFFECT_RESULT", "false")
+    module.load_worker_env(target)
+    assert module.os.getenv("LOCAL_CPU_OCR_CAN_AFFECT_RESULT") == "true"

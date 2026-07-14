@@ -15,7 +15,9 @@ def load_worker_env(path: Path | None = None) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+        # hybrid.env 是 Worker 专属部署开关，必须覆盖 Windows 服务遗留的同名环境变量。
+        # 仅解析该文件中的键，不触碰机器人或系统其它配置。
+        os.environ[key.strip()] = value.strip()
 
 
 def _enabled(name: str, default: bool = False) -> bool:
