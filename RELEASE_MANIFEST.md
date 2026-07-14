@@ -2,7 +2,7 @@
 
 - 发布日期：2026-07-14
 - 正式代码源：`main`
-- 完整 Commit SHA：在封版提交和标签创建后填写
+- 完整 Commit SHA：由 `production-cloud-2026.07.14` 与 `production-owner-hybrid-2026.07.14` 两个标签解析；两者必须指向同一提交，发布报告记录完整 SHA。
 - 测试：封版时执行 `python -m pytest`
 - 编译检查：封版时执行 `python -m compileall -q bot.py config handlers services storage utils tests`
 - Cloud Deploy 入口：`deploy/cloud/install.sh`、`deploy/cloud/update.sh`

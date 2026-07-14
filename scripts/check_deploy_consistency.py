@@ -18,7 +18,9 @@ def digest_business_source() -> str:
         paths = [path] if path.is_file() else sorted(item for item in path.rglob("*.py") if item.is_file())
         for item in paths:
             hasher.update(item.relative_to(ROOT).as_posix().encode("utf-8"))
-            hasher.update(item.read_bytes())
+            # Windows and Linux checkouts may differ only by CRLF/LF. Normalize
+            # line endings so this release check compares source, not checkout format.
+            hasher.update(item.read_bytes().replace(b"\r\n", b"\n"))
     return hasher.hexdigest()
 
 
