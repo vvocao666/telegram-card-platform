@@ -79,6 +79,9 @@ from services.ocr.http_client_pool import (
 )
 from services.ocr.ocrspace_provider import recognize_ocrspace
 from services.ocr.learning_commands import build_learning_preview, execute_learning, format_learning_stats
+from services.ocr.manual_review import ManualReviewNotifier
+from services.ocr.enhancement_flags import load_local_hybrid_flags
+from services.ocr.remote_execution_gate import RemoteExecutionGate
 from services.ocr.correction_service import (
     apply_card_corrections as preserve_one_time_card_result,
     learn_card_corrections_from_reply,  # noqa: F401 - compatibility export
@@ -221,6 +224,9 @@ REMOTE_OCR_TIMEOUT = float(os.getenv("REMOTE_OCR_TIMEOUT", "1.5"))
 REMOTE_OCR_HEALTH_CACHE_SECONDS = float(os.getenv("REMOTE_OCR_HEALTH_CACHE_SECONDS", "10"))
 REMOTE_OCR_OFFLINE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_OFFLINE_SECONDS", "180"))))
 REMOTE_OCR_PROBE_SECONDS = max(5, int(float(os.getenv("REMOTE_OCR_PROBE_SECONDS", "60"))))
+LOCAL_HYBRID_FLAGS = load_local_hybrid_flags()
+REMOTE_OCR_MAX_IN_FLIGHT = max(1, int(os.getenv("REMOTE_OCR_MAX_IN_FLIGHT", "4")))
+REMOTE_OCR_BUSY_WAIT_SECONDS = max(0.0, float(os.getenv("REMOTE_OCR_BUSY_WAIT_SECONDS", "0.25")))
 OCR_SPACE_API_KEY = os.getenv("OCR_SPACE_API_KEY", "").strip()
 OCR_SPACE_API_KEYS_RAW = os.getenv("OCR_SPACE_API_KEYS", "").strip()
 OCR_SPACE_MAX_SIDE = int(os.getenv("OCR_SPACE_MAX_SIDE", "3000"))
@@ -315,6 +321,7 @@ class OrderedCardOccurrence:
 
 
 chat_buffers: dict[int, list[Update]] = defaultdict(list)
+manual_review_notifier = ManualReviewNotifier()
 chat_tasks: dict[int, asyncio.Task] = {}
 chat_flush_locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 ocrspace_cooldown_until = 0.0
@@ -336,9 +343,11 @@ remote_ocr_status = {
     "today_remote_latency_total_ms": 0,
     "today_enhanced_used": 0,
     "today_cache_hits": 0,
+    "today_remote_busy": 0,
 }
 remote_ocr_health_cache: dict[str, object] = {"checked_at": 0.0, "result": None}
 remote_ocr_offline_until = 0.0
+remote_ocr_execution_gate = RemoteExecutionGate(REMOTE_OCR_MAX_IN_FLIGHT)
 ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ocr_batch_jobs = OcrBatchJobPool()
 ocr_live_progresses: dict[int, "LiveOcrBatchProgress"] = {}
@@ -1504,6 +1513,18 @@ def record_remote_ocr_fallback(reason: str) -> None:
     logger.info("OCRSPACE FALLBACK reason=%s", reason)
 
 
+def record_remote_ocr_busy(reason: str) -> None:
+    """Worker 忙不等同于离线：保留健康线路，不触发 180 秒冷却。"""
+    ensure_remote_ocr_today()
+    remote_ocr_status["today_remote_busy"] += 1
+    remote_ocr_status["last_error"] = f"busy:{reason}"
+    logger.info("REMOTE OCR BUSY reason=%s", reason)
+
+
+def remote_ocr_execution_slot():
+    return remote_ocr_execution_gate.slot(REMOTE_OCR_BUSY_WAIT_SECONDS)
+
+
 def remote_ocr_is_circuit_open(now: float | None = None) -> bool:
     current = time.time() if now is None else now
     return provider_circuit_is_open(remote_ocr_offline_until, current)
@@ -2613,6 +2634,17 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
 
         has_results = has_card_results(results)
         await progress.finish(has_results)
+
+        # 待核对图只在原聊天回复原图；不经过审计转发路径，也不影响同批其它结果。
+        for batch_index, update in enumerate(updates, start=1):
+            item = manual_review_notifier.needs_review(results[batch_index - 1])
+            if item is not None:
+                await manual_review_notifier.notify(
+                    update,
+                    context,
+                    batch_index=batch_index,
+                    item=item,
+                )
 
         if not has_results:
             return

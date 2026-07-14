@@ -12,6 +12,7 @@ DAILY_COUNTER_DEFAULTS = {
     "today_remote_latency_total_ms": 0,
     "today_enhanced_used": 0,
     "today_cache_hits": 0,
+    "today_remote_busy": 0,
 }
 
 

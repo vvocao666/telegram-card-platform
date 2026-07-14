@@ -1,7 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from paddlex import create_pipeline
 from ocr_fast_path import enhance_reason
 from ocr_line_recovery import recover_suspicious_pubg_lines
+from worker_config import load_worker_config, load_worker_env
+from worker_metrics import WorkerMetrics
+from worker_queue import WorkerQueueFull, WorkerTaskQueue
+from cpu_ocr import CpuOcrEngine
 import asyncio
 import copy
 import hashlib
@@ -24,6 +28,12 @@ except Exception:
     paddle = None
 
 
+load_worker_env()
+WORKER_CONFIG = load_worker_config()
+WORKER_METRICS = WorkerMetrics()
+CPU_OCR = CpuOcrEngine(WORKER_CONFIG, WORKER_METRICS)
+WORKER_QUEUE = WorkerTaskQueue(WORKER_CONFIG.queue_workers, WORKER_CONFIG.queue_capacity)
+
 app = FastAPI()
 pipeline = create_pipeline("OCR")
 paddle_semaphore = threading.Semaphore(1)
@@ -42,22 +52,39 @@ def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "gpu": "RTX5070", "engine": "paddlex_ocr"}
+    return {
+        "status": "ok",
+        "gpu": "RTX5070",
+        "engine": "paddlex_ocr",
+        "pipeline_loaded": True,
+        "opencv": cv2 is not None,
+        "cpu_ocr": CPU_OCR.status(),
+        "stats": WORKER_METRICS.snapshot(),
+        "queue": WORKER_QUEUE.snapshot(),
+    }
 
 
 @app.post("/ocr")
 async def ocr(file: UploadFile = File(...)):
     suffix = os.path.splitext(file.filename or "image.jpg")[1] or ".jpg"
     image_bytes = await file.read()
-    return await asyncio.to_thread(_process_ocr, image_bytes, suffix)
+    WORKER_METRICS.increment("requests")
+    try:
+        if WORKER_CONFIG.queue_v2_enabled:
+            return await WORKER_QUEUE.run(_process_ocr, image_bytes, suffix)
+        return await asyncio.to_thread(_process_ocr, image_bytes, suffix)
+    except WorkerQueueFull as exc:
+        WORKER_METRICS.increment("queue_rejected")
+        raise HTTPException(status_code=429, detail="worker_busy") from exc
 
 
 def _process_ocr(image_bytes, suffix):
     start = time.time()
-    image_sha1 = hashlib.sha1(image_bytes).hexdigest()
+    image_sha1 = _cache_key(image_bytes)
 
     cached = _cache_get(image_sha1)
     if cached is not None:
+        WORKER_METRICS.increment("cache_hits")
         response = copy.deepcopy(cached)
         response["cached"] = True
         response["latency_ms"] = int((time.time() - start) * 1000)
@@ -88,6 +115,7 @@ def _process_ocr(image_bytes, suffix):
             copy.deepcopy(best),
             _run_ocr_path,
         )
+        cpu_payload = _cpu_evidence(original_path, best)
 
         response = {
             "ok": True,
@@ -107,6 +135,7 @@ def _process_ocr(image_bytes, suffix):
             "enhanced_used": enhanced_used,
             "enhance_reason": enhance_reason,
             "line_recoveries": line_recoveries,
+            "cpu_ocr": cpu_payload,
             "cached": False,
         }
         _cache_set(image_sha1, response)
@@ -121,8 +150,15 @@ def _process_ocr(image_bytes, suffix):
 def _run_ocr_path(path):
     start = time.time()
     # PaddleX GPU 推理串行进入，OpenCV 预处理仍由 CPU 完成。
-    with paddle_semaphore:
+    wait_started = WORKER_METRICS.gpu_wait_started()
+    paddle_semaphore.acquire()
+    WORKER_METRICS.gpu_wait_finished(wait_started)
+    gpu_started = WORKER_METRICS.gpu_started()
+    try:
         results = list(pipeline.predict(path))
+    finally:
+        WORKER_METRICS.gpu_finished(gpu_started)
+        paddle_semaphore.release()
     texts = []
     cards = []
 
@@ -269,6 +305,29 @@ def _empty_ocr_result():
     return {"text_count": 0, "card_count": 0, "avg_score": 0.0, "max_score": 0.0, "texts": [], "cards": []}
 
 
+def _cpu_evidence(image_path, result):
+    """CPU 的结果只作为可审计的同 ROI 证据，正式 cards 不在此处改写。"""
+    if not WORKER_CONFIG.cpu_ocr_effective:
+        return CPU_OCR.status()
+    return CPU_OCR.inspect_gpu_lines(image_path, list(result.get("texts", [])))
+
+
+def _cache_key(image_bytes):
+    base = hashlib.sha1(image_bytes).hexdigest()
+    if not WORKER_CONFIG.enabled:
+        return base
+    cpu = CPU_OCR.status()
+    version = "|".join(
+        (
+            "hybrid-v1",
+            str(cpu.get("model_fingerprint", "")),
+            str(cpu.get("preprocess_version", "")),
+            str(WORKER_CONFIG.confirmation_mode),
+        )
+    )
+    return hashlib.sha1(f"{base}|{version}".encode("ascii")).hexdigest()
+
+
 def _clean_text(text):
     return (
         str(text)
@@ -364,4 +423,3 @@ def _gpu_name():
         except Exception:
             pass
     return "RTX5070"
-

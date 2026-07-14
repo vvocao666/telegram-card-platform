@@ -4,6 +4,7 @@ import asyncio
 import bot
 import pytest
 from PIL import Image
+from types import SimpleNamespace
 
 
 @pytest.fixture(autouse=True)
@@ -248,6 +249,19 @@ def test_remote_ocr_connection_failure_opens_circuit(monkeypatch, tmp_path):
     assert bot.remote_ocr_is_circuit_open()
     assert bot.remote_ocr_status["today_remote_failed"] == 1
     assert bot.remote_ocr_fallback_reason().startswith("remote offline")
+
+
+def test_remote_busy_status_does_not_open_offline_circuit(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        bot,
+        "LOCAL_HYBRID_FLAGS",
+        SimpleNamespace(worker_queue_v2=False, busy_offline_separation=True),
+    )
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(status_code=429)))
+
+    assert bot.run_remote_ocr(write_image(tmp_path)) is None
+    assert not bot.remote_ocr_is_circuit_open()
+    assert bot.remote_ocr_status["today_remote_busy"] == 1
 
 
 def test_remote_ocr_health_probe_recovers_circuit(monkeypatch):

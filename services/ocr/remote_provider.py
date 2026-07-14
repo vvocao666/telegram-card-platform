@@ -4,6 +4,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
+from services.ocr.multi_source_decision import cpu_payload_requires_review
+from services.ocr.remote_execution_gate import RemoteWorkerBusy
+
 
 def recognize_remote(
     runtime: Any,
@@ -27,13 +32,24 @@ def recognize_remote(
     runtime.logger.info("REMOTE OCR START url=%s", runtime.REMOTE_OCR_URL)
     try:
         client = runtime.get_remote_http_client(runtime.REMOTE_OCR_TIMEOUT)
-        with image_path.open("rb") as image_file:
-            response = client.post(
-                f"{runtime.REMOTE_OCR_URL}/ocr",
-                files={"file": (image_path.name, image_file, "image/jpeg")},
-            )
+        if runtime.LOCAL_HYBRID_FLAGS.worker_queue_v2:
+            with runtime.remote_ocr_execution_slot():
+                with image_path.open("rb") as image_file:
+                    response = client.post(
+                        f"{runtime.REMOTE_OCR_URL}/ocr",
+                        files={"file": (image_path.name, image_file, "image/jpeg")},
+                    )
+        else:
+            with image_path.open("rb") as image_file:
+                response = client.post(
+                    f"{runtime.REMOTE_OCR_URL}/ocr",
+                    files={"file": (image_path.name, image_file, "image/jpeg")},
+                )
         latency_ms = int((time.time() - started_at) * 1000)
         if response.status_code != 200:
+            if runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation and response.status_code in {429, 503}:
+                runtime.record_remote_ocr_busy(f"status {response.status_code}")
+                return None
             runtime.record_remote_ocr_status(
                 False, latency_ms, error=f"status {response.status_code}"
             )
@@ -43,7 +59,7 @@ def recognize_remote(
         if payload.get("ok") is not True:
             runtime.record_remote_ocr_status(False, latency_ms, error="ok=false")
             return None
-        variant_conflict = runtime.remote_variants_conflict(payload)
+        variant_conflict = runtime.remote_variants_conflict(payload) or cpu_payload_requires_review(payload)
         worker_cards = payload.get("cards")
         if not isinstance(worker_cards, list):
             worker_cards = []
@@ -143,6 +159,19 @@ def recognize_remote(
                 has_unresolved_pubg_fragment or variant_conflict
             ),
         )
+    except RemoteWorkerBusy:
+        runtime.record_remote_ocr_busy("local_gate")
+        return None
+    except (httpx.TimeoutException, TimeoutError) as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        if runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation:
+            healthy, _payload, _reason = runtime.remote_worker_health()
+            if healthy:
+                runtime.record_remote_ocr_busy(type(exc).__name__)
+                return None
+        runtime.record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        runtime.mark_remote_ocr_offline(type(exc).__name__)
+        return None
     except Exception as exc:
         latency_ms = int((time.time() - started_at) * 1000)
         runtime.record_remote_ocr_status(

@@ -4,5 +4,7 @@ python-multipart==0.0.32
 paddlex==3.7.1
 opencv-python==4.13.0.92
 numpy==2.3.5
+rapidocr-onnxruntime==1.4.4
+onnxruntime==1.27.0
 
 # paddlepaddle-gpu 必须按显卡驱动和 CUDA 版本安装，不能使用通用 CPU wheel 替代。
