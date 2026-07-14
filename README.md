@@ -1,168 +1,83 @@
 # Telegram Card Platform
 
-## 推荐版本
+## 正式生产版本
 
-普通云服务器部署唯一标准版：
-
-```text
-Cloud Deploy / 当前 main
-```
-
-作者本人专用增强版：
+`main` 是唯一的业务代码源，也是 Cloud Deploy 的滚动正式版本。Cloud Deploy 与 Owner Hybrid 必须使用同一个 Git commit SHA、同一套业务代码、同一套 OCR 规则和同一数据库行为。
 
 ```text
-owner-hybrid = Cloud Deploy + RTX5070 / Tailscale / Remote OCR
+Cloud Deploy = main + REMOTE_OCR_ENABLED=false
+Owner Hybrid = main + 私有 .env 中开启 RTX5070 Remote OCR
 ```
 
-旧稳定版：
+Owner Hybrid 不维护单独的业务分支。它仅增加 Windows RTX5070 Worker、Tailscale 或私有 Remote OCR 地址等环境配置；Remote OCR 不可用时自动回退 OCR.space。
 
-```text
-v1.3.0-ocr-learning-plus
+## 功能
+
+- 图片、相册和图片文件 PUBG / PSN 卡密识别
+- `S07` 加三位数字 PUBG 前缀、相邻 OCR 行换行重建、PUBG/PSN 图片级互斥
+- Remote OCR 优先、OCR.space 自动回退、按需 OpenCV 预处理、缓存、限流和稳定批次排序
+- 服务器 OCR 审计、审计副机器人转发、私有 benchmark 与人工复核入口
+- 记账、汇率、费率、日切、账单、价格查询与 TRC20 地址校验
+- owner 群广播、当前群通知所有人、群欢迎、状态和 OCR 调试命令
+- systemd、备份、恢复、Cloud Deploy 与 Owner Hybrid 部署入口
+
+普通文本不会触发 OCR；无卡图片保持静默。OCR 不猜卡、不跨行或跨卡拼接，无法确认时进入复核而不是输出不可追溯的卡密。
+
+## Cloud Deploy
+
+适用于 Ubuntu 22.04、Ubuntu 24.04 与 Debian 12，不需要 Windows、RTX5070、Tailscale 或私有 Remote OCR。
+
+```bash
+git clone https://github.com/vvocao666/telegram-card-platform.git /opt/telegram-card-platform
+cd /opt/telegram-card-platform
+sudo bash deploy/cloud/install.sh
+sudo nano /opt/telegram-card-platform/.env
+sudo systemctl start telegram-card-platform
 ```
 
-`v2.8.0-cloud-deploy` 保留为历史里程碑 Release，不代表后续最新代码。
+新服务器 `.env` 必须保持：
 
-`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。以后所有通用功能、Bug 修复、OCR 规则、管理员功能、学习流程、排序去重、广播通知、状态面板都必须先进入 Cloud Deploy。
+```env
+REMOTE_OCR_ENABLED=false
+REMOTE_OCR_URL=
+```
 
-## 版本定义
+详细步骤见 [DEPLOY.md](DEPLOY.md)。
 
-Cloud Deploy 永远代表：
+## Owner Hybrid / RTX5070
 
-- 当前最新功能。
-- 当前所有 Bug 修复。
-- 当前所有 OCR 规则优化。
-- 当前所有管理员功能。
-- 当前所有状态、广播、学习、去重、排序功能。
-- 新服务器可直接完整部署。
-- 不需要部署后手工补丁。
-
-Cloud Deploy 默认不依赖：
-
-- Windows RTX5070 OCR Worker。
-- Tailscale。
-- `REMOTE_OCR_URL` 本地地址。
-- 本地 GPU 混合识别。
-- Windows 本地 OCR 服务部署。
-
-owner-hybrid 只是在 Cloud Deploy 基础上通过 `.env` 开启本地 GPU 增强：
+先执行完全相同的 Cloud Deploy 安装，再仅在私有 `.env` 中配置自己的 Worker：
 
 ```env
 REMOTE_OCR_ENABLED=true
-REMOTE_OCR_URL=http://100.81.208.104:8000
+REMOTE_OCR_URL=http://YOUR_PRIVATE_WORKER:8000
 ```
 
-普通云服务器默认保持：
+不要将真实地址、Tailscale 信息或任何密钥提交到 Git。详细流程见 [docs/OWNER_HYBRID_DEPLOY.md](docs/OWNER_HYBRID_DEPLOY.md)。
 
-```env
-REMOTE_OCR_ENABLED=false
-REMOTE_OCR_URL=
-```
-
-## 当前功能
-
-- Telegram 图片卡密识别。
-- PUBG / PSN 图片级互斥分类。
-- 任意 `S07xxxx` 前缀 PUBG 识别。
-- PUBG 换行卡密按 OCR 行顺序、相邻行、坐标顺序拼接。
-- 禁止从 PUBG 子串派生 PSN。
-- OCR.space 云端 OCR 与 fallback。
-- 可选 Remote OCR / RTX5070 Hybrid OCR。
-- OpenCV 轻量预处理。
-- 今日 OCR 缓存。
-- OCR 人工真值审计、字体模板和纠错统计；不记忆或复用一次性完整卡密。
-- 重复卡密提醒。
-- 输出顺序保持图片顺序、图内从上到下、同行从左到右。
-- 文本卡密消息默认不触发 OCR 回复。
-- `/learn_cards` 和“学习卡密”用于人工真值审计与字体特征样本。
-- 双向私聊中继回复。
-- 记账功能，支持设置汇率、设置费率、费率快照、手续费计算。
-- 费率会从入款中扣除，再计算应下发人民币和应下发U；修改汇率或费率只影响后续新账单。
-- 广播群组选择。
-- 通知所有人。
-- 状态面板。
-- systemd 部署、备份、恢复。
-
-## 目录结构
-
-```text
-bot.py                  # 启动入口与 handler 注册
-config/                 # 配置、日志、常量
-handlers/               # Telegram Update 处理层
-services/               # OCR、记账、广播、转发、运行服务
-storage/                # 数据库与仓储
-utils/                  # 通用工具
-tests/                  # 回归测试与 benchmark
-scripts/                # 备份、部署、恢复脚本
-systemd/                # systemd 服务模板
-docs/                   # 文档
-feature_backups/        # 历史备份
-```
-
-## 快速部署
-
-```bash
-export APP_DIR=/opt/telegram-card-platform
-sudo git clone https://github.com/vvocao666/telegram-card-platform.git "$APP_DIR"
-cd "$APP_DIR"
-sudo apt-get update
-sudo apt-get install -y python3 python3-venv python3-pip git tesseract-ocr
-python3 -m venv .venv
-.venv/bin/python3 -m pip install --upgrade pip
-.venv/bin/python3 -m pip install -r requirements.txt
-cp .env.example .env
-nano .env
-```
-
-普通云服务器确认：
-
-```env
-REMOTE_OCR_ENABLED=false
-REMOTE_OCR_URL=
-```
-
-启动 systemd：
-
-```bash
-sudo mkdir -p /etc/telegram-card-platform
-printf 'APP_DIR=%s\nPYTHON_BIN=.venv/bin/python3\n' "$APP_DIR" | sudo tee /etc/telegram-card-platform/service.env
-sudo cp systemd/telegram-card-platform.service /etc/systemd/system/telegram-card-platform.service
-sudo systemctl daemon-reload
-sudo systemctl enable telegram-card-platform
-sudo systemctl start telegram-card-platform
-sudo systemctl is-active telegram-card-platform
-```
-
-## 更新
+## 更新、日志与健康检查
 
 ```bash
 cd /opt/telegram-card-platform
-git pull --ff-only origin main
-.venv/bin/python3 -m pip install -r requirements.txt
-.venv/bin/python3 -m compileall -q bot.py config handlers services storage utils tests
-sudo systemctl restart telegram-card-platform
+sudo bash deploy/cloud/update.sh
+sudo bash deploy/cloud/health.sh
+journalctl -u telegram-card-platform -f
 ```
 
-## 日志
+## 备份与回滚
 
 ```bash
-journalctl -u telegram-card-platform -f
-journalctl -u telegram-card-platform --since "1 hour ago"
+bash scripts/backup_data.sh
 ```
 
-## 回滚
+部署前备份优先于 Git 回滚。完整说明见 [ROLLBACK.md](ROLLBACK.md)。
 
-优先回滚到最近一次服务器备份目录。只有需要回到旧归档版本时才使用 tag。
+## 验证
 
-普通云服务器不再把 v120 或 v1.3 当作最新稳定版；它们只是历史归档。
-
-## 发布规则
-
-小 Bug、OCR 规则修复、性能优化、文档修改、管理员功能修复：
-
-```text
-只 commit 并 push origin main
-不创建 Tag
-不创建 Release
+```bash
+python -m pytest
+python -m compileall -q bot.py config handlers services storage utils tests
+python scripts/check_deploy_consistency.py
 ```
 
-只有 OCR 引擎更换、数据库结构变化、部署方式变化、重大架构升级、长期稳定版封版时，才创建正式 Release。
+私有图片、OCR 审计原图、运行输出、数据库、日志和 `.env` 都被忽略，禁止上传到 GitHub。

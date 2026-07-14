@@ -1,49 +1,41 @@
 # 回滚说明
 
-## 当前标准
+生产回滚优先使用本次部署前的服务器备份，而不是直接切换旧 tag。备份必须保留项目目录、`.env`、`outputs/ledger.sqlite3`、`outputs/` 与 systemd service。
 
-当前唯一推荐部署版本是：
-
-```text
-Cloud Deploy / v2.8.0-cloud-deploy / 当前 main
-```
-
-Cloud Deploy 代表当前最新通用功能和全部通用 Bug 修复。
-
-## 优先回滚方式
-
-生产回滚优先使用服务器备份，而不是旧 tag：
+## 从服务器备份恢复
 
 ```bash
 sudo systemctl stop telegram-card-platform
-rsync -a /root/backups/backup_name/project/ /opt/telegram-card-platform/
-cp /root/backups/backup_name/.env /opt/telegram-card-platform/.env
-cp /root/backups/backup_name/ledger.sqlite3 /opt/telegram-card-platform/outputs/ledger.sqlite3
+sudo rsync -a /root/backups/telegram-card-platform_before_YYYYMMDD_HHMMSS/project/ /opt/telegram-card-platform/
+sudo cp /root/backups/telegram-card-platform_before_YYYYMMDD_HHMMSS/.env /opt/telegram-card-platform/.env
+sudo cp /root/backups/telegram-card-platform_before_YYYYMMDD_HHMMSS/ledger.sqlite3 /opt/telegram-card-platform/outputs/ledger.sqlite3
+sudo systemctl daemon-reload
 sudo systemctl start telegram-card-platform
+sudo systemctl status telegram-card-platform --no-pager
 ```
 
-## Cloud Deploy 与 owner-hybrid
+实际备份目录必须以部署时输出的路径为准。恢复前后都不要删除当前 `.env`、数据库或 `outputs/`。
 
-普通云服务器：
+## Cloud Deploy 与 Owner Hybrid
+
+两者始终使用相同代码 commit。普通云服务器保持：
 
 ```env
 REMOTE_OCR_ENABLED=false
 REMOTE_OCR_URL=
 ```
 
-作者本人环境：
+Owner Hybrid 仅在私有 `.env` 启用自己的 Remote OCR。若 Windows Worker 或网络不可用，不需要回滚业务代码，机器人会自动回退 OCR.space。
 
-```env
-REMOTE_OCR_ENABLED=true
-REMOTE_OCR_URL=http://100.81.208.104:8000
+## Git 回滚
+
+仅当确认某个已发布 commit 是问题根因时使用：
+
+```bash
+cd /opt/telegram-card-platform
+git log --oneline -10
+git checkout <known-good-commit>
+sudo systemctl restart telegram-card-platform
 ```
 
-如果不使用本地 RTX5070 / Tailscale / Remote OCR，只需要关闭 `.env` 中的 Remote OCR，不需要回退到旧版本。
-
-## 历史版本
-
-`v1.3.0-ocr-learning-plus` 已归档，不再作为最新推荐部署版本。
-
-`strict-v120-owner-broadcast-no-trx` / `feature_backups/v120_stable` 只作为历史重构前备份。
-
-只有在需要回到旧行为做事故排查时，才使用历史 tag。
+Git 回滚前也必须完整备份；恢复完成后检查服务和日志。

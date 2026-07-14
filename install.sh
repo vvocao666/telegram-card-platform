@@ -3,15 +3,16 @@ set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/telegram-card-platform}"
 REPO_URL="${REPO_URL:-https://github.com/vvocao666/telegram-card-platform.git}"
-VERSION="${VERSION:-v2.8.0-cloud-deploy}"
+REF="${REF:-main}"
 
 if [ ! -d "$APP_DIR/.git" ]; then
   git clone "$REPO_URL" "$APP_DIR"
 fi
 
 cd "$APP_DIR"
-git fetch --tags
-git checkout "$VERSION"
+git fetch --tags origin "$REF"
+git checkout "$REF"
+git pull --ff-only origin "$REF"
 
 apt-get update
 apt-get install -y python3 python3-venv python3-pip git tesseract-ocr

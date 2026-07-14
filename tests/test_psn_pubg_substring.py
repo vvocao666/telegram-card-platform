@@ -7,7 +7,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def enable_remote_ocr_for_remote_worker_tests(monkeypatch):
     monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
-    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://100.81.208.104:8000")
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://remote.test:8000")
     bot.close_remote_http_client()
     yield
     bot.close_remote_http_client()

@@ -10,7 +10,7 @@ from PIL import Image
 def reset_remote_ocr_status(monkeypatch):
     old_remote_url = bot.REMOTE_OCR_URL
     monkeypatch.setattr(bot, "REMOTE_OCR_ENABLED", True)
-    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://100.81.208.104:8000")
+    monkeypatch.setattr(bot, "REMOTE_OCR_URL", "http://remote.test:8000")
     bot.close_remote_http_client()
     bot.remote_ocr_status.update(
         {

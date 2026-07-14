@@ -1,84 +1,35 @@
-# Maintenance Guide
+# 维护指南
 
-Current framework version: `telegram-card-platform-modular`
-
-Stable rollback baseline: `strict-v120-owner-broadcast-no-trx`
-
-## Daily Checks
+## 日常检查
 
 ```bash
 systemctl is-active telegram-card-platform
 journalctl -u telegram-card-platform --since "1 hour ago"
 ```
 
-## Safe Change Rules
-
-- Do not commit `.env`, databases, logs, runtime outputs, or backups.
-- Run tests before committing.
-- Keep `bot.py` behavior unchanged until a refactor phase is explicitly approved.
-- Move code in small batches and keep rollback easy.
-
-## Test Commands
+## 修改前
 
 ```bash
+git status --short --branch
+git log -5 --oneline --decorate
 python -m pytest
-python -m py_compile bot.py services/runtime.py services/ledger/ledger_commands.py storage/repositories/ledger_storage.py
+python -m compileall -q bot.py config handlers services storage utils tests
+python scripts/check_deploy_consistency.py
 ```
 
-## Backup Before Changes
+不要提交 `.env`、数据库、日志、运行输出、审计图片或备份。任何 OCR 改动必须保持不猜卡、不跨卡拼接，并通过真实样本 benchmark。
 
-Linux:
+## 备份与恢复
 
 ```bash
 bash scripts/backup_data.sh
 ```
 
-Windows PowerShell:
+生产部署前备份项目、`.env`、`outputs/ledger.sqlite3`、`outputs/` 和 systemd service。恢复细节见 [ROLLBACK.md](ROLLBACK.md)。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
-```
+## 常见问题
 
-For a full local source backup, copy the project while excluding:
-
-- `.git`
-- `.env`
-- `.venv`
-- `outputs/`
-- `backups/`
-- `__pycache__/`
-- `.pytest_cache/`
-
-## Restore
-
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/restore.ps1 -BackupDir .\backups\telegram-card-platform-YYYYMMDD-HHMMSS
-```
-
-Linux restore should copy back `.env` and `outputs/`, then restart:
-
-```bash
-sudo systemctl restart telegram-card-platform
-```
-
-## Common Issues
-
-- Bot does not start: check `BOT_TOKEN`, Python dependencies, service env file, and `journalctl -u telegram-card-platform`.
-- OCR fails: check OCR API key, network access, image size limits, and OCR cooldown logs.
-- Ledger data missing: check `LEDGER_DB_PATH` and restored database file ownership.
-- Broadcast group missing: let the bot observe a message in that group so it can record the group.
-
-## Rollback
-
-```bash
-cd "$APP_DIR"
-git log --oneline -5
-git checkout <known-good-commit>
-sudo systemctl restart telegram-card-platform
-```
-
-Use rollback only after confirming which commit is the known-good baseline.
-
-For the last stable v120 file-level rollback, use `feature_backups/v120_stable/ROLLBACK.md`.
+- 服务未启动：检查 `.env`、依赖和 `journalctl -u telegram-card-platform`。
+- OCR 失败：检查 OCR.space 配置、网络、冷却日志与图片尺寸。
+- Owner Hybrid 离线：确认 Windows Worker 正常；机器人会自动回退 OCR.space。
+- 账本异常：检查 `LEDGER_DB_PATH`，不要覆盖或删除生产数据库。
