@@ -91,8 +91,9 @@ def test_daily_stats_group_by_chat_and_user_and_dedupe_per_image(tmp_path: Path)
     alice = next(row for row in stats.sources if row.username == "alice")
     assert (alice.images, alice.pubg_cards, alice.psn_cards) == (2, 2, 1)
     message = "\n".join(format_daily_ocr_stats(stats))
-    assert "群：群&lt;A&gt;" in message
+    assert message.count("群：群&lt;A&gt;") == 1
     assert "用户：@alice" in message
+    assert "用户：@bob" in message
     assert "卡密合计：4 个" in message
 
 

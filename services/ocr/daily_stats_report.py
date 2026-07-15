@@ -100,28 +100,7 @@ def format_daily_ocr_stats(stats: DailyOcrStats) -> list[str]:
         f"日期：{stats.report_date.isoformat()}",
         "",
     ]
-    blocks: list[str] = []
-    for source in stats.sources:
-        chat_label = (
-            html.escape(source.chat_title)
-            if source.chat_title
-            else (f"群ID {source.chat_id}" if source.chat_id < 0 else "私聊")
-        )
-        user_label = (
-            f"@{html.escape(source.username.lstrip('@'))}"
-            if source.username
-            else (f"用户ID {source.user_id}" if source.user_id else "未知用户")
-        )
-        blocks.append(
-            "\n".join(
-                (
-                    f"群：{chat_label}",
-                    f"用户：{user_label}",
-                    f"图片：{source.images} 张",
-                    f"卡密：{source.cards} 个（PUBG {source.pubg_cards} / PSN {source.psn_cards}）",
-                )
-            )
-        )
+    blocks = _format_source_groups(stats.sources)
     if not blocks:
         blocks.append("当日未收到 OCR 图片。")
     footer = "\n".join(
@@ -134,6 +113,39 @@ def format_daily_ocr_stats(stats: DailyOcrStats) -> list[str]:
         )
     )
     return _chunk_report(header, blocks, footer)
+
+
+def _format_source_groups(sources: tuple[OcrSourceStats, ...]) -> list[str]:
+    grouped: dict[int, list[OcrSourceStats]] = {}
+    for source in sources:
+        grouped.setdefault(source.chat_id, []).append(source)
+
+    blocks: list[str] = []
+    for group_sources in grouped.values():
+        first = group_sources[0]
+        chat_label = (
+            html.escape(first.chat_title)
+            if first.chat_title
+            else (f"群ID {first.chat_id}" if first.chat_id < 0 else "私聊")
+        )
+        user_blocks: list[str] = []
+        for source in group_sources:
+            user_label = (
+                f"@{html.escape(source.username.lstrip('@'))}"
+                if source.username
+                else (f"用户ID {source.user_id}" if source.user_id else "未知用户")
+            )
+            user_blocks.append(
+                "\n".join(
+                    (
+                        f"用户：{user_label}",
+                        f"图片：{source.images} 张",
+                        f"卡密：{source.cards} 个（PUBG {source.pubg_cards} / PSN {source.psn_cards}）",
+                    )
+                )
+            )
+        blocks.append(f"群：{chat_label}\n" + "\n\n".join(user_blocks))
+    return blocks
 
 
 async def send_daily_ocr_stats(
