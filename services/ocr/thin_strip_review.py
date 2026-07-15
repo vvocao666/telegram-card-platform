@@ -9,6 +9,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 from services.ocr.image_preprocess import crop_card_roi
 from services.ocr.pubg_candidate_merge import is_same_slot_conflict
+from services.ocr.source_consensus import repeated_pubg_source_consensus
 from services.ocr.thin_strip_policy import is_thin_strip_image
 
 
@@ -26,6 +27,16 @@ def review_conflicting_thin_strip(
     该路径不能推测字符。只有 Remote 与 OCR.space 在独立的局部重读中
     返回同一张完整 PUBG 卡密时，才替换原结果；否则撤回冲突候选并要求人工核对。
     """
+    source_consensus = repeated_pubg_source_consensus(result)
+    if source_consensus:
+        runtime.logger.info("OCR THIN STRIP SOURCE CONSENSUS card=%s", source_consensus)
+        return replace(
+            result,
+            cards=(source_consensus,),
+            pubg_expected_count=1,
+            uncertain_count=0,
+            has_unresolved_pubg_fragment=False,
+        )
     if not _needs_review(runtime, image_path, result):
         return result
 

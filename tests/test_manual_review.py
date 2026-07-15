@@ -85,3 +85,37 @@ def test_different_complete_pubg_candidate_still_triggers_review():
 
     assert item is not None
     assert item.reason == "识别结果存在冲突，无法安全确认"
+
+
+def test_repeated_cross_source_consensus_suppresses_stale_review_flags():
+    notifier = ManualReviewNotifier()
+    card = "S07336-ERR8-YVGA-QQ5PL"
+    variant = "S07336-ERR8-YVGA-OQ5PL"
+    raw_text = (
+        f"[REMOTE]\n{card}\n{card}\n"
+        f"[OCRSPACE]\n{card}\n{card}\n{variant}"
+    )
+
+    item = notifier.needs_review(
+        result(
+            cards=(card,),
+            raw_text=raw_text,
+            uncertain_count=2,
+            has_unresolved_pubg_fragment=True,
+        )
+    )
+
+    assert item is None
+
+
+def test_repeated_cross_source_consensus_does_not_hide_missing_card_count():
+    notifier = ManualReviewNotifier()
+    card = "S07336-ERR8-YVGA-QQ5PL"
+    raw_text = f"[REMOTE]\n{card}\n{card}\n[OCRSPACE]\n{card}\n{card}"
+
+    item = notifier.needs_review(
+        result(cards=(card,), raw_text=raw_text, pubg_expected_count=2)
+    )
+
+    assert item is not None
+    assert item.reason == "识别数量少于图片中的卡密标记"

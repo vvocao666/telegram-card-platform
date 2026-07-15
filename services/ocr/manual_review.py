@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import html
-import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
-
-PUBG_CARD_RE = re.compile(r"(?<![A-Z0-9])S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])")
+from services.ocr.source_consensus import PUBG_CARD_RE, repeated_pubg_source_consensus
 
 
 @dataclass(frozen=True)
@@ -30,6 +28,8 @@ class ManualReviewNotifier:
     def needs_review(self, result: Any) -> ManualReviewItem | None:
         expected = max(result.pubg_expected_count or 0, result.psn_expected_count or 0)
         actual = len(result.cards) + len(result.psn_cards)
+        if expected <= 1 and repeated_pubg_source_consensus(result):
+            return None
         if result.has_unresolved_pubg_fragment:
             return ManualReviewItem(0, "存在无法按相邻行完整重建的卡密")
         if expected and actual < expected:

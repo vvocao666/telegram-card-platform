@@ -130,15 +130,20 @@ def test_repeated_card_with_same_slot_noise_is_confirmed_without_manual_review(t
             f"[REMOTE]\n{confirmed}\n{confirmed}\n"
             f"[OCRSPACE]\n{confirmed}\n{confirmed}\n{conflicting}\n{conflicting}"
         ),
+        pubg_expected_count=2,
         uncertain_count=2,
+        has_unresolved_pubg_fragment=True,
     )
     runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
 
     result = review_conflicting_thin_strip(runtime, image, initial)
 
     assert result.cards == (confirmed,)
+    assert result.pubg_expected_count == 1
     assert result.uncertain_count == 0
     assert result.has_unresolved_pubg_fragment is False
+    assert runtime.remote_calls == 0
+    assert runtime.cloud_calls == 0
 
 
 def test_confirmed_slot_does_not_clear_uncertainty_for_another_card_slot(tmp_path):
