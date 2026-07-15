@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import html
+import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
+
+
+PUBG_CARD_RE = re.compile(r"(?<![A-Z0-9])S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])")
 
 
 @dataclass(frozen=True)
@@ -30,7 +34,7 @@ class ManualReviewNotifier:
             return ManualReviewItem(0, "存在无法按相邻行完整重建的卡密")
         if expected and actual < expected:
             return ManualReviewItem(0, "识别数量少于图片中的卡密标记")
-        if result.uncertain_count:
+        if result.uncertain_count and not _has_repeated_exact_pubg_evidence(result):
             return ManualReviewItem(0, "识别结果存在冲突，无法安全确认")
         return None
 
@@ -83,3 +87,16 @@ class ManualReviewNotifier:
         expired = [key for key, expires_at in self._sent.items() if expires_at <= now]
         for key in expired:
             self._sent.pop(key, None)
+
+
+def _has_repeated_exact_pubg_evidence(result: Any) -> bool:
+    """同一合法卡被原始 OCR 重复完整读取时，不把尾部噪声当成真实冲突。"""
+
+    cards = tuple(str(card).upper() for card in (getattr(result, "cards", ()) or ()))
+    if not cards or getattr(result, "psn_cards", ()):
+        return False
+    raw_text = str(getattr(result, "raw_text", "") or "").upper()
+    if not raw_text:
+        return False
+    raw_cards = PUBG_CARD_RE.findall(raw_text)
+    return set(raw_cards) == set(cards) and all(raw_cards.count(card) >= 2 for card in cards)

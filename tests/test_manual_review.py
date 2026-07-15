@@ -20,6 +20,7 @@ def result(**changes):
         "psn_cards": (),
         "uncertain_count": 0,
         "has_unresolved_pubg_fragment": False,
+        "raw_text": "",
     }
     values.update(changes)
     return SimpleNamespace(**values)
@@ -55,3 +56,32 @@ def test_review_does_not_require_confirmed_result():
     notifier = ManualReviewNotifier()
     assert notifier.needs_review(result(cards=("S07336-AAAA-BBBB-CCCCC",))) is None
     assert notifier.needs_review(result(has_unresolved_pubg_fragment=True)) is not None
+
+
+def test_exact_repeated_pubg_evidence_does_not_trigger_review():
+    notifier = ManualReviewNotifier()
+    card = "S07317-3MEW-GA8A-BDTVA"
+    raw_text = "\n".join(
+        (
+            card,
+            card,
+            f"{card}E",
+            f"{card}#1",
+            "VAIQE-VGVO-M3AT-LELOS",
+        )
+    )
+
+    assert notifier.needs_review(result(cards=(card,), uncertain_count=1, raw_text=raw_text)) is None
+
+
+def test_different_complete_pubg_candidate_still_triggers_review():
+    notifier = ManualReviewNotifier()
+    card = "S07336-TPM2-RZ9J-HCTBS"
+    other = "S07336-TPM2-RZ9J-VICTB"
+
+    item = notifier.needs_review(
+        result(cards=(card,), uncertain_count=1, raw_text=f"{card}\n{card}\n{other}")
+    )
+
+    assert item is not None
+    assert item.reason == "识别结果存在冲突，无法安全确认"
