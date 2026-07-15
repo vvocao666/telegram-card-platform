@@ -487,6 +487,35 @@ def test_full_and_wrapped_remote_variants_count_as_one_pubg_marker(monkeypatch):
     assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
 
 
+def test_conflicting_tail_variants_for_one_card_slot_count_once(monkeypatch):
+    """Original/enhanced OCR tail disagreement is not a second physical card."""
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-TPM2-RZ9J-HCTBS",),
+        raw_text=(
+            "S07336-TPM2-RZ9J-HCTBS\n"
+            "S07336-TPM2-RZ9J-VICTBS"
+        ),
+    )
+
+    assert bot.count_pubg_markers(remote.raw_text) == 1
+    assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
+def test_same_slot_conflicting_tails_do_not_trigger_manual_review(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    remote = bot.OcrResult(
+        cards=("S07336-TPM2-RZ9J-HCTBS",),
+        raw_text=(
+            "S07336-TPM2-RZ9J-HCTBS\n"
+            "S07336-TPM2-RZ9J-VICTBS"
+        ),
+    )
+
+    assert bot.merge_pubg_expected_count(None, remote.raw_text) == 1
+    assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
+
+
 def test_distinct_pubg_markers_still_trigger_missing_card_complement(monkeypatch):
     monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
     remote = bot.OcrResult(

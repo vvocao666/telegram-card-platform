@@ -12,7 +12,16 @@ from cpu_preprocess import PREPROCESS_VERSION, write_roi_crop
 from model_registry import CpuModelStatus, validate_cpu_model
 
 
-CARD_RE = re.compile(r"(?<![A-Z0-9])(S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4,5}|[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})(?![A-Z0-9])")
+# PUBG is structurally strict: S07 + three digits + 4-4-5 groups.
+# CPU shadow evidence must use the same acceptance boundary as the GPU path.
+# The PSN branch explicitly rejects the three trailing PUBG groups of an
+# incomplete PUBG token, so CPU evidence cannot invent a PSN conflict there.
+CARD_RE = re.compile(
+    r"(?<![A-Z0-9])(?:"
+    r"S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}"
+    r"|(?<!S07[0-9]{3}-)[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}"
+    r")(?![A-Z0-9])"
+)
 PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])(?:S|5)0[0-9]{4}(?![0-9])")
 LOGGER = logging.getLogger("rtx5070_worker.cpu_ocr")
 

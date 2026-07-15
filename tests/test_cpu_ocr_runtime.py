@@ -97,3 +97,10 @@ def test_cpu_ocr_parses_rapidocr_line_only_response(monkeypatch, tmp_path):
 
     assert text == "S07324-Z4ZH-S4Y7-NBRSB"
     assert score == 0.95
+
+
+def test_cpu_shadow_does_not_treat_four_character_pubg_tail_as_complete():
+    assert cpu_ocr.CARD_RE.findall("S07324-Z4ZH-S4Y7-NBRS") == []
+    assert cpu_ocr.CARD_RE.findall("S07324-Z4ZH-S4Y7-NBRSB") == [
+        "S07324-Z4ZH-S4Y7-NBRSB"
+    ]

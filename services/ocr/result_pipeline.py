@@ -65,10 +65,24 @@ def count_unique_pubg_markers(
 
     unique: list[tuple[str, ...]] = []
     for anchor in sorted(anchors, key=len, reverse=True):
-        if any(anchor == existing[: len(anchor)] for existing in unique):
+        if any(_same_pubg_marker_slot(anchor, existing) for existing in unique):
             continue
         unique.append(anchor)
     return len(unique) or None
+
+
+def _same_pubg_marker_slot(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
+    """Collapse OCR variants of one card without hiding distinct card slots.
+
+    Original and enhanced OCR passes can disagree only on a PUBG tail while
+    retaining the prefix and both four-character body groups.  Those are two
+    readings of the same visible card, not evidence of a second card.  Partial
+    fragments keep the earlier prefix comparison so a genuinely unresolved
+    card still triggers the fallback path.
+    """
+    if len(left) >= 3 and len(right) >= 3:
+        return left[:3] == right[:3]
+    return left == right[: len(left)] or right == left[: len(right)]
 
 
 def ordered_pubg_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:
