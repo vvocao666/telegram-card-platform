@@ -131,6 +131,7 @@ from services.file_cleanup import cleanup_server_file_records
 from services.forward.audit_service import (
     audit_photo_file_ids,  # noqa: F401 - compatibility export
     audit_source_text,
+    resolve_audit_source_text,
     chat_label,  # noqa: F401 - compatibility export
     cleanup_audit_photo_paths,
     download_audit_photo_paths,
@@ -2501,7 +2502,8 @@ async def notify_owner(
         return
     if not AUDIT_BOT_TOKEN and first and first.effective_chat and first.effective_chat.id == target_chat_id_int:
         return
-    text = audit_source_text(first) + "\n\n" + append_history_duplicates(format_reply(results), history_duplicates or [])
+    source_text = await resolve_audit_source_text(first, context.bot)
+    text = source_text + "\n\n" + append_history_duplicates(format_reply(results), history_duplicates or [])
     if AUDIT_BOT_TOKEN:
         try:
             photo_paths = await download_audit_photo_paths(updates, context)

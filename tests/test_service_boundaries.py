@@ -7,7 +7,12 @@ from PIL import Image
 from handlers.registry import register_handlers
 from handlers.start_handler import add_group_keyboard, main_menu_keyboard, start_help_text
 from services.background_tasks import start_managed_background_tasks, stop_managed_background_tasks
-from services.forward.audit_service import audit_photo_file_ids, audit_source_text, update_is_private_chat
+from services.forward.audit_service import (
+    audit_photo_file_ids,
+    audit_source_text,
+    resolve_audit_source_text,
+    update_is_private_chat,
+)
 from services.group.group_service import group_welcome_message, parse_class_mode_command
 from services.ocr.photo_rate_limiter import check_photo_rate_limit, photo_rate_chat, photo_rate_user
 from services.ocr.photo_sequence import (
@@ -190,6 +195,67 @@ def test_audit_source_links_public_group_message_without_sender_id():
 
     assert '<a href="https://t.me/audit_group/77">审计群</a>' in text
     assert "987654" not in text
+
+
+def test_audit_source_creates_and_reuses_basic_group_link(tmp_path: Path):
+    class Bot:
+        def __init__(self):
+            self.create_calls = 0
+
+        async def get_chat(self, chat_id):
+            return type("ChatInfo", (), {"username": "", "invite_link": ""})()
+
+        async def create_chat_invite_link(self, **kwargs):
+            self.create_calls += 1
+            assert kwargs["creates_join_request"] is True
+            return type("Invite", (), {"invite_link": "https://t.me/+audit-link"})()
+
+    user = type("User", (), {"id": 123, "username": "alice", "first_name": "Alice", "last_name": ""})()
+    chat = type("Chat", (), {"id": -12345, "type": "group", "title": "基础群"})()
+    message = type("Message", (), {"message_id": 88})()
+    update = type(
+        "Update",
+        (),
+        {"effective_user": user, "effective_chat": chat, "effective_message": message},
+    )()
+    bot = Bot()
+    state_path = tmp_path / "audit_links.json"
+
+    async def scenario():
+        first_result = await resolve_audit_source_text(update, bot, state_path=state_path)
+        second_result = await resolve_audit_source_text(update, bot, state_path=state_path)
+        return first_result, second_result
+
+    first, second = asyncio.run(scenario())
+
+    assert '<a href="https://t.me/+audit-link">基础群</a>' in first
+    assert second == first
+    assert bot.create_calls == 1
+
+
+def test_audit_source_basic_group_falls_back_when_invite_permission_is_missing(tmp_path: Path):
+    class Bot:
+        async def get_chat(self, chat_id):
+            return type("ChatInfo", (), {"username": "", "invite_link": ""})()
+
+        async def create_chat_invite_link(self, **kwargs):
+            raise PermissionError("missing invite permission")
+
+    user = type("User", (), {"id": 123, "username": "alice", "first_name": "Alice", "last_name": ""})()
+    chat = type("Chat", (), {"id": -12345, "type": "group", "title": "Basic Group"})()
+    message = type("Message", (), {"message_id": 88})()
+    update = type(
+        "Update",
+        (),
+        {"effective_user": user, "effective_chat": chat, "effective_message": message},
+    )()
+
+    text = asyncio.run(
+        resolve_audit_source_text(update, Bot(), state_path=tmp_path / "audit_links.json")
+    )
+
+    assert "Basic Group" in text
+    assert '<a href=' not in text
 
 
 def test_photo_sequence_service_preserves_receive_order_and_cleanup():

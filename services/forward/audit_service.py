@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import html
+import json
 import logging
 import tempfile
 from pathlib import Path
@@ -15,6 +17,8 @@ from utils.text_utils import split_html_message
 
 
 logger = logging.getLogger("telegram-card-platform")
+DEFAULT_AUDIT_CHAT_LINKS_PATH = Path("outputs/audit_chat_links.json")
+_audit_chat_link_lock = asyncio.Lock()
 
 
 def user_label(update: Update) -> str:
@@ -41,16 +45,88 @@ def chat_label(update: Update | None) -> str:
     return f"群组（{title}）"
 
 
-def audit_source_text(update: Update | None) -> str:
+def audit_source_text(update: Update | None, *, source_link: str = "") -> str:
     if not update:
         return "来源: Unknown\n发送用户: Unknown"
     chat = update.effective_chat
     source = html.escape(chat_label(update))
-    link = _source_message_link(update)
+    link = _source_message_link(update) or source_link
     if chat and getattr(chat, "type", "") != "private" and link:
         title = getattr(chat, "title", "") or getattr(chat, "full_name", "") or "未命名群组"
         source = f'群组（<a href="{html.escape(link, quote=True)}">{html.escape(title)}</a>）'
     return f"来源: {source}\n发送用户: {html.escape(user_label(update))}"
+
+
+async def resolve_audit_source_text(
+    update: Update | None,
+    bot: object,
+    *,
+    state_path: Path = DEFAULT_AUDIT_CHAT_LINKS_PATH,
+) -> str:
+    """超级群链接原消息，基础群复用一个需审批的专用邀请链接。"""
+    if not update or _source_message_link(update):
+        return audit_source_text(update)
+    chat = update.effective_chat
+    if not chat or getattr(chat, "type", "") == "private":
+        return audit_source_text(update)
+
+    source_link = await _basic_group_link(bot, int(chat.id), state_path)
+    return audit_source_text(update, source_link=source_link)
+
+
+async def _basic_group_link(bot: object, chat_id: int, state_path: Path) -> str:
+    async with _audit_chat_link_lock:
+        links = await asyncio.to_thread(_read_audit_chat_links, state_path)
+        cached = links.get(str(chat_id), "")
+        if cached:
+            return cached
+        try:
+            chat = await asyncio.wait_for(bot.get_chat(chat_id), timeout=5.0)
+            username = str(getattr(chat, "username", "") or "").lstrip("@")
+            link = f"https://t.me/{username}" if username else str(getattr(chat, "invite_link", "") or "")
+            if not link:
+                invite = await asyncio.wait_for(
+                    bot.create_chat_invite_link(
+                        chat_id=chat_id,
+                        name="OCR审计跳转",
+                        creates_join_request=True,
+                    ),
+                    timeout=5.0,
+                )
+                link = str(getattr(invite, "invite_link", "") or "")
+            if not link.startswith("https://t.me/"):
+                return ""
+            links[str(chat_id)] = link
+            await asyncio.to_thread(_write_audit_chat_links, state_path, links)
+            return link
+        except Exception as exc:
+            logger.warning("Unable to resolve audit source group link: %s", type(exc).__name__)
+            return ""
+
+
+def _read_audit_chat_links(path: Path) -> dict[str, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in data.items()
+        if str(value).startswith("https://t.me/")
+    }
+
+
+def _write_audit_chat_links(path: Path, links: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(links, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(path)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 def _source_message_link(update: Update) -> str:
