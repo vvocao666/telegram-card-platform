@@ -33,6 +33,7 @@ from handlers.broadcast_handler import (
     start_broadcast,
 )
 from handlers.card_ocr_handler import handle_photo
+from handlers.ocr_stats_handler import group_daily_ocr_stats_command
 from handlers.ledger_handler import (
     handle_bot_chat_member,
     handle_class_mode_command,
@@ -65,6 +66,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("remote_ocr_status", remote_ocr_status_command))
     app.add_handler(CommandHandler(["status", "ocr_status"], status_panel_command))
     app.add_handler(MessageHandler(filters.Regex(r"^/状态(?:@\w+)?(?:\s|$)"), status_panel_command))
+    app.add_handler(MessageHandler(filters.Regex(r"^/统计(?:@\w+)?\s*$"), group_daily_ocr_stats_command))
     app.add_handler(CommandHandler("learn_cards", learn_cards_command))
     app.add_handler(MessageHandler(filters.Regex(r"^/?学习卡密(?:\s|$)") & filters.ChatType.PRIVATE, learn_cards_command))
     app.add_handler(CommandHandler("learn_confirm", learn_confirm_command))

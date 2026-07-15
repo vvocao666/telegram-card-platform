@@ -7,6 +7,7 @@ from pathlib import Path
 
 from services.ocr.daily_stats_report import (
     collect_daily_ocr_stats,
+    format_chat_daily_ocr_stats,
     format_daily_ocr_stats,
     send_daily_ocr_stats,
 )
@@ -95,6 +96,57 @@ def test_daily_stats_group_by_chat_and_user_and_dedupe_per_image(tmp_path: Path)
     assert "用户：@alice" in message
     assert "用户：@bob" in message
     assert "卡密合计：4 个" in message
+
+    group_message = "\n".join(format_chat_daily_ocr_stats(stats, -1001))
+    assert group_message.startswith("今日识别卡密统计如下：")
+    assert group_message.count("用户：@alice") == 1
+    assert "PUBG：【 <b>2</b> 】" in group_message
+    assert "P S N：【 <b>1</b> 】" in group_message
+    assert group_message.count("用户：@bob") == 1
+
+
+def test_chat_daily_stats_excludes_other_chats_and_empty_users(tmp_path: Path):
+    report_date = date(2026, 7, 13)
+    _write_record(
+        tmp_path,
+        report_date,
+        "target",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=10,
+        username="alice",
+        pubg=["S07336-AAAA-BBBB-CCCCC"],
+        psn=[],
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "empty",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=20,
+        username="bob",
+        pubg=[],
+        psn=[],
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "other",
+        chat_id=-2002,
+        chat_title="其他群",
+        user_id=30,
+        username="carol",
+        pubg=["S07336-DDDD-EEEE-FFFFF"],
+        psn=[],
+    )
+
+    stats = collect_daily_ocr_stats(tmp_path, report_date)
+    message = "\n".join(format_chat_daily_ocr_stats(stats, -1001))
+
+    assert "用户：@alice" in message
+    assert "用户：@bob" not in message
+    assert "用户：@carol" not in message
 
 
 def test_daily_stats_counts_failed_or_empty_image_without_inventing_cards(tmp_path: Path):

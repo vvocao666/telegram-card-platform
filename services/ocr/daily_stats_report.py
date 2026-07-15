@@ -115,6 +115,31 @@ def format_daily_ocr_stats(stats: DailyOcrStats) -> list[str]:
     return _chunk_report(header, blocks, footer)
 
 
+def format_chat_daily_ocr_stats(stats: DailyOcrStats, chat_id: int) -> list[str]:
+    """按用户生成当前群当天的卡密统计，不包含其他群或无卡图片。"""
+    sources = tuple(source for source in stats.sources if source.chat_id == chat_id and source.cards > 0)
+    if not sources:
+        return ["今日暂无卡密识别记录。"]
+
+    blocks: list[str] = []
+    for source in sources:
+        user_label = (
+            f"@{html.escape(source.username.lstrip('@'))}"
+            if source.username
+            else (f"用户ID {source.user_id}" if source.user_id else "未知用户")
+        )
+        blocks.append(
+            "\n".join(
+                (
+                    f"用户：{user_label}",
+                    f"PUBG：【 <b>{source.pubg_cards}</b> 】",
+                    f"P S N：【 <b>{source.psn_cards}</b> 】",
+                )
+            )
+        )
+    return [message.rstrip() for message in _chunk_report(["今日识别卡密统计如下：", ""], blocks, "")]
+
+
 def _format_source_groups(sources: tuple[OcrSourceStats, ...]) -> list[str]:
     grouped: dict[int, list[OcrSourceStats]] = {}
     for source in sources:
