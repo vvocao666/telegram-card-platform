@@ -69,7 +69,7 @@ def review_conflicting_thin_strip(
             cards=(confirmed,),
             card_locations=tuple(),
             raw_text="\n".join(part for part in (result.raw_text, review_raw) if part).strip(),
-            uncertain_count=max(0, int(getattr(result, "uncertain_count", 0) or 0) - 1),
+            uncertain_count=_remaining_uncertainty(runtime, result, confirmed),
         )
 
     runtime.logger.warning(
@@ -167,6 +167,17 @@ def _review_raw_text(remote: Any, cloud: Any) -> str:
     if cloud is not None and getattr(cloud, "raw_text", ""):
         parts.append(f"[THIN_STRIP_REVIEW_OCRSPACE]\n{cloud.raw_text.strip()}")
     return "\n".join(parts)
+
+
+def _remaining_uncertainty(runtime: Any, result: Any, confirmed: str) -> int:
+    """只清除已被独立复核解决的同槽冲突，不掩盖其他卡槽的不确定性。"""
+
+    raw_cards = _raw_pubg_cards(runtime, str(getattr(result, "raw_text", "")))
+    if raw_cards and all(
+        card == confirmed or is_same_slot_conflict(card, confirmed) for card in raw_cards
+    ):
+        return 0
+    return int(getattr(result, "uncertain_count", 0) or 0)
 
 
 def _drop_unconfirmed_conflict(result: Any, original_cards: tuple[str, ...]) -> Any:

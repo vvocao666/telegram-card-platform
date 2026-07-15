@@ -147,7 +147,10 @@ def route_ocr(
         merged_psn_ordered = runtime.limit_psn_ordered(
             list(remote.psn_ordered) + list(fallback.psn_ordered), psn_expected_count
         )
-        merged_raw_text = remote.raw_text + "\n" + fallback.raw_text
+        merged_raw_text = (
+            f"[REMOTE]\n{remote.raw_text.strip()}\n"
+            f"[OCRSPACE]\n{fallback.raw_text.strip()}"
+        ).strip()
         if settled_cards or runtime.is_pubg_image_text(merged_raw_text):
             merged_psn = []
             merged_psn_uncertain = []

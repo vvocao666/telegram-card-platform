@@ -401,6 +401,8 @@ def test_run_ocr_complements_remote_when_pubg_fragment_unresolved(monkeypatch, t
             "S07304-CDRC-ULTQ-T6JZP",
         )
         assert result.psn_cards == tuple()
+        assert "[REMOTE]" in result.raw_text
+        assert "[OCRSPACE]" in result.raw_text
         assert bot.remote_ocr_status["today_fallback_count"] == 1
     finally:
         bot.OCR_PROVIDER = old_provider

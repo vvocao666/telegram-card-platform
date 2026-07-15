@@ -120,6 +120,48 @@ def test_ocrspace_repeat_confirms_conflict_when_remote_review_is_temporarily_una
     assert runtime.cloud_calls == 1
 
 
+def test_repeated_card_with_same_slot_noise_is_confirmed_without_manual_review(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07336-CM57-HC46-F79KY"
+    conflicting = "S07336-CMS7-HC46-F79KY"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=(
+            f"[REMOTE]\n{confirmed}\n{confirmed}\n"
+            f"[OCRSPACE]\n{confirmed}\n{confirmed}\n{conflicting}\n{conflicting}"
+        ),
+        uncertain_count=2,
+    )
+    runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == (confirmed,)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+
+
+def test_confirmed_slot_does_not_clear_uncertainty_for_another_card_slot(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07336-CM57-HC46-F79KY"
+    conflicting = "S07336-CMS7-HC46-F79KY"
+    other_slot = "S07336-ABCD-EFGH-JKLMN"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=(
+            f"[REMOTE]\n{confirmed}\n{conflicting}\n{other_slot}\n"
+            f"[OCRSPACE]\n{confirmed}"
+        ),
+        uncertain_count=2,
+    )
+    runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == (confirmed,)
+    assert result.uncertain_count == 2
+
+
 def test_complete_non_conflicting_thin_strip_uses_no_extra_ocr(tmp_path):
     image = make_thin_image(tmp_path)
     initial = Result(
