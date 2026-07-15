@@ -131,11 +131,13 @@ class BotFormattingTests(unittest.TestCase):
             last_name="Chen",
             title="\u9e21\u5361\u84b8\u4e91",
         )
+        update.effective_message = type("Message", (), {"message_id": 456})()
 
         text = bot.audit_source_text(update)
 
-        self.assertIn("\u6765\u6e90: \u7fa4\u7ec4\uff08\u9e21\u5361\u84b8\u4e91\uff09", text)
-        self.assertIn("\u53d1\u9001\u7528\u6237: 67890 | @alice | Alice Chen", text)
+        self.assertIn('\u6765\u6e90: \u7fa4\u7ec4\uff08<a href="https://t.me/c/123/456">\u9e21\u5361\u84b8\u4e91</a>\uff09', text)
+        self.assertIn("\u53d1\u9001\u7528\u6237: @alice | Alice Chen", text)
+        self.assertNotIn("67890", text)
 
     def test_audit_source_text_marks_private_chat(self):
         update = self.make_update_stub(user_id=67890, chat_id=67890, chat_type="private")

@@ -21,13 +21,13 @@ def user_label(update: Update) -> str:
     user = update.effective_user
     if not user:
         return "Unknown user"
-    parts = [str(user.id)]
+    parts: list[str] = []
     if user.username:
         parts.append(f"@{user.username}")
     name = " ".join(part for part in [user.first_name, user.last_name] if part)
     if name:
         parts.append(name)
-    return " | ".join(parts)
+    return " | ".join(parts) or "未知用户"
 
 
 def chat_label(update: Update | None) -> str:
@@ -44,7 +44,28 @@ def chat_label(update: Update | None) -> str:
 def audit_source_text(update: Update | None) -> str:
     if not update:
         return "来源: Unknown\n发送用户: Unknown"
-    return f"来源: {html.escape(chat_label(update))}\n发送用户: {html.escape(user_label(update))}"
+    chat = update.effective_chat
+    source = html.escape(chat_label(update))
+    link = _source_message_link(update)
+    if chat and getattr(chat, "type", "") != "private" and link:
+        title = getattr(chat, "title", "") or getattr(chat, "full_name", "") or "未命名群组"
+        source = f'群组（<a href="{html.escape(link, quote=True)}">{html.escape(title)}</a>）'
+    return f"来源: {source}\n发送用户: {html.escape(user_label(update))}"
+
+
+def _source_message_link(update: Update) -> str:
+    chat = update.effective_chat
+    message = getattr(update, "effective_message", None) or getattr(update, "message", None)
+    message_id = int(getattr(message, "message_id", 0) or 0) if message else 0
+    if not chat or message_id <= 0 or getattr(chat, "type", "") == "private":
+        return ""
+    username = str(getattr(chat, "username", "") or "").lstrip("@")
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    chat_id = str(getattr(chat, "id", ""))
+    if chat_id.startswith("-100") and chat_id[4:].isdigit():
+        return f"https://t.me/c/{chat_id[4:]}/{message_id}"
+    return ""
 
 
 def audit_photo_file_ids(updates: list[Update]) -> list[str]:

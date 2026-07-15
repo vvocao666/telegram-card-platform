@@ -162,9 +162,34 @@ def test_audit_service_preserves_source_and_photo_contract():
     update = type("Update", (), {"effective_user": user, "effective_chat": chat, "message": message})()
 
     assert "群组（Test &lt;Group&gt;）" in audit_source_text(update)
-    assert "123 | @alice | Alice Chen" in audit_source_text(update)
+    assert "发送用户: @alice | Alice Chen" in audit_source_text(update)
+    assert "用户: 123" not in audit_source_text(update)
     assert audit_photo_file_ids([update, update]) == ["large"]
     assert update_is_private_chat(update) is False
+
+
+def test_audit_source_links_public_group_message_without_sender_id():
+    user = type(
+        "User",
+        (),
+        {"id": 987654, "username": "alice", "first_name": "Alice", "last_name": ""},
+    )()
+    chat = type(
+        "Chat",
+        (),
+        {"id": -100123, "type": "supergroup", "title": "审计群", "username": "audit_group"},
+    )()
+    message = type("Message", (), {"message_id": 77})()
+    update = type(
+        "Update",
+        (),
+        {"effective_user": user, "effective_chat": chat, "effective_message": message},
+    )()
+
+    text = audit_source_text(update)
+
+    assert '<a href="https://t.me/audit_group/77">审计群</a>' in text
+    assert "987654" not in text
 
 
 def test_photo_sequence_service_preserves_receive_order_and_cleanup():
