@@ -6,6 +6,7 @@ from typing import Any
 
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
+from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
 
 
 def _review_thin_strip(
@@ -138,6 +139,17 @@ def route_ocr(
         settled_cards, correction_conflicts, card_corrections = (
             runtime.settle_and_correct_pubg_cards(merged)
         )
+        resolved_variant_conflict = cloud_resolves_remote_variant_conflict(
+            remote,
+            fallback,
+            valid_card=runtime.valid_card,
+        )
+        if resolved_variant_conflict:
+            conflict_count = max(0, conflict_count - 1)
+            runtime.logger.info(
+                "OCR VARIANT CONFLICT RESOLVED card=%s evidence=enhanced+higher_confidence+ocrspace",
+                fallback.cards[0],
+            )
         merged_psn = runtime.exact_unique_psn(
             list(remote.psn_cards) + list(fallback.psn_cards)
         )
@@ -184,6 +196,7 @@ def route_ocr(
                     + list(fallback.corrections_applied)
                     + list(card_corrections)
                 ),
+                remote_variant_conflict=False,
                 ),
                 psn_hint=psn_hint,
                 psn_expected_count=psn_expected_count,

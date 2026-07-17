@@ -111,6 +111,31 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert bot.avg_remote_latency_ms() >= 0
 
 
+def test_remote_ocr_preserves_original_and_enhanced_card_evidence(monkeypatch, tmp_path):
+    original = "S07336-9L9E-W6T6-FKECC"
+    enhanced = "S07336-9L9E-W6T6-FKECQ"
+    payload = {
+        "ok": True,
+        "cards": [{"text": original, "score": 0.9963}],
+        "texts": [{"text": original, "score": 0.9963}],
+        "ocr_original": {"cards": [{"text": original, "score": 0.9963}]},
+        "ocr_enhanced": {"cards": [{"text": enhanced, "score": 0.9998}]},
+    }
+    monkeypatch.setattr(
+        bot.httpx,
+        "Client",
+        lambda timeout: FakeClient(FakeResponse(payload=payload)),
+    )
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.remote_variant_conflict is True
+    assert result.remote_original_card_scores == ((original, 0.9963),)
+    assert result.remote_enhanced_card_scores == ((enhanced, 0.9998),)
+    assert result.has_unresolved_pubg_fragment is True
+
+
 def test_remote_ocr_counts_each_ordered_pubg_anchor_even_when_last_tail_is_missing(monkeypatch, tmp_path):
     payload = {
         "ok": True,
@@ -585,6 +610,74 @@ def test_run_ocr_complements_remote_when_pubg_marker_count_mismatches(monkeypatc
             "S07336-BKBH-AAUK-LPJVK",
         )
         assert bot.remote_ocr_status["today_fallback_count"] == 1
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
+def test_ocrspace_resolves_single_gpu_variant_conflict_without_manual_review(
+    monkeypatch, tmp_path, caplog
+):
+    correct = "S07336-9L9E-W6T6-FKECQ"
+    remote = bot.OcrResult(
+        cards=("S07336-9L9E-W6T6-FKECC",),
+        raw_text="S07336-9L9E-W6T6-FKECC",
+        remote_variant_conflict=True,
+        remote_original_card_scores=(("S07336-9L9E-W6T6-FKECC", 0.9963),),
+        remote_enhanced_card_scores=((correct, 0.9998),),
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=(correct,),
+        raw_text=f"{correct}\n{correct}",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (correct,)
+        assert result.uncertain_count == 0
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR VARIANT CONFLICT RESOLVED" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
+def test_gpu_variant_conflict_without_strict_cloud_support_still_needs_review(
+    monkeypatch, tmp_path
+):
+    remote = bot.OcrResult(
+        cards=("S07336-9L9E-W6T6-FKECC",),
+        raw_text="S07336-9L9E-W6T6-FKECC",
+        remote_variant_conflict=True,
+        remote_original_card_scores=(("S07336-9L9E-W6T6-FKECC", 0.9998),),
+        remote_enhanced_card_scores=(("S07336-9L9E-W6T6-FKECQ", 0.9963),),
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=("S07336-9L9E-W6T6-FKECQ",),
+        raw_text="S07336-9L9E-W6T6-FKECQ",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.uncertain_count > 0
+        assert bot.manual_review_notifier.needs_review(result) is not None
     finally:
         bot.OCR_PROVIDER = old_provider
         bot.OCR_SPACE_API_KEYS = old_keys

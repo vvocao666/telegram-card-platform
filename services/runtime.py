@@ -59,7 +59,10 @@ from services.ocr.batch_processor import (
 )
 from services.ocr.pubg_prefix_consensus import recover_single_prefix_digit_error  # noqa: F401 - provider compatibility export
 from services.ocr.prefix_recovery_policy import requires_cloud_confirmation
-from services.ocr.remote_variant_policy import remote_variants_conflict  # noqa: F401 - provider compatibility export
+from services.ocr.remote_variant_policy import (  # noqa: F401 - provider compatibility export
+    remote_variant_evidence,
+    remote_variants_conflict,
+)
 from services.ocr.thin_strip_policy import choose_thin_strip_result, is_thin_strip_image  # noqa: F401 - provider compatibility exports
 from services.ocr.correction_engine import apply_corrections
 from services.ocr.admin_commands import (
@@ -309,6 +312,9 @@ class OcrResult:
     ocr_false_negative: int = 0
     ocr_character_confusion: int = 0
     corrections_applied: tuple[dict[str, str], ...] = tuple()
+    remote_variant_conflict: bool = False
+    remote_original_card_scores: tuple[tuple[str, float], ...] = tuple()
+    remote_enhanced_card_scores: tuple[tuple[str, float], ...] = tuple()
     has_unresolved_pubg_fragment: bool = False
 
 

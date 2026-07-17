@@ -59,7 +59,9 @@ def recognize_remote(
         if payload.get("ok") is not True:
             runtime.record_remote_ocr_status(False, latency_ms, error="ok=false")
             return None
-        variant_conflict = runtime.remote_variants_conflict(payload) or cpu_payload_requires_review(payload)
+        gpu_variant_conflict = runtime.remote_variants_conflict(payload)
+        variant_conflict = gpu_variant_conflict or cpu_payload_requires_review(payload)
+        original_card_scores, enhanced_card_scores = runtime.remote_variant_evidence(payload)
         worker_cards = payload.get("cards")
         if not isinstance(worker_cards, list):
             worker_cards = []
@@ -155,6 +157,9 @@ def recognize_remote(
             raw_text=raw_text,
             uncertain_count=uncertain,
             corrections_applied=card_corrections,
+            remote_variant_conflict=gpu_variant_conflict,
+            remote_original_card_scores=original_card_scores,
+            remote_enhanced_card_scores=enhanced_card_scores,
             has_unresolved_pubg_fragment=(
                 has_unresolved_pubg_fragment or variant_conflict
             ),
