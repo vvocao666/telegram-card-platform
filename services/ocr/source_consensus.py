@@ -27,13 +27,31 @@ def repeated_pubg_source_consensus(result: Any) -> str | None:
     sections = _source_sections(str(getattr(result, "raw_text", "") or "").upper())
     remote_cards = _normalized_remote_cards(sections["REMOTE"])
     cloud_cards = PUBG_CARD_RE.findall("\n".join(sections["OCRSPACE"]))
-    if remote_cards.count(confirmed) < 2 or cloud_cards.count(confirmed) < 1:
+    variant_cards = _variant_cards(result)
+    remote_confirmed = remote_cards.count(confirmed) >= 2 or (
+        confirmed in variant_cards["original"] and confirmed in variant_cards["enhanced"]
+    )
+    if not remote_confirmed or cloud_cards.count(confirmed) < 1:
         return None
     if any(card != confirmed for card in remote_cards):
         return None
     if not all(_cloud_candidate_matches_duplicate_slot(card, confirmed) for card in cloud_cards):
         return None
     return confirmed
+
+
+def _variant_cards(result: Any) -> dict[str, set[str]]:
+    def values(attribute: str) -> set[str]:
+        return {
+            str(card).upper()
+            for card, _score in (getattr(result, attribute, ()) or ())
+            if card
+        }
+
+    return {
+        "original": values("remote_original_card_scores"),
+        "enhanced": values("remote_enhanced_card_scores"),
+    }
 
 
 def _normalized_remote_cards(lines: list[str]) -> list[str]:

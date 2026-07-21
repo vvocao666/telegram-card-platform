@@ -69,6 +69,11 @@ def route_ocr(
                     f"[REMOTE]\n{remote.raw_text.strip()}\n"
                     f"[OCRSPACE]\n{cloud.raw_text.strip()}"
                 ).strip(),
+                remote_original_card_scores=remote.remote_original_card_scores,
+                remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
+                remote_cpu_candidates=remote.remote_cpu_candidates,
+                remote_cpu_review_required=remote.remote_cpu_review_required,
+                remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
             )
             if changed:
                 runtime.logger.warning(
@@ -219,6 +224,11 @@ def route_ocr(
                     + list(card_corrections)
                 ),
                 remote_variant_conflict=False,
+                remote_original_card_scores=remote.remote_original_card_scores,
+                remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
+                remote_cpu_candidates=remote.remote_cpu_candidates,
+                remote_cpu_review_required=remote.remote_cpu_review_required,
+                remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
                 ),
                 psn_hint=psn_hint,
                 psn_expected_count=psn_expected_count,

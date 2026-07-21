@@ -10,6 +10,7 @@ from cpu_preprocess import CpuPreparationPool, cpu_evidence_image_path
 from cpu_review_policy import assess_cpu_review_risk
 from cpu_shadow_dispatcher import CpuShadowDispatcher
 from gpu_variant_review import review_gpu_variant_conflict, result_payload
+from thin_strip_input import prepare_worker_input
 import asyncio
 import copy
 import hashlib
@@ -101,12 +102,15 @@ def _process_ocr(image_bytes, suffix):
         response["latency_ms"] = int((time.time() - start) * 1000)
         return response
 
-    original_path = _write_temp_file(image_bytes, suffix)
+    metrics = _image_metrics(image_bytes)
+    prepared_input = prepare_worker_input(image_bytes, suffix, metrics)
+    original_path = _write_temp_file(prepared_input.data, prepared_input.suffix)
     enhanced_path = None
 
     try:
-        metrics = _image_metrics(image_bytes)
-        prepared_enhancement = CPU_PREPROCESSOR.start(image_bytes, suffix, metrics)
+        prepared_enhancement = CPU_PREPROCESSOR.start(
+            prepared_input.data, prepared_input.suffix, metrics
+        )
         original_result, latency_original_ms = _run_ocr_path(original_path)
         enhance_reason = _enhance_reason(metrics, original_result)
         enhanced_used = enhance_reason != "not_needed"
@@ -116,7 +120,9 @@ def _process_ocr(image_bytes, suffix):
         if enhanced_used:
             enhanced_path = CPU_PREPROCESSOR.result(prepared_enhancement)
             if not enhanced_path:
-                enhanced_path = _write_enhanced_image(image_bytes, suffix)
+                enhanced_path = _write_enhanced_image(
+                    prepared_input.data, prepared_input.suffix
+                )
             enhanced_result, latency_enhanced_ms = _run_ocr_path(enhanced_path or original_path)
             best, best_engine, selection = _choose_best_result(original_result, enhanced_result)
         else:
@@ -153,8 +159,8 @@ def _process_ocr(image_bytes, suffix):
         )
         cpu_payload = _cpu_evidence(
             cpu_evidence_image_path(original_path, enhanced_path, best_engine),
-            image_bytes,
-            suffix,
+            prepared_input.data,
+            prepared_input.suffix,
             best,
             cpu_review.review_required,
             cpu_review.reasons,
@@ -180,6 +186,7 @@ def _process_ocr(image_bytes, suffix):
             "enhance_reason": enhance_reason,
             "line_recoveries": line_recoveries,
             "cpu_ocr": cpu_payload,
+            "thin_strip_padding_applied": prepared_input.padding_applied,
             "cached": False,
         }
         _cache_set(image_sha1, response)
@@ -389,7 +396,7 @@ def _cache_key(image_bytes):
     cpu = CPU_OCR.status()
     version = "|".join(
         (
-            "hybrid-v3",
+            "hybrid-v4-thin-padding",
             str(cpu.get("model_fingerprint", "")),
             str(cpu.get("preprocess_version", "")),
             str(WORKER_CONFIG.confirmation_mode),
