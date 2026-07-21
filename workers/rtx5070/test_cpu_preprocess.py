@@ -19,6 +19,7 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 CpuPreparationPool = _MODULE.CpuPreparationPool
 should_prepare_enhanced = _MODULE.should_prepare_enhanced
+cpu_evidence_image_path = _MODULE.cpu_evidence_image_path
 from worker_metrics import WorkerMetrics
 
 
@@ -27,6 +28,12 @@ def test_only_static_fast_path_failures_prebuild_enhancement() -> None:
     assert should_prepare_enhanced({"width": 300, "height": 240, "image_variance": 180.0}) is True
     assert should_prepare_enhanced({"width": 700, "height": 800, "image_variance": 180.0}) is True
     assert should_prepare_enhanced({"width": 700, "height": 240, "image_variance": 40.0}) is True
+
+
+def test_cpu_evidence_uses_the_same_image_variant_as_gpu_coordinates() -> None:
+    assert cpu_evidence_image_path("original.png", "enhanced.png", "enhanced") == "enhanced.png"
+    assert cpu_evidence_image_path("original.png", "enhanced.png", "original") == "original.png"
+    assert cpu_evidence_image_path("original.png", None, "enhanced") == "original.png"
 
 
 def test_disabled_preprocess_never_schedules_work() -> None:

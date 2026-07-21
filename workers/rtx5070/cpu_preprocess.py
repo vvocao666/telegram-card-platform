@@ -15,7 +15,18 @@ except Exception:  # Cloud Deploy test environments do not install Worker-only O
     np = None
 
 
-PREPROCESS_VERSION = "roi-v2"
+PREPROCESS_VERSION = "roi-v3"
+
+
+def cpu_evidence_image_path(
+    original_path: str,
+    enhanced_path: str | None,
+    best_engine: str,
+) -> str:
+    """CPU ROI 必须使用与 GPU 最终坐标相同的图像版本。"""
+    if best_engine == "enhanced" and enhanced_path:
+        return enhanced_path
+    return original_path
 
 
 def should_prepare_enhanced(metrics: dict[str, Any]) -> bool:

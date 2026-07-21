@@ -789,6 +789,41 @@ def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_cpu_and_cloud_resolve_duplicate_display_gpu_tail_conflict(
+    monkeypatch, tmp_path
+):
+    gpu = "S07336-5ULK-JMZ9-EQE7F"
+    confirmed = "S07336-5ULK-JMZ9-EQE7P"
+    remote = bot.OcrResult(
+        cards=(gpu,),
+        raw_text=f"{gpu}\n{gpu}",
+        remote_variant_conflict=True,
+        remote_original_card_scores=((confirmed, 0.9891), (gpu, 0.9816)),
+        remote_enhanced_card_scores=((gpu, 0.9998),),
+        remote_cpu_candidates=(confirmed,),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("gpu_variant_conflict",),
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud = bot.OcrResult(cards=(confirmed,), raw_text=f"{confirmed}\n{confirmed}")
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: cloud)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (confirmed,)
+        assert result.uncertain_count == 0
+        assert bot.manual_review_notifier.needs_review(result) is None
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_partial_cloud_complement_keeps_remote_image_order(monkeypatch, tmp_path):
     remote = bot.OcrResult(
         cards=(

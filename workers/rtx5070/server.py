@@ -6,7 +6,7 @@ from worker_config import load_worker_config, load_worker_env
 from worker_metrics import WorkerMetrics
 from worker_queue import WorkerQueueFull, WorkerTaskQueue
 from cpu_ocr import CpuOcrEngine
-from cpu_preprocess import CpuPreparationPool
+from cpu_preprocess import CpuPreparationPool, cpu_evidence_image_path
 from cpu_review_policy import assess_cpu_review_risk
 from cpu_shadow_dispatcher import CpuShadowDispatcher
 import asyncio
@@ -137,7 +137,7 @@ def _process_ocr(image_bytes, suffix):
             low_confidence=WORKER_CONFIG.cpu_low_confidence,
         )
         cpu_payload = _cpu_evidence(
-            original_path,
+            cpu_evidence_image_path(original_path, enhanced_path, best_engine),
             image_bytes,
             suffix,
             best,
