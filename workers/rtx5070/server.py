@@ -133,6 +133,7 @@ def _process_ocr(image_bytes, suffix):
             original_result,
             enhanced_result,
             line_recoveries=line_recoveries,
+            image_metrics=metrics,
             low_confidence=WORKER_CONFIG.cpu_low_confidence,
         )
         cpu_payload = _cpu_evidence(

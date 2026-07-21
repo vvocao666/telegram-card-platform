@@ -23,6 +23,7 @@ def assess_cpu_review_risk(
     enhanced: dict[str, Any],
     *,
     line_recoveries: list[dict[str, str]] | None = None,
+    image_metrics: dict[str, Any] | None = None,
     low_confidence: float = 0.90,
 ) -> CpuReviewDecision:
     """Classify only evidence risks; never rewrite or infer a card."""
@@ -50,6 +51,12 @@ def assess_cpu_review_risk(
 
     if line_recoveries:
         reasons.append("line_roi_recovery")
+
+    metrics = image_metrics or {}
+    width = int(metrics.get("width", 0) or 0)
+    height = int(metrics.get("height", 0) or 0)
+    if marker_count and height > 0 and width / height >= 3.0:
+        reasons.append("thin_strip_pubg")
 
     return CpuReviewDecision(bool(reasons), tuple(dict.fromkeys(reasons)))
 

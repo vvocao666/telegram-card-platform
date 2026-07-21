@@ -55,3 +55,16 @@ def test_low_card_confidence_is_high_risk():
     decision = assess_cpu_review_risk(result, result, {"cards": [], "texts": []})
     assert decision.review_required is True
     assert "low_card_confidence" in decision.reasons
+
+
+def test_thin_pubg_strip_is_high_risk_for_synchronous_cpu_review():
+    result = _result([CARD])
+    decision = assess_cpu_review_risk(
+        result,
+        result,
+        {"cards": [], "texts": []},
+        image_metrics={"width": 1280, "height": 225},
+    )
+
+    assert decision.review_required is True
+    assert "thin_strip_pubg" in decision.reasons
