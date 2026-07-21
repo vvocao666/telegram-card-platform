@@ -593,6 +593,25 @@ def test_pubg_markers_with_same_first_group_but_different_second_group_remain_di
     assert bot.count_pubg_markers(raw_text) == 2
 
 
+def test_duplicate_marker_with_one_missing_body_character_counts_once():
+    raw_text = (
+        "S07336-Z483-CNEE-W6C5W copy\n"
+        "S07336-Z483-NEE-W6C5W copy"
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 1
+    assert bot.merge_pubg_expected_count(None, raw_text) == 1
+
+
+def test_distinct_complete_marker_is_not_hidden_by_missing_character_rule():
+    raw_text = (
+        "S07336-Z483-CNEE-W6C5W\n"
+        "S07336-Z483-DNEE-W6C5W"
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 2
+
+
 def test_run_ocr_complements_remote_when_pubg_marker_count_mismatches(monkeypatch, tmp_path):
     remote = bot.OcrResult(
         cards=("S07336-9R6P-VERQ-VTZRF", "S07336-25DY-FM6W-3K8D8"),

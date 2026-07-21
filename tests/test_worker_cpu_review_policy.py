@@ -68,3 +68,20 @@ def test_thin_pubg_strip_is_high_risk_for_synchronous_cpu_review():
 
     assert decision.review_required is True
     assert "thin_strip_pubg" in decision.reasons
+
+
+def test_thin_strip_with_s_read_as_five_is_sent_to_strict_review():
+    result = _result(
+        [],
+        texts=[{"text": "507324-Z4ZH-54Y7-NBRSB", "score": 0.98}],
+    )
+    decision = assess_cpu_review_risk(
+        result,
+        result,
+        {"cards": [], "texts": []},
+        image_metrics={"width": 1280, "height": 225},
+    )
+
+    assert decision.review_required is True
+    assert "pubg_marker_without_valid_card" in decision.reasons
+    assert "thin_strip_pubg" in decision.reasons

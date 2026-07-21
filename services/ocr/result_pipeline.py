@@ -56,9 +56,8 @@ def count_unique_pubg_markers(
             anchor = [match.group(0)]
             body_match = body_pattern.match(line[match.end() :])
             if body_match:
-                expected_lengths = ({4}, {4}, {5})
-                for value, allowed_lengths in zip(body_match.groups(), expected_lengths):
-                    if value is None or len(value) not in allowed_lengths:
+                for value in body_match.groups():
+                    if value is None:
                         break
                     anchor.append(value)
             anchors.append(tuple(anchor))
@@ -81,12 +80,58 @@ def _same_pubg_marker_slot(left: tuple[str, ...], right: tuple[str, ...]) -> boo
     card still triggers the fallback path.
     """
     if len(left) >= 3 and len(right) >= 3:
-        return left[:3] == right[:3]
+        if left[:3] == right[:3]:
+            return True
+        if _is_one_character_missing_duplicate(left, right):
+            return True
     # A bare/short prefix can be a separate wrapped card whose remaining
     # groups are on following lines.  Collapsing it into another S07 marker
     # would hide a real missing card, so only sufficiently anchored readings
     # are eligible for same-slot deduplication.
     return False
+
+
+def _is_one_character_missing_duplicate(
+    left: tuple[str, ...],
+    right: tuple[str, ...],
+) -> bool:
+    """Collapse one malformed duplicate line without merging two legal cards.
+
+    OCR.space can read a duplicated on-screen card once in full and once with
+    one missing character in either four-character body group.  The malformed
+    reading is evidence for the same visible slot, not a second card.  Tail
+    differences are deliberately excluded because four/five-character tails
+    are independently accepted by other compatibility paths.
+    """
+    if len(left) != 4 or len(right) != 4 or left[0] != right[0]:
+        return False
+
+    expected_lengths = (4, 4, 5)
+    left_groups = left[1:]
+    right_groups = right[1:]
+    left_valid = tuple(map(len, left_groups)) == expected_lengths
+    right_valid = tuple(map(len, right_groups)) == expected_lengths
+    if left_valid == right_valid:
+        return False
+
+    complete, malformed = (
+        (left_groups, right_groups) if left_valid else (right_groups, left_groups)
+    )
+    differences = [
+        index
+        for index, pair in enumerate(zip(complete, malformed))
+        if pair[0] != pair[1]
+    ]
+    if len(differences) != 1 or differences[0] not in (0, 1):
+        return False
+
+    index = differences[0]
+    full_group = complete[index]
+    short_group = malformed[index]
+    return len(short_group) == 3 and any(
+        full_group[:offset] + full_group[offset + 1 :] == short_group
+        for offset in range(len(full_group))
+    )
 
 
 def ordered_pubg_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:

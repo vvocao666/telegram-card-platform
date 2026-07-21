@@ -9,6 +9,7 @@ PUBG_CARD_RE = re.compile(
     r"(?<![A-Z0-9])S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])"
 )
 PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])S07[0-9]{3}(?![0-9])")
+SUSPICIOUS_PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])50[0-9]{4}(?![0-9])")
 
 
 @dataclass(frozen=True)
@@ -80,4 +81,5 @@ def _marker_slot_count(result: dict[str, Any]) -> int:
             full_cards.update(cards)
             continue
         partial_slots += len(PUBG_PREFIX_RE.findall(text))
+        partial_slots += len(SUSPICIOUS_PUBG_PREFIX_RE.findall(text))
     return len(full_cards) + partial_slots
