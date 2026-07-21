@@ -7,6 +7,10 @@ from typing import Any
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
+from services.ocr.multi_source_decision import (
+    apply_cpu_cloud_confirmations,
+    cpu_cloud_confirmed_cards,
+)
 
 
 def _review_thin_strip(
@@ -100,6 +104,20 @@ def route_ocr(
             psn_expected_count=psn_expected_count,
             pubg_expected_count=pubg_expected_count,
         )
+        cpu_cloud_cards = cpu_cloud_confirmed_cards(
+            tuple(remote.remote_cpu_candidates), tuple(fallback.cards)
+        )
+        cpu_cloud_result, cpu_cloud_resolved = apply_cpu_cloud_confirmations(
+            tuple(remote.cards),
+            cpu_cloud_cards,
+            likely_same_card=runtime.likely_same_card,
+        )
+        if cpu_cloud_resolved:
+            runtime.logger.warning(
+                "OCR CPU+CLOUD CONFIRMED cards=%s resolved=%s",
+                list(cpu_cloud_cards),
+                cpu_cloud_resolved,
+            )
         if complement_reason == "recovered pubg prefix requires cloud confirmation":
             confirmed = choose_cloud_same_slot_card(
                 tuple(remote.cards),
@@ -127,7 +145,11 @@ def route_ocr(
                     psn_expected_count=psn_expected_count,
                     pubg_expected_count=pubg_expected_count,
                 )
-        if len(fallback.cards) >= len(remote.cards):
+        if cpu_cloud_resolved:
+            merged, conflict_count = runtime.merge_without_guessing(
+                list(cpu_cloud_result), list(fallback.cards)
+            )
+        elif len(fallback.cards) >= len(remote.cards):
             merged, conflict_count = runtime.merge_without_guessing(
                 list(fallback.cards), list(remote.cards)
             )

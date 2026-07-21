@@ -7,6 +7,8 @@ from worker_metrics import WorkerMetrics
 from worker_queue import WorkerQueueFull, WorkerTaskQueue
 from cpu_ocr import CpuOcrEngine
 from cpu_preprocess import CpuPreparationPool
+from cpu_review_policy import assess_cpu_review_risk
+from cpu_shadow_dispatcher import CpuShadowDispatcher
 import asyncio
 import copy
 import hashlib
@@ -34,6 +36,7 @@ WORKER_CONFIG = load_worker_config()
 WORKER_METRICS = WorkerMetrics()
 CPU_OCR = CpuOcrEngine(WORKER_CONFIG, WORKER_METRICS)
 CPU_PREPROCESSOR = CpuPreparationPool(WORKER_CONFIG, WORKER_METRICS)
+CPU_SHADOW_DISPATCHER = CpuShadowDispatcher(CPU_OCR, WORKER_CONFIG, WORKER_METRICS)
 WORKER_QUEUE = WorkerTaskQueue(WORKER_CONFIG.queue_workers, WORKER_CONFIG.queue_capacity)
 
 app = FastAPI()
@@ -45,6 +48,11 @@ CARD_RE = re.compile(r"(S07[0-9A-Z]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}|[A-Z0
 CACHE_TTL_SECONDS = 24 * 60 * 60
 cache_lock = threading.Lock()
 ocr_cache = {}
+
+
+@app.on_event("shutdown")
+def shutdown_worker_resources():
+    CPU_SHADOW_DISPATCHER.close()
 
 
 @app.get("/")
@@ -120,7 +128,21 @@ def _process_ocr(image_bytes, suffix):
             copy.deepcopy(best),
             _run_ocr_path,
         )
-        cpu_payload = _cpu_evidence(original_path, best)
+        cpu_review = assess_cpu_review_risk(
+            best,
+            original_result,
+            enhanced_result,
+            line_recoveries=line_recoveries,
+            low_confidence=WORKER_CONFIG.cpu_low_confidence,
+        )
+        cpu_payload = _cpu_evidence(
+            original_path,
+            image_bytes,
+            suffix,
+            best,
+            cpu_review.review_required,
+            cpu_review.reasons,
+        )
 
         response = {
             "ok": True,
@@ -310,11 +332,37 @@ def _empty_ocr_result():
     return {"text_count": 0, "card_count": 0, "avg_score": 0.0, "max_score": 0.0, "texts": [], "cards": []}
 
 
-def _cpu_evidence(image_path, result):
+def _cpu_evidence(image_path, image_bytes, suffix, result, review_required, reasons):
     """CPU 的结果只作为可审计的同 ROI 证据，正式 cards 不在此处改写。"""
+    payload = CPU_OCR.status()
+    payload.update(
+        {
+            "review_required": bool(review_required),
+            "review_reasons": list(reasons),
+            "deferred": False,
+            "latency_ms": 0,
+            "lines": [],
+            "conflicts": [],
+            "roi_conflicts_resolved": False,
+        }
+    )
     if not WORKER_CONFIG.cpu_ocr_effective:
-        return CPU_OCR.status()
-    return CPU_OCR.inspect_gpu_lines(image_path, list(result.get("texts", [])))
+        return payload
+    if review_required:
+        WORKER_METRICS.increment("cpu_high_risk_reviews")
+        evidence = CPU_OCR.inspect_gpu_lines(image_path, list(result.get("texts", [])))
+        evidence.update(
+            {
+                "review_required": True,
+                "review_reasons": list(reasons),
+                "deferred": False,
+            }
+        )
+        return evidence
+    payload["deferred"] = CPU_SHADOW_DISPATCHER.submit(
+        image_bytes, suffix, list(result.get("texts", []))
+    )
+    return payload
 
 
 def _cache_key(image_bytes):
@@ -324,7 +372,7 @@ def _cache_key(image_bytes):
     cpu = CPU_OCR.status()
     version = "|".join(
         (
-            "hybrid-v1",
+            "hybrid-v2",
             str(cpu.get("model_fingerprint", "")),
             str(cpu.get("preprocess_version", "")),
             str(WORKER_CONFIG.confirmation_mode),

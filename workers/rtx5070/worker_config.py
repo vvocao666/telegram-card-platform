@@ -34,6 +34,13 @@ def _integer(name: str, default: int, minimum: int, maximum: int) -> int:
         return default
 
 
+def _number(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        return min(maximum, max(minimum, float(os.getenv(name, str(default)))))
+    except ValueError:
+        return default
+
+
 @dataclass(frozen=True)
 class WorkerHybridConfig:
     enabled: bool
@@ -42,6 +49,8 @@ class WorkerHybridConfig:
     cpu_ocr_enabled: bool
     cpu_shadow_only: bool
     cpu_can_affect_result: bool
+    cpu_async_shadow_enabled: bool
+    cpu_low_confidence: float
     roi_review_v2_enabled: bool
     confirmation_mode: str
     cpu_preprocess_workers: int
@@ -63,6 +72,8 @@ def load_worker_config() -> WorkerHybridConfig:
         cpu_ocr_enabled=enabled and _enabled("LOCAL_CPU_OCR_ENABLED"),
         cpu_shadow_only=_enabled("LOCAL_CPU_OCR_SHADOW_ONLY", True),
         cpu_can_affect_result=_enabled("LOCAL_CPU_OCR_CAN_AFFECT_RESULT"),
+        cpu_async_shadow_enabled=_enabled("LOCAL_CPU_OCR_ASYNC_SHADOW_ENABLED", True),
+        cpu_low_confidence=_number("LOCAL_CPU_OCR_LOW_CONFIDENCE", 0.90, 0.0, 1.0),
         roi_review_v2_enabled=enabled and _enabled("LOCAL_ROI_REVIEW_V2_ENABLED"),
         confirmation_mode=os.getenv("LOCAL_CPU_OCR_CONFIRMATION_MODE", "strict").strip().lower(),
         cpu_preprocess_workers=_integer("LOCAL_CPU_PREPROCESS_WORKERS", 4, 1, 12),

@@ -707,6 +707,69 @@ def test_gpu_variant_conflict_without_strict_cloud_support_still_needs_review(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_cpu_and_ocrspace_exact_agreement_can_replace_one_high_risk_gpu_slot(
+    monkeypatch, tmp_path, caplog
+):
+    wrong = "S07324-Z4ZH-54Y7-NBRSB"
+    correct = "S07324-Z4ZH-S4Y7-NBRSB"
+    remote = bot.OcrResult(
+        cards=(wrong,),
+        raw_text=wrong,
+        remote_cpu_candidates=(correct,),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("low_card_confidence",),
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(cards=(correct,), raw_text=correct)
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (correct,)
+        assert result.uncertain_count == 0
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR CPU+CLOUD CONFIRMED" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
+def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
+    gpu = "S07324-Z4ZH-54Y7-NBRSB"
+    cpu = "S07324-Z4ZH-S4Y7-NBRSB"
+    cloud_disagrees = "S07324-Z4ZH-S4Y7-NBRS8"
+    remote = bot.OcrResult(
+        cards=(gpu,),
+        raw_text=gpu,
+        remote_cpu_candidates=(cpu,),
+        remote_cpu_review_required=True,
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(cards=(cloud_disagrees,), raw_text=cloud_disagrees)
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards != (cpu,)
+        assert result.uncertain_count > 0
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_partial_cloud_complement_keeps_remote_image_order(monkeypatch, tmp_path):
     remote = bot.OcrResult(
         cards=(

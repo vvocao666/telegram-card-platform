@@ -6,7 +6,10 @@ from typing import Any
 
 import httpx
 
-from services.ocr.multi_source_decision import cpu_payload_requires_review
+from services.ocr.multi_source_decision import (
+    cpu_payload_requires_review,
+    cpu_pubg_candidates,
+)
 from services.ocr.remote_execution_gate import RemoteWorkerBusy
 
 
@@ -60,7 +63,13 @@ def recognize_remote(
             runtime.record_remote_ocr_status(False, latency_ms, error="ok=false")
             return None
         gpu_variant_conflict = runtime.remote_variants_conflict(payload)
-        variant_conflict = gpu_variant_conflict or cpu_payload_requires_review(payload)
+        cpu_review_required = cpu_payload_requires_review(payload)
+        cpu_candidates = cpu_pubg_candidates(payload)
+        cpu_payload = payload.get("cpu_ocr") if isinstance(payload.get("cpu_ocr"), dict) else {}
+        cpu_review_reasons = tuple(
+            str(reason) for reason in (cpu_payload.get("review_reasons", []) or [])
+        )
+        variant_conflict = gpu_variant_conflict or cpu_review_required
         original_card_scores, enhanced_card_scores = runtime.remote_variant_evidence(payload)
         worker_cards = payload.get("cards")
         if not isinstance(worker_cards, list):
@@ -121,7 +130,7 @@ def recognize_remote(
         psn_uncertain = runtime.exact_unique_text(
             [card for card in psn_ordered if card.endswith(runtime.FUZZY_SUFFIX)]
         )
-        if not cards and not psn_cards and not psn_uncertain:
+        if not cards and not psn_cards and not psn_uncertain and not cpu_candidates:
             runtime.record_remote_ocr_status(False, latency_ms, error="no valid cards")
             return None
 
@@ -160,6 +169,9 @@ def recognize_remote(
             remote_variant_conflict=gpu_variant_conflict,
             remote_original_card_scores=original_card_scores,
             remote_enhanced_card_scores=enhanced_card_scores,
+            remote_cpu_candidates=cpu_candidates,
+            remote_cpu_review_required=cpu_review_required,
+            remote_cpu_review_reasons=cpu_review_reasons,
             has_unresolved_pubg_fragment=(
                 has_unresolved_pubg_fragment or variant_conflict
             ),

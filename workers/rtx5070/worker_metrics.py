@@ -25,6 +25,9 @@ class WorkerMetrics:
             "cpu_ocr_total_ms": 0,
             "cpu_ocr_failures": 0,
             "cpu_conflicts": 0,
+            "cpu_shadow_deferred": 0,
+            "cpu_shadow_dropped": 0,
+            "cpu_high_risk_reviews": 0,
             "roi_reviews": 0,
             "queue_rejected": 0,
         }
