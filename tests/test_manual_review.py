@@ -108,6 +108,36 @@ def test_repeated_cross_source_consensus_suppresses_stale_review_flags():
     assert item is None
 
 
+def test_repeated_remote_and_single_cloud_match_suppresses_stale_conflict():
+    card = "S07336-Z483-CNEE-W6C5W"
+    raw_text = (
+        f"[REMOTE]\n{card}\n{card}\n"
+        f"[OCRSPACE]\n{card}\nS07336-Z483-NEE-W6C5W\n"
+        "S07336-ZA83-CNEE-W6C5W"
+    )
+
+    item = ManualReviewNotifier().needs_review(
+        result(cards=(card,), raw_text=raw_text, uncertain_count=1)
+    )
+
+    assert item is None
+
+
+def test_damaged_remote_prefix_and_matching_cloud_suppresses_stale_conflict():
+    card = "S07336-5XAW-QTQ5-S5X48"
+    raw_text = (
+        "[REMOTE]\n507336-5XAW-QTQ5-S5X48\n607336-5XAW-QTQ5-S5X48\n"
+        f"[OCRSPACE]\n{card}\nS07336-5XAW-OTOS-S5X48\n"
+        "S07336-5XAW-OTOS-SSX48"
+    )
+
+    item = ManualReviewNotifier().needs_review(
+        result(cards=(card,), raw_text=raw_text, uncertain_count=2)
+    )
+
+    assert item is None
+
+
 def test_repeated_cross_source_consensus_does_not_hide_missing_card_count():
     notifier = ManualReviewNotifier()
     card = "S07336-ERR8-YVGA-QQ5PL"

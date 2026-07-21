@@ -10,6 +10,10 @@ from services.ocr.pubg_candidate_merge import is_same_slot_conflict
 PUBG_CARD_RE = re.compile(
     r"(?<![A-Z0-9])S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])"
 )
+SUSPECT_PUBG_CARD_RE = re.compile(
+    r"(?<![A-Z0-9])[A-Z0-9](07[0-9]{3})"
+    r"-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9]{5})(?![A-Z0-9])"
+)
 SOURCE_LABELS = {"REMOTE", "OCRSPACE"}
 
 
@@ -21,16 +25,37 @@ def repeated_pubg_source_consensus(result: Any) -> str | None:
         return None
     confirmed = cards[0]
     sections = _source_sections(str(getattr(result, "raw_text", "") or "").upper())
-    remote_cards = PUBG_CARD_RE.findall("\n".join(sections["REMOTE"]))
+    remote_cards = _normalized_remote_cards(sections["REMOTE"])
     cloud_cards = PUBG_CARD_RE.findall("\n".join(sections["OCRSPACE"]))
-    if remote_cards.count(confirmed) < 2 or cloud_cards.count(confirmed) < 2:
+    if remote_cards.count(confirmed) < 2 or cloud_cards.count(confirmed) < 1:
         return None
-    all_cards = remote_cards + cloud_cards
-    if not all_cards or not all(
-        card == confirmed or is_same_slot_conflict(card, confirmed) for card in all_cards
-    ):
+    if any(card != confirmed for card in remote_cards):
+        return None
+    if not all(_cloud_candidate_matches_duplicate_slot(card, confirmed) for card in cloud_cards):
         return None
     return confirmed
+
+
+def _normalized_remote_cards(lines: list[str]) -> list[str]:
+    """Normalize only the damaged first glyph for duplicate-source evidence.
+
+    This helper never returns a production candidate.  It only proves that two
+    detected lines have the same `07ddd-4-4-5` body as the already confirmed
+    OCR.space card.
+    """
+    cards: list[str] = []
+    for match in SUSPECT_PUBG_CARD_RE.finditer("\n".join(lines)):
+        suffix, first, second, tail = match.groups()
+        cards.append(f"S{suffix}-{first}-{second}-{tail}")
+    return cards
+
+
+def _cloud_candidate_matches_duplicate_slot(card: str, confirmed: str) -> bool:
+    if card == confirmed or is_same_slot_conflict(card, confirmed):
+        return True
+    card_parts = card.split("-")
+    confirmed_parts = confirmed.split("-")
+    return len(card_parts) == 4 and card_parts[:2] == confirmed_parts[:2]
 
 
 def _source_sections(raw_text: str) -> dict[str, list[str]]:
