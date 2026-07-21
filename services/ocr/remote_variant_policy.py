@@ -11,6 +11,15 @@ def remote_variants_conflict(payload: dict[str, Any]) -> bool:
     """原图与增强图都识别出卡密但内容不同时，要求备用 OCR 复核。"""
     original = _variant_cards(payload.get("ocr_original"))
     enhanced = _variant_cards(payload.get("ocr_enhanced"))
+    review = payload.get("variant_review")
+    if (
+        isinstance(review, dict)
+        and review.get("resolved") is True
+        and str(review.get("selected_card", "")).upper() in (set(original) | set(enhanced))
+        and str(review.get("review_card", "")).upper()
+        == str(review.get("selected_card", "")).upper()
+    ):
+        return False
     return bool(original and enhanced and original != enhanced)
 
 

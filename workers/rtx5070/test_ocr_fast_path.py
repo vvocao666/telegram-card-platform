@@ -40,6 +40,12 @@ class FastPathTests(unittest.TestCase):
         texts = [card, {"text": "S07336-PQRS-", "score": 0.99}]
         self.assertEqual(enhance_reason(metrics(), result([card], texts)), "incomplete_pubg_line")
 
+    def test_complete_pubg_followed_by_copy_label_is_not_treated_as_incomplete(self):
+        card = {"text": "S07336-VLHL-MDZH-6S8ML", "score": 0.995}
+        texts = [{"text": "S07336-VLHL-MDZH-6S8ML复制", "score": 0.995}]
+
+        self.assertEqual(enhance_reason(metrics(), result([card], texts)), "not_needed")
+
     def test_low_card_score_keeps_enhanced_ocr(self):
         card = {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.96}
         self.assertEqual(enhance_reason(metrics(), result([card])), "card_score<0.985")
@@ -59,4 +65,3 @@ class FastPathTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

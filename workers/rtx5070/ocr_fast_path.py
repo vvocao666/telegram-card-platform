@@ -5,6 +5,7 @@ from typing import Any
 
 
 PUBG_PREFIX_RE = re.compile(r"S07[0-9A-Z]{3}")
+PUBG_CARD_RE = re.compile(r"S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}")
 
 
 def enhance_reason(
@@ -80,9 +81,10 @@ def _has_incomplete_pubg_line(texts: list[str]) -> bool:
     for text in texts:
         if not PUBG_PREFIX_RE.search(text):
             continue
+        if PUBG_CARD_RE.search(text):
+            continue
         compact = text.replace(" ", "")
         groups = compact.split("-")
         if len(groups) != 4 or len(groups[1]) != 4 or len(groups[2]) != 4 or len(groups[3]) != 5:
             return True
     return False
-

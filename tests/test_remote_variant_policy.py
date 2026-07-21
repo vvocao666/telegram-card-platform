@@ -27,6 +27,22 @@ def test_matching_variants_do_not_require_review() -> None:
     ) is False
 
 
+def test_mild_original_review_can_resolve_variant_conflict() -> None:
+    original = "S07336-VLHL-MDZH-6S8ML"
+    enhanced = "S07336-VLHL-MDZH-6S6ML"
+    payload = {
+        "ocr_original": variant(original),
+        "ocr_enhanced": variant(enhanced),
+        "variant_review": {
+            "resolved": True,
+            "selected_card": original,
+            "review_card": original,
+        },
+    }
+
+    assert remote_variants_conflict(payload) is False
+
+
 def test_missing_variant_does_not_create_false_conflict() -> None:
     assert remote_variants_conflict(
         {"ocr_original": variant("S07336-C7P3-RMHQ-78288")}

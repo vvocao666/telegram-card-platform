@@ -9,6 +9,7 @@ from cpu_ocr import CpuOcrEngine
 from cpu_preprocess import CpuPreparationPool, cpu_evidence_image_path
 from cpu_review_policy import assess_cpu_review_risk
 from cpu_shadow_dispatcher import CpuShadowDispatcher
+from gpu_variant_review import review_gpu_variant_conflict, result_payload
 import asyncio
 import copy
 import hashlib
@@ -123,6 +124,19 @@ def _process_ocr(image_bytes, suffix):
             best_engine = "original"
             selection = _selection_payload(original_result, enhanced_result)
 
+        variant_review = review_gpu_variant_conflict(
+            original_path,
+            original_result,
+            enhanced_result,
+            _run_ocr_path,
+        )
+        if variant_review.resolved:
+            if variant_review.selected_engine == "original":
+                best = original_result
+            else:
+                best = enhanced_result
+            best_engine = variant_review.selected_engine
+
         best, line_recoveries = recover_suspicious_pubg_lines(
             enhanced_path if best_engine == "enhanced" and enhanced_path else original_path,
             copy.deepcopy(best),
@@ -135,6 +149,7 @@ def _process_ocr(image_bytes, suffix):
             line_recoveries=line_recoveries,
             image_metrics=metrics,
             low_confidence=WORKER_CONFIG.cpu_low_confidence,
+            variant_conflict_resolved=variant_review.resolved,
         )
         cpu_payload = _cpu_evidence(
             cpu_evidence_image_path(original_path, enhanced_path, best_engine),
@@ -158,6 +173,7 @@ def _process_ocr(image_bytes, suffix):
             "latency_enhanced_ms": latency_enhanced_ms,
             "best_engine": best_engine,
             "selection": selection,
+            "variant_review": result_payload(variant_review),
             "ocr_original": original_result,
             "ocr_enhanced": enhanced_result,
             "enhanced_used": enhanced_used,
@@ -373,7 +389,7 @@ def _cache_key(image_bytes):
     cpu = CPU_OCR.status()
     version = "|".join(
         (
-            "hybrid-v2",
+            "hybrid-v3",
             str(cpu.get("model_fingerprint", "")),
             str(cpu.get("preprocess_version", "")),
             str(WORKER_CONFIG.confirmation_mode),
