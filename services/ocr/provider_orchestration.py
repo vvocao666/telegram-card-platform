@@ -7,6 +7,7 @@ from typing import Any
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
+from services.ocr.source_consensus import repeated_pubg_source_consensus
 from services.ocr.multi_source_decision import (
     apply_cpu_cloud_confirmations,
     cpu_cloud_confirmed_cards,
@@ -109,6 +110,27 @@ def route_ocr(
             psn_expected_count=psn_expected_count,
             pubg_expected_count=pubg_expected_count,
         )
+        merged_raw_text = (
+            f"[REMOTE]\n{remote.raw_text.strip()}\n"
+            f"[OCRSPACE]\n{fallback.raw_text.strip()}"
+        ).strip()
+        source_consensus_result = replace(remote, raw_text=merged_raw_text)
+        source_consensus = (
+            repeated_pubg_source_consensus(source_consensus_result)
+            if runtime.is_thin_strip_image(image_path)
+            else None
+        )
+        if source_consensus:
+            runtime.logger.info(
+                "OCR SOURCE CONSENSUS BEFORE CPU card=%s", source_consensus
+            )
+            return replace(
+                source_consensus_result,
+                cards=(source_consensus,),
+                pubg_expected_count=1,
+                uncertain_count=0,
+                has_unresolved_pubg_fragment=False,
+            )
         cpu_cloud_cards = cpu_cloud_confirmed_cards(
             tuple(remote.remote_cpu_candidates), tuple(fallback.cards)
         )
@@ -186,10 +208,6 @@ def route_ocr(
         merged_psn_ordered = runtime.limit_psn_ordered(
             list(remote.psn_ordered) + list(fallback.psn_ordered), psn_expected_count
         )
-        merged_raw_text = (
-            f"[REMOTE]\n{remote.raw_text.strip()}\n"
-            f"[OCRSPACE]\n{fallback.raw_text.strip()}"
-        ).strip()
         if settled_cards or runtime.is_pubg_image_text(merged_raw_text):
             merged_psn = []
             merged_psn_uncertain = []

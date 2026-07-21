@@ -760,6 +760,49 @@ def test_cpu_and_ocrspace_exact_agreement_can_replace_one_high_risk_gpu_slot(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_dual_gpu_and_cloud_consensus_wins_before_wrong_cpu_cloud_pair(
+    monkeypatch, tmp_path, caplog
+):
+    correct = "S07330-CE2F-BS6S-7ARJQ"
+    wrong = "S07330-CE2F-BS65-7ARJQ"
+    remote = bot.OcrResult(
+        cards=(correct,),
+        raw_text=correct,
+        remote_original_card_scores=((correct, 0.9904),),
+        remote_enhanced_card_scores=((correct, 0.9896),),
+        remote_cpu_candidates=(wrong,),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("thin_strip_pubg",),
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=(wrong, correct),
+        raw_text=f"{wrong}\n{correct}",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        image_path = tmp_path / "thin.jpg"
+        Image.new("RGB", (700, 100), "white").save(image_path)
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(image_path)
+
+        assert result.cards == (correct,)
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR SOURCE CONSENSUS BEFORE CPU" in caplog.text
+        assert "OCR CPU+CLOUD CONFIRMED" not in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
     gpu = "S07324-Z4ZH-54Y7-NBRSB"
     cpu = "S07324-Z4ZH-S4Y7-NBRSB"
