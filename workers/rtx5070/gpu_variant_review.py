@@ -84,7 +84,7 @@ def review_gpu_variant_conflict(
 
 
 def write_mild_review_image(original_path: str) -> str | None:
-    """Upscale without CLAHE or sharpening so glyph shapes remain traceable."""
+    """Upscale the original without changing contrast, color, or glyph edges."""
 
     if cv2 is None:
         return None
@@ -92,10 +92,7 @@ def write_mild_review_image(original_path: str) -> str | None:
     if image is None:
         return None
     try:
-        upscaled = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
-        # A small contrast lift improves low-resolution text without changing
-        # edges as aggressively as the normal enhancement path.
-        mild = cv2.convertScaleAbs(upscaled, alpha=1.2, beta=0)
+        mild = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
         handle, target = tempfile.mkstemp(suffix=".png")
         os.close(handle)
         if not cv2.imwrite(target, mild):
