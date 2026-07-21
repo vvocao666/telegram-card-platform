@@ -82,7 +82,11 @@ def _same_pubg_marker_slot(left: tuple[str, ...], right: tuple[str, ...]) -> boo
     """
     if len(left) >= 3 and len(right) >= 3:
         return left[:3] == right[:3]
-    return left == right[: len(left)] or right == left[: len(right)]
+    # A bare/short prefix can be a separate wrapped card whose remaining
+    # groups are on following lines.  Collapsing it into another S07 marker
+    # would hide a real missing card, so only sufficiently anchored readings
+    # are eligible for same-slot deduplication.
+    return False
 
 
 def ordered_pubg_occurrences(results: list[Any], hooks: ResultPipelineHooks) -> list[Any]:

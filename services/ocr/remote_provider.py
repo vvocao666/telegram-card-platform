@@ -129,11 +129,11 @@ def recognize_remote(
         remote_pubg_expected_count = runtime.merge_pubg_expected_count(
             pubg_expected_count, raw_text
         )
-        ordered_pubg_markers = sum(
-            1
-            for line in ordered_lines
-            if runtime.PUBG_PREFIX_RE.search(runtime.normalize_text(line.text))
-        )
+        # The original/enhanced pass can return the same complete card twice.
+        # Count canonical card slots instead of raw OCR lines so a duplicate
+        # display does not look like a missing second card.  Incomplete,
+        # separately anchored markers remain distinct in the shared counter.
+        ordered_pubg_markers = runtime.count_pubg_markers(text_raw) or 0
         if ordered_pubg_markers:
             remote_pubg_expected_count = max(
                 remote_pubg_expected_count or 0, ordered_pubg_markers

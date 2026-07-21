@@ -111,6 +111,30 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert bot.avg_remote_latency_ms() >= 0
 
 
+def test_remote_ocr_duplicate_complete_lines_count_as_one_card_slot(monkeypatch, tmp_path):
+    card = "S07336-Z483-CNEE-W6C5W"
+    payload = {
+        "ok": True,
+        "cards": [{"text": card, "score": 0.99}],
+        "texts": [
+            {"text": f"{card}|复制", "score": 0.99, "box": [10, 10, 260, 36]},
+            {"text": f"{card}|复制", "score": 0.99, "box": [10, 48, 260, 74]},
+        ],
+    }
+    monkeypatch.setattr(
+        bot.httpx,
+        "Client",
+        lambda timeout: FakeClient(FakeResponse(payload=payload)),
+    )
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == (card,)
+    assert result.pubg_expected_count == 1
+    assert bot.remote_needs_ocrspace_complement(result) == (False, "")
+
+
 def test_remote_ocr_preserves_original_and_enhanced_card_evidence(monkeypatch, tmp_path):
     original = "S07336-9L9E-W6T6-FKECC"
     enhanced = "S07336-9L9E-W6T6-FKECQ"
