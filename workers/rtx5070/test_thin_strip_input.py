@@ -29,6 +29,21 @@ def test_extreme_thin_strip_gets_background_padding():
     decoded = cv2.imdecode(np.frombuffer(prepared.data, dtype=np.uint8), cv2.IMREAD_COLOR)
     assert decoded.shape[:2] == (45, 294)
     assert np.all(decoded[6:39, 12:282] == (214, 220, 225))
+    assert np.all(decoded[0, 0] == (255, 255, 255))
+
+
+def test_dark_thin_strip_gets_black_padding():
+    source = _encoded_image(300, 40, (25, 25, 25))
+
+    prepared = prepare_worker_input(
+        source,
+        ".png",
+        {"width": 300, "height": 40, "image_variance": 10.0},
+    )
+
+    decoded = cv2.imdecode(np.frombuffer(prepared.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert prepared.padding_applied is True
+    assert np.all(decoded[0, 0] == (0, 0, 0))
 
 
 def test_regular_image_is_unchanged():

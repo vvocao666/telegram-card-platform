@@ -58,7 +58,14 @@ def prepare_worker_input(
             ),
             axis=0,
         )
-        background = tuple(int(value) for value in np.median(edge_pixels, axis=0))
+        sampled_background = tuple(int(value) for value in np.median(edge_pixels, axis=0))
+        brightness = sum(sampled_background) / len(sampled_background)
+        if brightness >= 180:
+            background = (255, 255, 255)
+        elif brightness <= 75:
+            background = (0, 0, 0)
+        else:
+            background = sampled_background
         padded = cv2.copyMakeBorder(
             image,
             border_y,
@@ -80,4 +87,3 @@ def prepare_worker_input(
         )
     except Exception:
         return PreparedWorkerInput(image_bytes, suffix)
-
