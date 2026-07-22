@@ -116,7 +116,10 @@ def route_ocr(
         ).strip()
         source_consensus_result = replace(remote, raw_text=merged_raw_text)
         source_consensus = (
-            repeated_pubg_source_consensus(source_consensus_result)
+            repeated_pubg_source_consensus(
+                source_consensus_result,
+                cloud_candidates=tuple(fallback.cards),
+            )
             if runtime.is_thin_strip_image(image_path)
             else None
         )

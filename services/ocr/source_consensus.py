@@ -18,7 +18,9 @@ SOURCE_LABELS = {"REMOTE", "OCRSPACE"}
 MIN_DUAL_GPU_SCORE = 0.97
 
 
-def repeated_pubg_source_consensus(result: Any) -> str | None:
+def repeated_pubg_source_consensus(
+    result: Any, *, cloud_candidates: tuple[str, ...] = ()
+) -> str | None:
     """返回 Remote 与 OCR.space 重复一致确认的唯一同槽 PUBG 卡。"""
 
     cards = tuple(str(card).upper() for card in (getattr(result, "cards", ()) or ()))
@@ -27,17 +29,26 @@ def repeated_pubg_source_consensus(result: Any) -> str | None:
     confirmed = cards[0]
     sections = _source_sections(str(getattr(result, "raw_text", "") or "").upper())
     remote_cards = _normalized_remote_cards(sections["REMOTE"])
-    cloud_cards = PUBG_CARD_RE.findall("\n".join(sections["OCRSPACE"]))
+    cloud_cards = [
+        str(card).upper()
+        for card in cloud_candidates
+        if PUBG_CARD_RE.fullmatch(str(card).upper())
+    ] or PUBG_CARD_RE.findall("\n".join(sections["OCRSPACE"]))
     variant_cards = _variant_cards(result)
+    adjacent_remote_reconstructions = _count_adjacent_remote_reconstructions(
+        sections["REMOTE"], confirmed
+    )
     remote_confirmed = remote_cards.count(confirmed) >= 2 or (
         confirmed in variant_cards["original"] and confirmed in variant_cards["enhanced"]
-    ) or _count_adjacent_remote_reconstructions(sections["REMOTE"], confirmed) >= 2
+    ) or adjacent_remote_reconstructions >= 2
     if not remote_confirmed or not cloud_cards:
         return None
     if any(card != confirmed for card in remote_cards):
         return None
     if not all(_cloud_candidate_matches_duplicate_slot(card, confirmed) for card in cloud_cards):
         return None
+    if adjacent_remote_reconstructions >= 2:
+        return confirmed
     if cloud_cards.count(confirmed) >= 1:
         return confirmed
     if (

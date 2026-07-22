@@ -859,7 +859,12 @@ def test_repeated_adjacent_remote_wrap_wins_over_reordered_cloud_fragments(
     )
     fallback = bot.OcrResult(
         cards=(correct, reordered),
-        raw_text=f"{correct}\n{reordered}",
+        raw_text=(
+            "103000 | 5\n"
+            "S07336-NU64-MG2H-E8\nMKV\nMKV\n"
+            "S07336-NU64-MG2H-E8\nS07336-\nMKV\n"
+            "S07336-NU64-\nMKV\nMG2H-E8\nMG2H-E8"
+        ),
     )
     old_provider = bot.OCR_PROVIDER
     old_keys = bot.OCR_SPACE_API_KEYS
