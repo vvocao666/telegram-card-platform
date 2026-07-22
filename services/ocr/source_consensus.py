@@ -15,6 +15,7 @@ SUSPECT_PUBG_CARD_RE = re.compile(
     r"-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9]{5})(?![A-Z0-9])"
 )
 SOURCE_LABELS = {"REMOTE", "OCRSPACE"}
+MIN_DUAL_GPU_SCORE = 0.97
 
 
 def repeated_pubg_source_consensus(result: Any) -> str | None:
@@ -31,13 +32,20 @@ def repeated_pubg_source_consensus(result: Any) -> str | None:
     remote_confirmed = remote_cards.count(confirmed) >= 2 or (
         confirmed in variant_cards["original"] and confirmed in variant_cards["enhanced"]
     )
-    if not remote_confirmed or cloud_cards.count(confirmed) < 1:
+    if not remote_confirmed or not cloud_cards:
         return None
     if any(card != confirmed for card in remote_cards):
         return None
     if not all(_cloud_candidate_matches_duplicate_slot(card, confirmed) for card in cloud_cards):
         return None
-    return confirmed
+    if cloud_cards.count(confirmed) >= 1:
+        return confirmed
+    if (
+        _high_confidence_dual_gpu_match(result, confirmed)
+        and all(_cloud_candidate_is_tail_only_conflict(card, confirmed) for card in cloud_cards)
+    ):
+        return confirmed
+    return None
 
 
 def _variant_cards(result: Any) -> dict[str, set[str]]:
@@ -52,6 +60,24 @@ def _variant_cards(result: Any) -> dict[str, set[str]]:
         "original": values("remote_original_card_scores"),
         "enhanced": values("remote_enhanced_card_scores"),
     }
+
+
+def _high_confidence_dual_gpu_match(result: Any, confirmed: str) -> bool:
+    def matching_scores(attribute: str) -> list[float]:
+        return [
+            float(score)
+            for card, score in (getattr(result, attribute, ()) or ())
+            if str(card).upper() == confirmed
+        ]
+
+    original_scores = matching_scores("remote_original_card_scores")
+    enhanced_scores = matching_scores("remote_enhanced_card_scores")
+    return (
+        bool(original_scores)
+        and bool(enhanced_scores)
+        and max(original_scores) >= MIN_DUAL_GPU_SCORE
+        and max(enhanced_scores) >= MIN_DUAL_GPU_SCORE
+    )
 
 
 def _normalized_remote_cards(lines: list[str]) -> list[str]:
@@ -74,6 +100,17 @@ def _cloud_candidate_matches_duplicate_slot(card: str, confirmed: str) -> bool:
     card_parts = card.split("-")
     confirmed_parts = confirmed.split("-")
     return len(card_parts) == 4 and card_parts[:2] == confirmed_parts[:2]
+
+
+def _cloud_candidate_is_tail_only_conflict(card: str, confirmed: str) -> bool:
+    card_parts = card.split("-")
+    confirmed_parts = confirmed.split("-")
+    return (
+        len(card_parts) == 4
+        and len(confirmed_parts) == 4
+        and card_parts[:3] == confirmed_parts[:3]
+        and card != confirmed
+    )
 
 
 def _source_sections(raw_text: str) -> dict[str, list[str]]:

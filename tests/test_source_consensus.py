@@ -79,6 +79,45 @@ def test_original_and_enhanced_gpu_evidence_plus_cloud_is_consensus():
     assert repeated_pubg_source_consensus(result) == card
 
 
+def test_high_confidence_original_and_enhanced_gpu_match_beats_tail_only_cloud_noise():
+    card = "S07336-B7KS-S3NN-Q38Q8"
+    result = make_result(
+        card,
+        (
+            f"[REMOTE]\n{card}\n"
+            "[OCRSPACE]\nS07336-B7KS-S3NN-03898\nS07336-B7KS-S3NN-Q38QG"
+        ),
+        remote_original_card_scores=((card, 0.9823944568634033),),
+        remote_enhanced_card_scores=((card, 0.9910047054290771),),
+    )
+
+    assert repeated_pubg_source_consensus(result) == card
+
+
+def test_low_confidence_gpu_match_does_not_override_tail_only_cloud_noise():
+    card = "S07336-B7KS-S3NN-Q38Q8"
+    result = make_result(
+        card,
+        f"[REMOTE]\n{card}\n[OCRSPACE]\nS07336-B7KS-S3NN-Q38QG",
+        remote_original_card_scores=((card, 0.96),),
+        remote_enhanced_card_scores=((card, 0.99),),
+    )
+
+    assert repeated_pubg_source_consensus(result) is None
+
+
+def test_dual_gpu_match_does_not_override_cloud_conflict_in_another_segment():
+    card = "S07336-B7KS-S3NN-Q38Q8"
+    result = make_result(
+        card,
+        f"[REMOTE]\n{card}\n[OCRSPACE]\nS07336-B7KS-ABCD-Q38Q8",
+        remote_original_card_scores=((card, 0.99),),
+        remote_enhanced_card_scores=((card, 0.99),),
+    )
+
+    assert repeated_pubg_source_consensus(result) is None
+
+
 def test_one_gpu_variant_disagreement_does_not_create_consensus():
     card = "S07336-4JB5-3TC6-XPA7R"
     result = make_result(
