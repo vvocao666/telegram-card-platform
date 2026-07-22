@@ -115,13 +115,10 @@ def route_ocr(
             f"[OCRSPACE]\n{fallback.raw_text.strip()}"
         ).strip()
         source_consensus_result = replace(remote, raw_text=merged_raw_text)
-        source_consensus = (
-            repeated_pubg_source_consensus(
-                source_consensus_result,
-                cloud_candidates=tuple(fallback.cards),
-            )
-            if runtime.is_thin_strip_image(image_path)
-            else None
+        source_consensus = repeated_pubg_source_consensus(
+            source_consensus_result,
+            cloud_candidates=tuple(fallback.cards),
+            adjacent_wrap_only=not runtime.is_thin_strip_image(image_path),
         )
         if source_consensus:
             runtime.logger.info(

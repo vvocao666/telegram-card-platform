@@ -19,7 +19,10 @@ MIN_DUAL_GPU_SCORE = 0.97
 
 
 def repeated_pubg_source_consensus(
-    result: Any, *, cloud_candidates: tuple[str, ...] = ()
+    result: Any,
+    *,
+    cloud_candidates: tuple[str, ...] = (),
+    adjacent_wrap_only: bool = False,
 ) -> str | None:
     """返回 Remote 与 OCR.space 重复一致确认的唯一同槽 PUBG 卡。"""
 
@@ -38,9 +41,16 @@ def repeated_pubg_source_consensus(
     adjacent_remote_reconstructions = _count_adjacent_remote_reconstructions(
         sections["REMOTE"], confirmed
     )
-    remote_confirmed = remote_cards.count(confirmed) >= 2 or (
-        confirmed in variant_cards["original"] and confirmed in variant_cards["enhanced"]
-    ) or adjacent_remote_reconstructions >= 2
+    remote_confirmed = adjacent_remote_reconstructions >= 2 or (
+        not adjacent_wrap_only
+        and (
+            remote_cards.count(confirmed) >= 2
+            or (
+                confirmed in variant_cards["original"]
+                and confirmed in variant_cards["enhanced"]
+            )
+        )
+    )
     if not remote_confirmed or not cloud_cards:
         return None
     if any(card != confirmed for card in remote_cards):
@@ -106,7 +116,7 @@ def _normalized_remote_cards(lines: list[str]) -> list[str]:
 
 
 def _count_adjacent_remote_reconstructions(lines: list[str], confirmed: str) -> int:
-    """Count exact cards reconstructed from one line and its immediate successor."""
+    """Count exact wrapped cards reconstructed from two adjacent OCR lines."""
     compact_confirmed = confirmed.replace("-", "")
     count = 0
     for index, line in enumerate(lines):
@@ -116,7 +126,6 @@ def _count_adjacent_remote_reconstructions(lines: list[str], confirmed: str) -> 
             continue
         current = normalized[prefix.start() :]
         if current == compact_confirmed:
-            count += 1
             continue
         if index + 1 >= len(lines) or not compact_confirmed.startswith(current):
             continue

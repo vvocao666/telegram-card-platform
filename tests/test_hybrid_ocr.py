@@ -875,7 +875,7 @@ def test_repeated_adjacent_remote_wrap_wins_over_reordered_cloud_fragments(
         monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
 
         image_path = tmp_path / "wrapped-duplicate.jpg"
-        Image.new("RGB", (700, 160), "white").save(image_path)
+        Image.new("RGB", (700, 400), "white").save(image_path)
         with caplog.at_level("INFO", logger="telegram-card-platform"):
             result = bot.run_ocr(image_path)
 
