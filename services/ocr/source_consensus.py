@@ -31,7 +31,7 @@ def repeated_pubg_source_consensus(result: Any) -> str | None:
     variant_cards = _variant_cards(result)
     remote_confirmed = remote_cards.count(confirmed) >= 2 or (
         confirmed in variant_cards["original"] and confirmed in variant_cards["enhanced"]
-    )
+    ) or _count_adjacent_remote_reconstructions(sections["REMOTE"], confirmed) >= 2
     if not remote_confirmed or not cloud_cards:
         return None
     if any(card != confirmed for card in remote_cards):
@@ -92,6 +92,27 @@ def _normalized_remote_cards(lines: list[str]) -> list[str]:
         suffix, first, second, tail = match.groups()
         cards.append(f"S{suffix}-{first}-{second}-{tail}")
     return cards
+
+
+def _count_adjacent_remote_reconstructions(lines: list[str], confirmed: str) -> int:
+    """Count exact cards reconstructed from one line and its immediate successor."""
+    compact_confirmed = confirmed.replace("-", "")
+    count = 0
+    for index, line in enumerate(lines):
+        normalized = re.sub(r"[^A-Z0-9]", "", line.upper())
+        prefix = re.search(r"S07[0-9]{3}", normalized)
+        if not prefix:
+            continue
+        current = normalized[prefix.start() :]
+        if current == compact_confirmed:
+            count += 1
+            continue
+        if index + 1 >= len(lines) or not compact_confirmed.startswith(current):
+            continue
+        next_line = re.sub(r"[^A-Z0-9]", "", lines[index + 1].upper())
+        if current + next_line == compact_confirmed:
+            count += 1
+    return count
 
 
 def _cloud_candidate_matches_duplicate_slot(card: str, confirmed: str) -> bool:

@@ -118,6 +118,46 @@ def test_dual_gpu_match_does_not_override_cloud_conflict_in_another_segment():
     assert repeated_pubg_source_consensus(result) is None
 
 
+def test_repeated_adjacent_line_reconstruction_rejects_cloud_fragment_reordering():
+    card = "S07336-NU64-MG2H-E8MKV"
+    reordered = "S07336-NU64-MKVM-G2HE8"
+    result = make_result(
+        card,
+        (
+            "[REMOTE]\n"
+            "S07336-NU64-MG2H-E8\nMKV\n"
+            "S07336-NU64-MG2H-E8\nMKV\n"
+            f"[OCRSPACE]\n{card}\n{reordered}"
+        ),
+    )
+
+    assert repeated_pubg_source_consensus(result) == card
+
+
+def test_single_adjacent_line_reconstruction_is_not_source_consensus():
+    card = "S07336-NU64-MG2H-E8MKV"
+    result = make_result(
+        card,
+        f"[REMOTE]\nS07336-NU64-MG2H-E8\nMKV\n[OCRSPACE]\n{card}",
+    )
+
+    assert repeated_pubg_source_consensus(result) is None
+
+
+def test_non_adjacent_fragments_are_not_source_consensus():
+    card = "S07336-NU64-MG2H-E8MKV"
+    result = make_result(
+        card,
+        (
+            "[REMOTE]\nS07336-NU64-MG2H-E8\nOTHER\nMKV\n"
+            "S07336-NU64-MG2H-E8\nOTHER\nMKV\n"
+            f"[OCRSPACE]\n{card}"
+        ),
+    )
+
+    assert repeated_pubg_source_consensus(result) is None
+
+
 def test_one_gpu_variant_disagreement_does_not_create_consensus():
     card = "S07336-4JB5-3TC6-XPA7R"
     result = make_result(

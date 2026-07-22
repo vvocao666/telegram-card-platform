@@ -844,6 +844,46 @@ def test_high_confidence_dual_gpu_result_survives_tail_only_cloud_conflicts(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_repeated_adjacent_remote_wrap_wins_over_reordered_cloud_fragments(
+    monkeypatch, tmp_path, caplog
+):
+    correct = "S07336-NU64-MG2H-E8MKV"
+    reordered = "S07336-NU64-MKVM-G2HE8"
+    remote = bot.OcrResult(
+        cards=(correct,),
+        raw_text=(
+            "S07336-NU64-MG2H-E8\nMKV\n"
+            "S07336-NU64-MG2H-E8\nMKV"
+        ),
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback = bot.OcrResult(
+        cards=(correct, reordered),
+        raw_text=f"{correct}\n{reordered}",
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        image_path = tmp_path / "wrapped-duplicate.jpg"
+        Image.new("RGB", (700, 160), "white").save(image_path)
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(image_path)
+
+        assert result.cards == (correct,)
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR SOURCE CONSENSUS BEFORE CPU" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
     gpu = "S07324-Z4ZH-54Y7-NBRSB"
     cpu = "S07324-Z4ZH-S4Y7-NBRSB"
