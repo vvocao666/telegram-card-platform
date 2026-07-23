@@ -1001,6 +1001,7 @@ def test_multi_card_dual_gpu_consensus_ignores_one_cloud_character_conflict(
         remote_variant_conflict=True,
         remote_original_rebuilt_card_scores=scores,
         remote_enhanced_rebuilt_card_scores=scores,
+        remote_cpu_candidates=(cards[0],),
         remote_cpu_review_required=True,
         remote_cpu_review_reasons=("pubg_marker_count_mismatch",),
         has_unresolved_pubg_fragment=True,

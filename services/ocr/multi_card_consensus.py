@@ -23,7 +23,11 @@ def dual_variant_multi_card_consensus(
         return None
     if getattr(remote, "uncertain_count", 0) or getattr(cloud, "uncertain_count", 0):
         return None
-    if getattr(remote, "remote_cpu_candidates", ()):
+    cpu_cards = tuple(
+        str(card).upper()
+        for card in (getattr(remote, "remote_cpu_candidates", ()) or ())
+    )
+    if cpu_cards and not _is_exact_ordered_subset(remote_cards, cpu_cards):
         return None
     cpu_reasons = set(getattr(remote, "remote_cpu_review_reasons", ()) or ())
     if cpu_reasons - {"pubg_marker_count_mismatch"}:
@@ -85,4 +89,21 @@ def _is_ordered_cloud_subset(
         if remote_index >= len(remote_cards):
             return False
         remote_index += 1
+    return True
+
+
+def _is_exact_ordered_subset(
+    complete_cards: tuple[str, ...],
+    partial_cards: tuple[str, ...],
+) -> bool:
+    complete_index = 0
+    for partial_card in partial_cards:
+        while (
+            complete_index < len(complete_cards)
+            and complete_cards[complete_index] != partial_card
+        ):
+            complete_index += 1
+        if complete_index >= len(complete_cards):
+            return False
+        complete_index += 1
     return True

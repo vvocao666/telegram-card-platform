@@ -122,3 +122,15 @@ def test_dual_variant_multi_card_consensus_rejects_cpu_character_candidate():
     cloud = _result(cards=(CARDS[0], CARDS[2], CARDS[3]), expected=None)
 
     assert dual_variant_multi_card_consensus(remote, cloud) is None
+
+
+def test_dual_variant_multi_card_consensus_accepts_exact_partial_cpu_evidence():
+    remote = _result()
+    remote.remote_cpu_candidates = (CARDS[0],)
+    remote.remote_cpu_review_reasons = ("pubg_marker_count_mismatch",)
+    cloud = _result(
+        cards=(CARDS[0], CARDS[2], "S07336-2238-JYAU-3LX7L"),
+        expected=None,
+    )
+
+    assert dual_variant_multi_card_consensus(remote, cloud) == CARDS
