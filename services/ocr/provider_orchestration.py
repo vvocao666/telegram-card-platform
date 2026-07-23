@@ -8,6 +8,7 @@ from services.ocr.thin_strip_review import review_conflicting_thin_strip
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
 from services.ocr.source_consensus import repeated_pubg_source_consensus
+from services.ocr.multi_card_consensus import dual_variant_multi_card_consensus
 from services.ocr.multi_source_decision import (
     apply_cpu_cloud_confirmations,
     cpu_cloud_confirmed_cards,
@@ -72,6 +73,8 @@ def route_ocr(
                 ).strip(),
                 remote_original_card_scores=remote.remote_original_card_scores,
                 remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
+                remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
+                remote_enhanced_rebuilt_card_scores=remote.remote_enhanced_rebuilt_card_scores,
                 remote_cpu_candidates=remote.remote_cpu_candidates,
                 remote_cpu_review_required=remote.remote_cpu_review_required,
                 remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
@@ -115,6 +118,21 @@ def route_ocr(
             f"[OCRSPACE]\n{fallback.raw_text.strip()}"
         ).strip()
         source_consensus_result = replace(remote, raw_text=merged_raw_text)
+        multi_card_consensus = dual_variant_multi_card_consensus(
+            source_consensus_result, fallback
+        )
+        if multi_card_consensus:
+            runtime.logger.info(
+                "OCR MULTI CARD DUAL VARIANT CONSENSUS cards=%s",
+                len(multi_card_consensus),
+            )
+            return replace(
+                source_consensus_result,
+                cards=multi_card_consensus,
+                pubg_expected_count=len(multi_card_consensus),
+                uncertain_count=0,
+                has_unresolved_pubg_fragment=False,
+            )
         source_consensus = repeated_pubg_source_consensus(
             source_consensus_result,
             cloud_candidates=tuple(fallback.cards),
@@ -244,6 +262,8 @@ def route_ocr(
                 remote_variant_conflict=False,
                 remote_original_card_scores=remote.remote_original_card_scores,
                 remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
+                remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
+                remote_enhanced_rebuilt_card_scores=remote.remote_enhanced_rebuilt_card_scores,
                 remote_cpu_candidates=remote.remote_cpu_candidates,
                 remote_cpu_review_required=remote.remote_cpu_review_required,
                 remote_cpu_review_reasons=remote.remote_cpu_review_reasons,

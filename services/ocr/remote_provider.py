@@ -11,6 +11,7 @@ from services.ocr.multi_source_decision import (
     cpu_pubg_candidates,
 )
 from services.ocr.remote_execution_gate import RemoteWorkerBusy
+from services.ocr.variant_rebuild_evidence import variant_rebuilt_card_scores
 
 
 def recognize_remote(
@@ -71,6 +72,12 @@ def recognize_remote(
         )
         variant_conflict = gpu_variant_conflict or cpu_review_required
         original_card_scores, enhanced_card_scores = runtime.remote_variant_evidence(payload)
+        original_rebuilt_card_scores = variant_rebuilt_card_scores(
+            runtime, payload.get("ocr_original")
+        )
+        enhanced_rebuilt_card_scores = variant_rebuilt_card_scores(
+            runtime, payload.get("ocr_enhanced")
+        )
         worker_cards = payload.get("cards")
         if not isinstance(worker_cards, list):
             worker_cards = []
@@ -169,6 +176,8 @@ def recognize_remote(
             remote_variant_conflict=gpu_variant_conflict,
             remote_original_card_scores=original_card_scores,
             remote_enhanced_card_scores=enhanced_card_scores,
+            remote_original_rebuilt_card_scores=original_rebuilt_card_scores,
+            remote_enhanced_rebuilt_card_scores=enhanced_rebuilt_card_scores,
             remote_cpu_candidates=cpu_candidates,
             remote_cpu_review_required=cpu_review_required,
             remote_cpu_review_reasons=cpu_review_reasons,

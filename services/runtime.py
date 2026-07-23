@@ -315,6 +315,8 @@ class OcrResult:
     remote_variant_conflict: bool = False
     remote_original_card_scores: tuple[tuple[str, float], ...] = tuple()
     remote_enhanced_card_scores: tuple[tuple[str, float], ...] = tuple()
+    remote_original_rebuilt_card_scores: tuple[tuple[str, float], ...] = tuple()
+    remote_enhanced_rebuilt_card_scores: tuple[tuple[str, float], ...] = tuple()
     remote_cpu_candidates: tuple[str, ...] = tuple()
     remote_cpu_review_required: bool = False
     remote_cpu_review_reasons: tuple[str, ...] = tuple()

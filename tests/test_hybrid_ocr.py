@@ -982,6 +982,50 @@ def test_partial_cloud_complement_keeps_remote_image_order(monkeypatch, tmp_path
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_multi_card_dual_gpu_consensus_ignores_one_cloud_character_conflict(
+    monkeypatch, tmp_path, caplog
+):
+    caplog.set_level("INFO")
+    cards = (
+        "S07336-6LHE-R6DA-2YHHN",
+        "S07336-YDCG-SCWP-WF977",
+        "S07336-QEDY-ST2R-HTJDA",
+        "S07336-2Z38-JYAU-3LX7L",
+    )
+    scores = tuple((card, 0.995) for card in cards)
+    remote = bot.OcrResult(
+        cards=cards,
+        raw_text="\n".join(cards),
+        pubg_expected_count=4,
+        uncertain_count=1,
+        remote_variant_conflict=True,
+        remote_original_rebuilt_card_scores=scores,
+        remote_enhanced_rebuilt_card_scores=scores,
+        remote_cpu_review_required=True,
+        has_unresolved_pubg_fragment=True,
+    )
+    fallback_cards = cards[:3] + ("S07336-2238-JYAU-3LX7L",)
+    fallback = bot.OcrResult(cards=fallback_cards, raw_text="\n".join(fallback_cards))
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: fallback)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == cards
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR MULTI CARD DUAL VARIANT CONSENSUS cards=4" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 
