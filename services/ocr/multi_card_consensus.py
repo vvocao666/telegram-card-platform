@@ -17,11 +17,16 @@ def dual_variant_multi_card_consensus(
     """Confirm multi-card GPU output only with exact high-confidence dual variants."""
     remote_cards = _cards(remote)
     cloud_cards = _cards(cloud)
-    if len(remote_cards) < 2 or len(cloud_cards) != len(remote_cards):
+    if len(remote_cards) < 2 or not 2 <= len(cloud_cards) <= len(remote_cards):
         return None
     if getattr(remote, "psn_cards", ()) or getattr(cloud, "psn_cards", ()):
         return None
-    if getattr(cloud, "uncertain_count", 0):
+    if getattr(remote, "uncertain_count", 0) or getattr(cloud, "uncertain_count", 0):
+        return None
+    if getattr(remote, "remote_cpu_candidates", ()):
+        return None
+    cpu_reasons = set(getattr(remote, "remote_cpu_review_reasons", ()) or ())
+    if cpu_reasons - {"pubg_marker_count_mismatch"}:
         return None
     expected = getattr(remote, "pubg_expected_count", None)
     if expected is not None and expected != len(remote_cards):
@@ -37,10 +42,7 @@ def dual_variant_multi_card_consensus(
         return None
     if not _scores_are_high(remote, "remote_enhanced_rebuilt_card_scores"):
         return None
-    if not all(
-        _compact_hamming(remote_card, cloud_card) <= 1
-        for remote_card, cloud_card in zip(remote_cards, cloud_cards)
-    ):
+    if not _is_ordered_cloud_subset(remote_cards, cloud_cards):
         return None
     return remote_cards
 
@@ -67,3 +69,20 @@ def _compact_hamming(left: str, right: str) -> int:
     if len(left_compact) != len(right_compact):
         return max(len(left_compact), len(right_compact))
     return sum(a != b for a, b in zip(left_compact, right_compact))
+
+
+def _is_ordered_cloud_subset(
+    remote_cards: tuple[str, ...],
+    cloud_cards: tuple[str, ...],
+) -> bool:
+    remote_index = 0
+    for cloud_card in cloud_cards:
+        while (
+            remote_index < len(remote_cards)
+            and _compact_hamming(remote_cards[remote_index], cloud_card) > 1
+        ):
+            remote_index += 1
+        if remote_index >= len(remote_cards):
+            return False
+        remote_index += 1
+    return True

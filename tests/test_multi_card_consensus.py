@@ -78,6 +78,15 @@ def test_dual_variant_multi_card_consensus_accepts_one_cloud_character_conflict(
     assert dual_variant_multi_card_consensus(_result(), cloud) == CARDS
 
 
+def test_dual_variant_multi_card_consensus_accepts_ordered_partial_cloud_evidence():
+    cloud = _result(
+        cards=(CARDS[0], CARDS[2], "S07336-2238-JYAU-3LX7L"),
+        expected=None,
+    )
+
+    assert dual_variant_multi_card_consensus(_result(), cloud) == CARDS
+
+
 def test_dual_variant_multi_card_consensus_rejects_low_score():
     remote = _result(scores=(0.999, 0.998, 0.997, 0.96))
     cloud = _result(cards=CARDS[:3] + ("S07336-2238-JYAU-3LX7L",), expected=None)
@@ -105,3 +114,11 @@ def test_dual_variant_multi_card_consensus_rejects_multi_character_conflict():
     )
 
     assert dual_variant_multi_card_consensus(_result(), cloud) is None
+
+
+def test_dual_variant_multi_card_consensus_rejects_cpu_character_candidate():
+    remote = _result()
+    remote.remote_cpu_candidates = ("S07336-2238-JYAU-3LX7L",)
+    cloud = _result(cards=(CARDS[0], CARDS[2], CARDS[3]), expected=None)
+
+    assert dual_variant_multi_card_consensus(remote, cloud) is None

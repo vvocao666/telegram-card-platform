@@ -997,14 +997,19 @@ def test_multi_card_dual_gpu_consensus_ignores_one_cloud_character_conflict(
         cards=cards,
         raw_text="\n".join(cards),
         pubg_expected_count=4,
-        uncertain_count=1,
+        uncertain_count=0,
         remote_variant_conflict=True,
         remote_original_rebuilt_card_scores=scores,
         remote_enhanced_rebuilt_card_scores=scores,
         remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("pubg_marker_count_mismatch",),
         has_unresolved_pubg_fragment=True,
     )
-    fallback_cards = cards[:3] + ("S07336-2238-JYAU-3LX7L",)
+    fallback_cards = (
+        cards[0],
+        cards[2],
+        "S07336-2238-JYAU-3LX7L",
+    )
     fallback = bot.OcrResult(cards=fallback_cards, raw_text="\n".join(fallback_cards))
     old_provider = bot.OCR_PROVIDER
     old_keys = bot.OCR_SPACE_API_KEYS
