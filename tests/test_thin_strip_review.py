@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from services.ocr.manual_review import ManualReviewNotifier
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
 
 
@@ -65,6 +66,7 @@ def test_conflicting_thin_strip_uses_independent_matching_review_results(tmp_pat
     initial = Result(
         cards=("S07330-FSQH-FWJD-W3N8D",),
         raw_text="S07330-FSQH-FWJD-W3N8D\nS07330-FSQH-FVJD-W3N8D",
+        pubg_expected_count=2,
         uncertain_count=1,
     )
     corrected = Result(cards=("S07330-FSQH-FJVD-W3N8D",), raw_text="S07330-FSQH-FJVD-W3N8D")
@@ -73,11 +75,36 @@ def test_conflicting_thin_strip_uses_independent_matching_review_results(tmp_pat
     result = review_conflicting_thin_strip(runtime, image, initial)
 
     assert result.cards == ("S07330-FSQH-FJVD-W3N8D",)
+    assert result.pubg_expected_count == 1
     assert result.uncertain_count == 0
     assert "[THIN_STRIP_REVIEW_REMOTE]" in result.raw_text
     assert "[THIN_STRIP_REVIEW_OCRSPACE]" in result.raw_text
     assert runtime.remote_calls == 1
     assert runtime.cloud_calls == 1
+    assert ManualReviewNotifier().needs_review(result) is None
+
+
+def test_confirmed_same_slot_conflict_does_not_trigger_false_missing_count_review(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07324-8K4P-AQ4Z-CXHPL"
+    conflicting = "S07324-BK4P-AQ4Z-CXHPL"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=f"{confirmed}\n{conflicting}",
+        pubg_expected_count=2,
+        uncertain_count=1,
+    )
+    runtime = Runtime(
+        Result(cards=(confirmed,), raw_text=confirmed),
+        Result(cards=(confirmed,), raw_text=f"{confirmed}\n{confirmed}"),
+    )
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == (confirmed,)
+    assert result.pubg_expected_count == 1
+    assert result.uncertain_count == 0
+    assert ManualReviewNotifier().needs_review(result) is None
 
 
 def test_unconfirmed_thin_strip_conflict_is_not_output_as_a_false_card(tmp_path):
@@ -157,6 +184,7 @@ def test_confirmed_slot_does_not_clear_uncertainty_for_another_card_slot(tmp_pat
             f"[REMOTE]\n{confirmed}\n{conflicting}\n{other_slot}\n"
             f"[OCRSPACE]\n{confirmed}"
         ),
+        pubg_expected_count=2,
         uncertain_count=2,
     )
     runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
@@ -164,6 +192,7 @@ def test_confirmed_slot_does_not_clear_uncertainty_for_another_card_slot(tmp_pat
     result = review_conflicting_thin_strip(runtime, image, initial)
 
     assert result.cards == (confirmed,)
+    assert result.pubg_expected_count == 2
     assert result.uncertain_count == 2
 
 

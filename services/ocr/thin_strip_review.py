@@ -75,11 +75,15 @@ def review_conflicting_thin_strip(
     if confirmed:
         runtime.logger.info("OCR THIN STRIP REVIEW CONFIRMED card=%s", confirmed)
         review_raw = _review_raw_text(remote, cloud)
+        only_confirmed_slot = _only_confirmed_slot(runtime, result, confirmed)
         return replace(
             result,
             cards=(confirmed,),
             card_locations=tuple(),
             raw_text="\n".join(part for part in (result.raw_text, review_raw) if part).strip(),
+            pubg_expected_count=(
+                1 if only_confirmed_slot else getattr(result, "pubg_expected_count", None)
+            ),
             uncertain_count=_remaining_uncertainty(runtime, result, confirmed),
         )
 
@@ -183,12 +187,16 @@ def _review_raw_text(remote: Any, cloud: Any) -> str:
 def _remaining_uncertainty(runtime: Any, result: Any, confirmed: str) -> int:
     """只清除已被独立复核解决的同槽冲突，不掩盖其他卡槽的不确定性。"""
 
-    raw_cards = _raw_pubg_cards(runtime, str(getattr(result, "raw_text", "")))
-    if raw_cards and all(
-        card == confirmed or is_same_slot_conflict(card, confirmed) for card in raw_cards
-    ):
+    if _only_confirmed_slot(runtime, result, confirmed):
         return 0
     return int(getattr(result, "uncertain_count", 0) or 0)
+
+
+def _only_confirmed_slot(runtime: Any, result: Any, confirmed: str) -> bool:
+    raw_cards = _raw_pubg_cards(runtime, str(getattr(result, "raw_text", "")))
+    return bool(raw_cards) and all(
+        card == confirmed or is_same_slot_conflict(card, confirmed) for card in raw_cards
+    )
 
 
 def _drop_unconfirmed_conflict(result: Any, original_cards: tuple[str, ...]) -> Any:
