@@ -9,8 +9,9 @@ CORRECT = "S07336-VLHL-MDZH-6S8ML"
 ENHANCED_WRONG = "S07336-VLHL-MDZH-6S6ML"
 
 
-def _result(card: str, score: float = 0.98) -> dict:
-    return {"cards": [{"text": card, "score": score}], "texts": []}
+def _result(card: str, score: float = 0.98, *, box=None) -> dict:
+    texts = [{"text": card, "score": score, "box": box}] if box else []
+    return {"cards": [{"text": card, "score": score}], "texts": texts}
 
 
 def test_mild_review_can_restore_original_candidate_without_inventing_card(
@@ -33,6 +34,43 @@ def test_mild_review_can_restore_original_candidate_without_inventing_card(
     assert result.selected_engine == "original"
     assert result.selected_card == CORRECT
     assert result.review_card == CORRECT
+    assert result.reason == "mild_original_confirmation"
+
+
+def test_roi_review_uses_original_card_box(monkeypatch, tmp_path: Path) -> None:
+    image = tmp_path / "original.png"
+    image.write_bytes(b"image")
+    roi = tmp_path / "roi.png"
+    roi.write_bytes(b"roi")
+    seen = {}
+
+    def fake_roi(path, box, *, scale):
+        seen.update(path=str(path), box=box, scale=scale)
+        return str(roi)
+
+    monkeypatch.setattr(review, "write_roi_crop", fake_roi)
+    monkeypatch.setattr(
+        review,
+        "write_mild_review_image",
+        lambda _path: (_ for _ in ()).throw(AssertionError("whole image must not be used")),
+    )
+
+    result = review.review_gpu_variant_conflict(
+        str(image),
+        _result(CORRECT, 0.9471, box=[10, 20, 310, 58]),
+        _result(ENHANCED_WRONG, 0.9860),
+        lambda path: (_result(CORRECT, 0.9756), 45)
+        if path == str(roi)
+        else (_result(""), 0),
+    )
+
+    assert result.resolved is True
+    assert result.reason == "roi_original_confirmation"
+    assert seen == {
+        "path": str(image),
+        "box": [10, 20, 310, 58],
+        "scale": 3,
+    }
 
 
 def test_mild_review_rejects_a_third_candidate(monkeypatch, tmp_path: Path) -> None:

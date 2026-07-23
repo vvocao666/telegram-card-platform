@@ -58,6 +58,28 @@ class FastPathTests(unittest.TestCase):
         card = {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.995}
         self.assertEqual(enhance_reason(metrics(variance=40.0), result([card])), "image_variance<80")
 
+    def test_repeated_exact_high_score_card_skips_enhancement_on_small_image(self):
+        card = {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.995}
+        texts = [
+            {"text": "S07336-ABCD-EFGH-JKLMN 复制", "score": 0.995},
+            {"text": "S07336-ABCD-EFGH-JKLMN 复制", "score": 0.996},
+        ]
+        self.assertEqual(
+            enhance_reason(metrics(width=300, variance=40.0), result([card], texts)),
+            "not_needed",
+        )
+
+    def test_repeated_low_score_card_keeps_enhancement(self):
+        card = {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.995}
+        texts = [
+            {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.96},
+            {"text": "S07336-ABCD-EFGH-JKLMN", "score": 0.995},
+        ]
+        self.assertEqual(
+            enhance_reason(metrics(width=300), result([card], texts)),
+            "width<350",
+        )
+
     def test_psn_does_not_use_pubg_fast_path(self):
         card = {"text": "ABCD-EFGH-JKLM", "score": 0.995}
         self.assertEqual(enhance_reason(metrics(), result([card])), "non_pubg_or_mixed_cards")

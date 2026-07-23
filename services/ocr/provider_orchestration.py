@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
+from services.ocr.clear_fast_path import confirmed_clear_remote_card
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
 from services.ocr.source_consensus import repeated_pubg_source_consensus
@@ -49,6 +50,13 @@ def route_ocr(
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
     )
+    clear_remote_card = confirmed_clear_remote_card(remote) if remote is not None else None
+    if clear_remote_card and runtime.is_thin_strip_image(image_path):
+        runtime.logger.info(
+            "OCR FAST PATH provider=remote evidence=gpu_original+gpu_enhanced+cpu card=%s",
+            clear_remote_card,
+        )
+        return remote
     if (
         remote is not None
         and runtime.is_thin_strip_image(image_path)

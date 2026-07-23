@@ -33,6 +33,12 @@ def enhance_reason(
     card_score = float(pubg_cards[0].get("score", 0.0) or 0.0)
     if card_score < minimum_card_score:
         return "card_score<0.985"
+    if _repeated_exact_card_evidence(
+        original_result.get("texts", []),
+        str(pubg_cards[0]["text"]),
+        minimum_card_score,
+    ):
+        return "not_needed"
 
     width = int(metrics.get("width", 0) or 0)
     height = int(metrics.get("height", 0) or 0)
@@ -46,6 +52,30 @@ def enhance_reason(
     if variance < minimum_variance:
         return "image_variance<80"
     return "not_needed"
+
+
+def _repeated_exact_card_evidence(
+    items: list[Any],
+    card: str,
+    minimum_score: float,
+) -> bool:
+    matches = 0
+    for item in items:
+        if isinstance(item, dict):
+            text = str(item.get("text", "")).upper()
+            try:
+                score = float(item.get("score", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                score = 0.0
+        else:
+            text = str(item).upper()
+            score = 0.0
+        found = PUBG_CARD_RE.findall(text)
+        if any(candidate != card for candidate in found):
+            return False
+        if card in found and score >= minimum_score:
+            matches += 1
+    return matches >= 2
 
 
 def _unique_cards(items: list[Any]) -> list[dict[str, Any]]:

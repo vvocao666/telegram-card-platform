@@ -6,6 +6,8 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from cpu_preprocess import write_roi_crop
+
 try:
     import cv2
 except Exception:  # Cloud Deploy test environments do not install Worker-only OpenCV.
@@ -45,7 +47,11 @@ def review_gpu_variant_conflict(
     if not _eligible_conflict(original_card, enhanced_card):
         return VariantReviewResult(False, reason="not_eligible")
 
-    review_path = write_mild_review_image(original_path)
+    review_path, review_scope = _write_review_image(
+        original_path,
+        original,
+        original_card,
+    )
     if not review_path:
         return VariantReviewResult(False, reason="review_image_failed")
     try:
@@ -79,8 +85,31 @@ def review_gpu_variant_conflict(
         review_card=review_card,
         review_score=review_item[1],
         latency_ms=latency_ms,
-        reason="mild_original_confirmation",
+        reason=f"{review_scope}_original_confirmation",
     )
+
+
+def _write_review_image(
+    original_path: str,
+    original: dict[str, Any],
+    card: str,
+) -> tuple[str | None, str]:
+    box = _card_box(original, card)
+    if box:
+        roi_path = write_roi_crop(original_path, box, scale=3)
+        if roi_path:
+            return roi_path, "roi"
+    return write_mild_review_image(original_path), "mild"
+
+
+def _card_box(result: dict[str, Any], card: str) -> Any | None:
+    for item in result.get("texts", []) or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", "")).upper()
+        if card in text and item.get("box"):
+            return item["box"]
+    return None
 
 
 def write_mild_review_image(original_path: str) -> str | None:
