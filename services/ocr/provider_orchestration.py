@@ -9,7 +9,10 @@ from services.ocr.clear_fast_path import confirmed_clear_remote_card
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
 from services.ocr.source_consensus import repeated_pubg_source_consensus
-from services.ocr.multi_card_consensus import dual_variant_multi_card_consensus
+from services.ocr.multi_card_consensus import (
+    complete_dual_variant_multi_card_consensus,
+    dual_variant_multi_card_consensus,
+)
 from services.ocr.multi_source_decision import (
     apply_cpu_cloud_confirmations,
     cpu_cloud_confirmed_cards,
@@ -103,6 +106,24 @@ def route_ocr(
                 psn_expected_count=psn_expected_count,
                 pubg_expected_count=pubg_expected_count,
             )
+
+    complete_multi_card_consensus = (
+        complete_dual_variant_multi_card_consensus(remote)
+        if remote is not None
+        else None
+    )
+    if complete_multi_card_consensus:
+        runtime.logger.info(
+            "OCR MULTI CARD DUAL VARIANT FAST PATH cards=%s",
+            len(complete_multi_card_consensus),
+        )
+        return replace(
+            remote,
+            cards=complete_multi_card_consensus,
+            pubg_expected_count=len(complete_multi_card_consensus),
+            uncertain_count=0,
+            has_unresolved_pubg_fragment=False,
+        )
 
     needs_complement = False
     complement_reason = ""

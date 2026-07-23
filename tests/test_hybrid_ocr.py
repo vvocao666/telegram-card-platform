@@ -1032,6 +1032,65 @@ def test_multi_card_dual_gpu_consensus_ignores_one_cloud_character_conflict(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_complete_dual_gpu_multi_card_fast_path_skips_noisy_cloud(
+    monkeypatch, tmp_path, caplog
+):
+    caplog.set_level("INFO")
+    cards = (
+        "S07330-V57R-M7VQ-3DFQX",
+        "S07336-EHNP-9HPR-6YHWM",
+        "S07336-U8R4-C4QL-YGWVV",
+        "S07336-YGFU-VKFW-ENG2E",
+    )
+    original_scores = tuple(
+        zip(cards, (0.9939089, 0.9904456, 0.9861397, 0.9786339))
+    )
+    enhanced_scores = tuple(
+        zip(cards, (0.9816356, 0.9523126, 0.9951673, 0.9955719))
+    )
+    remote = bot.OcrResult(
+        cards=cards,
+        raw_text="\n".join(cards),
+        pubg_expected_count=4,
+        uncertain_count=0,
+        remote_original_rebuilt_card_scores=original_scores,
+        remote_enhanced_rebuilt_card_scores=enhanced_scores,
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("pubg_marker_without_valid_card",),
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud_called = False
+
+    def noisy_cloud(*args, **kwargs):
+        nonlocal cloud_called
+        cloud_called = True
+        return bot.OcrResult(
+            cards=cards[:2] + cards[3:],
+            raw_text="\n".join(cards[:2] + cards[3:]),
+            uncertain_count=1,
+        )
+
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", noisy_cloud)
+
+        result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == cards
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert cloud_called is False
+        assert "OCR MULTI CARD DUAL VARIANT FAST PATH cards=4" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 

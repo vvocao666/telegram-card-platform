@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from services.ocr.multi_card_consensus import dual_variant_multi_card_consensus
+from services.ocr.multi_card_consensus import (
+    complete_dual_variant_multi_card_consensus,
+    dual_variant_multi_card_consensus,
+)
 from services.ocr.variant_rebuild_evidence import variant_rebuilt_card_scores
 from services import runtime
 
@@ -134,3 +137,53 @@ def test_dual_variant_multi_card_consensus_accepts_exact_partial_cpu_evidence():
     )
 
     assert dual_variant_multi_card_consensus(remote, cloud) == CARDS
+
+
+def test_complete_dual_variant_consensus_accepts_real_wrapped_four_card_image():
+    cards = (
+        "S07330-V57R-M7VQ-3DFQX",
+        "S07336-EHNP-9HPR-6YHWM",
+        "S07336-U8R4-C4QL-YGWVV",
+        "S07336-YGFU-VKFW-ENG2E",
+    )
+    remote = _result(
+        cards=cards,
+        original=cards,
+        enhanced=cards,
+        scores=(0.9939089, 0.9904456, 0.9861397, 0.9786339),
+        expected=4,
+    )
+    remote.remote_enhanced_rebuilt_card_scores = tuple(
+        zip(cards, (0.9816356, 0.9523126, 0.9951673, 0.9955719))
+    )
+    remote.remote_cpu_candidates = tuple()
+    remote.remote_cpu_review_reasons = ("pubg_marker_without_valid_card",)
+    remote.has_unresolved_pubg_fragment = True
+
+    assert complete_dual_variant_multi_card_consensus(remote) == cards
+
+
+def test_complete_dual_variant_consensus_rejects_different_card_text():
+    enhanced = CARDS[:2] + ("S07336-QEDY-ST2R-HTJDB",) + CARDS[3:]
+    remote = _result(enhanced=enhanced)
+
+    assert complete_dual_variant_multi_card_consensus(remote) is None
+
+
+def test_complete_dual_variant_consensus_rejects_missing_marker_count():
+    remote = _result(expected=5)
+
+    assert complete_dual_variant_multi_card_consensus(remote) is None
+
+
+def test_complete_dual_variant_consensus_rejects_two_weak_variant_scores():
+    remote = _result(scores=(0.999, 0.998, 0.949, 0.996))
+
+    assert complete_dual_variant_multi_card_consensus(remote) is None
+
+
+def test_complete_dual_variant_consensus_rejects_conflicting_cpu_candidate():
+    remote = _result()
+    remote.remote_cpu_candidates = ("S07336-2238-JYAU-3LX7L",)
+
+    assert complete_dual_variant_multi_card_consensus(remote) is None
