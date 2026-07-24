@@ -7,6 +7,7 @@ from typing import Any
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
+from services.ocr.clear_fast_path import confirmed_clear_remote_card
 from services.ocr.pubg_candidate_merge import is_same_slot_conflict
 from services.ocr.source_consensus import repeated_pubg_source_consensus
 from services.ocr.thin_strip_policy import is_thin_strip_image
@@ -169,15 +170,24 @@ def _confirmed_candidate(
     来自 OCR.space，且 OCR.space 对独立裁剪增强图再次读出同一卡时，才允许
     在 Remote 临时冷却或超时时保留该卡；这不是字符替换，也不会在其他路径生效。
     """
+    remote_consensus = confirmed_clear_remote_card(remote) if remote is not None else None
+    if remote_consensus and (
+        not originals
+        or all(
+            original == remote_consensus
+            or is_same_slot_conflict(original, remote_consensus)
+            for original in originals
+        )
+    ):
+        return remote_consensus
+
     remote_cards = _same_slot_cards(runtime, originals, getattr(remote, "cards", ()))
     cloud_cards = _same_slot_cards(runtime, originals, getattr(cloud, "cards", ()))
     shared = [card for card in remote_cards if card in cloud_cards]
     if len(shared) == 1:
         return shared[0]
 
-    original_is_ocrspace = (
-        primary_provider == "ocrspace" or "[OCRSPACE]" in original_raw_text
-    )
+    original_is_ocrspace = primary_provider == "ocrspace"
     if not original_is_ocrspace or not originals:
         return None
     if len(cloud_cards) != 1:

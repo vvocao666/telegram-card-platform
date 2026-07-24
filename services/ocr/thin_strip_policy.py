@@ -42,4 +42,14 @@ def choose_thin_strip_result(
         return remote, False
 
     remote_cards = tuple(getattr(remote, "cards", ()) or ())
-    return cloud, remote_cards != cloud_cards
+    remote_is_valid = (
+        len(remote_cards) == 1
+        and not tuple(getattr(remote, "psn_cards", ()) or ())
+        and not tuple(getattr(remote, "psn_uncertain", ()) or ())
+        and valid_card(remote_cards[0])
+    )
+    if not remote_is_valid:
+        return cloud, False
+    if remote_cards == cloud_cards:
+        return cloud, False
+    return remote, True

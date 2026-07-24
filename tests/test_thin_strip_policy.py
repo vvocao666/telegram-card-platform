@@ -26,14 +26,24 @@ def test_thin_strip_detection_is_narrow(tmp_path):
     assert not is_thin_strip_image(regular)
 
 
-def test_valid_cloud_result_verifies_remote_conflict():
+def test_valid_cloud_result_does_not_overwrite_valid_remote_conflict():
     remote = Result(cards=("S07324-N4RB-3744-V3Y8N",))
     cloud = Result(cards=("S07324-N4RB-3744-V3Y8M",))
 
-    selected, changed = choose_thin_strip_result(remote, cloud, valid_card=lambda card: card.endswith("M"))
+    selected, changed = choose_thin_strip_result(remote, cloud, valid_card=lambda _card: True)
+
+    assert selected is remote
+    assert changed is True
+
+
+def test_valid_cloud_result_fills_missing_remote_card():
+    remote = Result()
+    cloud = Result(cards=("S07324-N4RB-3744-V3Y8M",))
+
+    selected, changed = choose_thin_strip_result(remote, cloud, valid_card=lambda _card: True)
 
     assert selected is cloud
-    assert changed is True
+    assert changed is False
 
 
 def test_uncertain_cloud_result_does_not_replace_remote():

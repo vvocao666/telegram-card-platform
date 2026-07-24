@@ -26,6 +26,11 @@ class Result:
     raw_text: str = ""
     uncertain_count: int = 0
     has_unresolved_pubg_fragment: bool = False
+    remote_original_card_scores: tuple[tuple[str, float], ...] = ()
+    remote_enhanced_card_scores: tuple[tuple[str, float], ...] = ()
+    remote_cpu_candidates: tuple[str, ...] = ()
+    remote_cpu_review_required: bool = False
+    remote_cpu_review_reasons: tuple[str, ...] = ()
 
 
 class Runtime:
@@ -138,6 +143,33 @@ def test_unconfirmed_thin_strip_conflict_is_not_output_as_a_false_card(tmp_path)
     assert result.has_unresolved_pubg_fragment is True
 
 
+def test_gpu_variants_and_cpu_confirm_remote_tail_over_wrong_cloud_review(tmp_path):
+    image = make_thin_image(tmp_path)
+    correct = "S07317-4WW8-F35W-RJA3W"
+    cloud_wrong = "S07317-4WW8-F35W-RJA3T"
+    initial = Result(
+        cards=(correct,),
+        raw_text=f"[REMOTE]\n{correct}\n[OCRSPACE]\n{cloud_wrong}",
+        uncertain_count=1,
+    )
+    remote_review = Result(
+        cards=(correct,),
+        raw_text=correct,
+        remote_original_card_scores=((correct, 0.9946),),
+        remote_enhanced_card_scores=((correct, 0.9991),),
+        remote_cpu_candidates=(correct,),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("thin_strip_pubg",),
+    )
+    runtime = Runtime(remote_review, Result(cards=(cloud_wrong,), raw_text=cloud_wrong))
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == (correct,)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+
+
 def test_ocrspace_repeat_confirms_conflict_when_remote_review_is_temporarily_unavailable(tmp_path):
     image = make_thin_image(tmp_path)
     confirmed = "S07336-BFE9-UMA7-L33X8"
@@ -151,7 +183,12 @@ def test_ocrspace_repeat_confirms_conflict_when_remote_review_is_temporarily_una
     )
     runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
 
-    result = review_conflicting_thin_strip(runtime, image, initial)
+    result = review_conflicting_thin_strip(
+        runtime,
+        image,
+        initial,
+        primary_provider="ocrspace",
+    )
 
     assert result.cards == (confirmed,)
     assert result.uncertain_count == 0
@@ -275,7 +312,12 @@ def test_confirmed_slot_does_not_clear_uncertainty_for_another_card_slot(tmp_pat
     )
     runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
 
-    result = review_conflicting_thin_strip(runtime, image, initial)
+    result = review_conflicting_thin_strip(
+        runtime,
+        image,
+        initial,
+        primary_provider="ocrspace",
+    )
 
     assert result.cards == (confirmed,)
     assert result.pubg_expected_count == 2

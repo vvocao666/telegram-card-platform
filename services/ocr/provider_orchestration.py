@@ -80,13 +80,14 @@ def route_ocr(
         selected, changed = runtime.choose_thin_strip_result(
             remote, cloud, valid_card=runtime.valid_card
         )
+        merged_raw_text = (
+            f"[REMOTE]\n{remote.raw_text.strip()}\n"
+            f"[OCRSPACE]\n{cloud.raw_text.strip()}"
+        ).strip()
         if selected is cloud:
             selected = replace(
                 cloud,
-                raw_text=(
-                    f"[REMOTE]\n{remote.raw_text.strip()}\n"
-                    f"[OCRSPACE]\n{cloud.raw_text.strip()}"
-                ).strip(),
+                raw_text=merged_raw_text,
                 remote_original_card_scores=remote.remote_original_card_scores,
                 remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
                 remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
@@ -107,6 +108,21 @@ def route_ocr(
                 runtime,
                 image_path,
                 selected,
+                psn_hint=psn_hint,
+                psn_expected_count=psn_expected_count,
+                pubg_expected_count=pubg_expected_count,
+                primary_provider="ocrspace",
+            )
+        if changed:
+            runtime.logger.warning(
+                "OCR THIN STRIP CONFLICT remote=%s cloud=%s selected=remote_pending_review",
+                list(remote.cards),
+                list(cloud.cards),
+            )
+            return _review_thin_strip(
+                runtime,
+                image_path,
+                replace(remote, raw_text=merged_raw_text),
                 psn_hint=psn_hint,
                 psn_expected_count=psn_expected_count,
                 pubg_expected_count=pubg_expected_count,

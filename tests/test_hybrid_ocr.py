@@ -335,19 +335,30 @@ def test_run_ocr_uses_remote_before_ocrspace(monkeypatch, tmp_path):
     assert result is expected
 
 
-def test_run_ocr_verifies_thin_strip_remote_conflict_with_ocrspace(monkeypatch, tmp_path):
+def test_run_ocr_does_not_allow_cloud_to_overwrite_remote_thin_strip_conflict(
+    monkeypatch, tmp_path
+):
     image_path = tmp_path / "thin.jpg"
     Image.new("RGB", (500, 80), "white").save(image_path)
-    remote = bot.OcrResult(cards=("S07324-N4RB-3744-V3Y8N",), raw_text="remote")
-    cloud = bot.OcrResult(cards=("S07324-N4RB-3744-V3Y8M",), raw_text="cloud")
+    remote = bot.OcrResult(
+        cards=("S07324-N4RB-3744-V3Y8N",),
+        raw_text="S07324-N4RB-3744-V3Y8N",
+    )
+    cloud = bot.OcrResult(
+        cards=("S07324-N4RB-3744-V3Y8M",),
+        raw_text="S07324-N4RB-3744-V3Y8M",
+    )
     monkeypatch.setattr(bot, "OCR_PROVIDER", "ocrspace")
     monkeypatch.setattr(bot, "OCR_SPACE_API_KEYS", ["key"])
-    monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
-    monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: cloud)
+    remote_calls = iter((remote, remote))
+    cloud_calls = iter((cloud, cloud))
+    monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: next(remote_calls))
+    monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: next(cloud_calls))
 
     result = bot.run_ocr(image_path)
 
-    assert result.cards == cloud.cards
+    assert result.cards == ()
+    assert result.uncertain_count == 1
     assert "[REMOTE]" in result.raw_text
     assert "[OCRSPACE]" in result.raw_text
 
