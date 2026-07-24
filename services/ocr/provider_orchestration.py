@@ -30,6 +30,7 @@ def _review_thin_strip(
     psn_hint: bool,
     psn_expected_count: int | None,
     pubg_expected_count: int | None,
+    primary_provider: str | None = None,
 ) -> Any:
     return review_conflicting_thin_strip(
         runtime,
@@ -38,6 +39,7 @@ def _review_thin_strip(
         psn_hint=psn_hint,
         psn_expected_count=psn_expected_count,
         pubg_expected_count=pubg_expected_count,
+        primary_provider=primary_provider,
     )
 
 
@@ -351,6 +353,7 @@ def route_ocr(
                 psn_hint=psn_hint,
                 psn_expected_count=psn_expected_count,
                 pubg_expected_count=pubg_expected_count,
+                primary_provider="ocrspace",
             )
         if not runtime.LOCAL_FALLBACK and not runtime.VERIFY_WITH_LOCAL:
             return _review_thin_strip(
@@ -360,6 +363,7 @@ def route_ocr(
                 psn_hint=psn_hint,
                 psn_expected_count=psn_expected_count,
                 pubg_expected_count=pubg_expected_count,
+                primary_provider="ocrspace",
             )
 
         local = runtime.run_local_ocr(

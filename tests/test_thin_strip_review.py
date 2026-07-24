@@ -160,6 +160,32 @@ def test_ocrspace_repeat_confirms_conflict_when_remote_review_is_temporarily_una
     assert runtime.cloud_calls == 1
 
 
+def test_cloud_primary_and_independent_review_confirm_same_single_card(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07330-QL67-QUWH-SWPEB"
+    conflicting = "S07330-QL67-QUWH-SWEB"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=f"{conflicting}\n{confirmed}",
+        uncertain_count=1,
+    )
+    runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
+
+    result = review_conflicting_thin_strip(
+        runtime,
+        image,
+        initial,
+        primary_provider="ocrspace",
+    )
+
+    assert result.cards == (confirmed,)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+    assert runtime.remote_calls == 1
+    assert runtime.cloud_calls == 1
+    assert ManualReviewNotifier().needs_review(result) is None
+
+
 def test_repeated_card_with_same_slot_noise_is_confirmed_without_manual_review(tmp_path):
     image = make_thin_image(tmp_path)
     confirmed = "S07336-CM57-HC46-F79KY"

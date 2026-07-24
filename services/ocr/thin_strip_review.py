@@ -20,6 +20,7 @@ def review_conflicting_thin_strip(
     psn_hint: bool = False,
     psn_expected_count: int | None = None,
     pubg_expected_count: int | None = None,
+    primary_provider: str | None = None,
 ) -> Any:
     """仅对细长单卡图的同槽候选冲突执行局部复核。
 
@@ -36,7 +37,12 @@ def review_conflicting_thin_strip(
             uncertain_count=0,
             has_unresolved_pubg_fragment=False,
         )
-    if not _needs_review(runtime, image_path, result):
+    if not _needs_review(
+        runtime,
+        image_path,
+        result,
+        primary_provider=primary_provider,
+    ):
         return result
 
     original_cards = tuple(getattr(result, "cards", ()) or ())
@@ -70,6 +76,7 @@ def review_conflicting_thin_strip(
         remote,
         cloud,
         original_raw_text=str(getattr(result, "raw_text", "")),
+        primary_provider=primary_provider,
     )
     if confirmed:
         runtime.logger.info("OCR THIN STRIP REVIEW CONFIRMED card=%s", confirmed)
@@ -116,10 +123,21 @@ def build_review_image(image_path: Path, output_dir: Path) -> Path:
     return output_path
 
 
-def _needs_review(runtime: Any, image_path: Path, result: Any) -> bool:
+def _needs_review(
+    runtime: Any,
+    image_path: Path,
+    result: Any,
+    *,
+    primary_provider: str | None,
+) -> bool:
     cards = tuple(getattr(result, "cards", ()) or ())
     if len(cards) != 1 or not is_thin_strip_image(image_path):
         return False
+    if (
+        primary_provider == "ocrspace"
+        and int(getattr(result, "uncertain_count", 0) or 0) > 0
+    ):
+        return True
     raw_cards = _raw_pubg_cards(runtime, str(getattr(result, "raw_text", "")))
     return any(
         left != right and is_same_slot_conflict(left, right)
@@ -143,6 +161,7 @@ def _confirmed_candidate(
     cloud: Any,
     *,
     original_raw_text: str,
+    primary_provider: str | None,
 ) -> str | None:
     """确认细长图冲突候选，避免因另一端短暂离线而丢卡。
 
@@ -156,7 +175,10 @@ def _confirmed_candidate(
     if len(shared) == 1:
         return shared[0]
 
-    if "[OCRSPACE]" not in original_raw_text or len(originals) != 1:
+    original_is_ocrspace = (
+        primary_provider == "ocrspace" or "[OCRSPACE]" in original_raw_text
+    )
+    if not original_is_ocrspace or len(originals) != 1:
         return None
     original = originals[0]
     if cloud_cards == [original]:
