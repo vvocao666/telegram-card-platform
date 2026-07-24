@@ -151,6 +151,29 @@ def test_repeated_cross_source_consensus_does_not_hide_missing_card_count():
     assert item.reason == "识别数量少于图片中的卡密标记"
 
 
+def test_wrapped_multi_card_duplicate_sources_do_not_request_review():
+    cards = (
+        "S07336-DQTE-ZZUR-N4LZB",
+        "S07336-MDUU-2URB-29U8X",
+    )
+    raw_text = (
+        "S07336-DQTE-\n"
+        "ZZUR-N4LZB\n"
+        "S07336-\n"
+        "MDUU-2URB-29U8X\n"
+        "S07336-DQTE-\n"
+        "ZZUR-N4LZB\n"
+        "S07336-\n"
+        "MDUU-2URB-29U8X"
+    )
+
+    item = ManualReviewNotifier().needs_review(
+        result(cards=cards, raw_text=raw_text, pubg_expected_count=2)
+    )
+
+    assert item is None
+
+
 def test_dominant_repeated_card_ignores_one_same_slot_noise_read():
     card = "S07330-DHXN-P5ZS-4SSF7"
     noise = "S07330-DHXN-P5ZS-ASSF7"

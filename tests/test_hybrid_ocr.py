@@ -567,6 +567,34 @@ def test_same_slot_conflicting_tails_do_not_trigger_manual_review(monkeypatch):
     assert bot.remote_needs_ocrspace_complement(remote) == (False, "")
 
 
+def test_duplicate_wrapped_multi_card_sources_count_physical_slots_once():
+    raw_text = (
+        "S07336-DQTE-\n"
+        "ZZUR-N4LZB\n"
+        "S07336-\n"
+        "MDUU-2URB-29U8X\n"
+        "S07336-DQTE-\n"
+        "ZZUR-N4LZB\n"
+        "S07336-\n"
+        "MDUU-2URB-29U8X"
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 2
+    assert bot.merge_pubg_expected_count(None, raw_text) == 2
+
+
+def test_unresolved_extra_wrapped_marker_still_counts_for_review():
+    raw_text = (
+        "S07336-DQTE-\n"
+        "ZZUR-N4LZB\n"
+        "S07336-\n"
+        "MDUU-2URB-29U8X\n"
+        "S07336-"
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 3
+
+
 def test_distinct_pubg_markers_still_trigger_missing_card_complement(monkeypatch):
     monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
     remote = bot.OcrResult(

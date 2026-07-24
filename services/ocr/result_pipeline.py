@@ -46,12 +46,13 @@ def count_unique_pubg_markers(
 ) -> int | None:
     anchors: list[tuple[str, ...]] = []
     normalized = normalize_text(text)
+    lines = normalized.splitlines()
     body_pattern = re.compile(
         r"^\s*-\s*([A-Z0-9]{1,5})"
         r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
         r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
     )
-    for line in normalized.splitlines():
+    for line_index, line in enumerate(lines):
         for match in prefix_pattern.finditer(line):
             anchor = [match.group(0)]
             body_match = body_pattern.match(line[match.end() :])
@@ -60,6 +61,14 @@ def count_unique_pubg_markers(
                     if value is None:
                         break
                     anchor.append(value)
+            rebuilt = _adjacent_pubg_marker_anchor(
+                lines,
+                line_index=line_index,
+                prefix=match.group(0),
+                current_groups=anchor[1:],
+            )
+            if rebuilt is not None:
+                anchor = list(rebuilt)
             anchors.append(tuple(anchor))
 
     unique: list[tuple[str, ...]] = []
@@ -68,6 +77,48 @@ def count_unique_pubg_markers(
             continue
         unique.append(anchor)
     return len(unique) or None
+
+
+def _adjacent_pubg_marker_anchor(
+    lines: list[str],
+    *,
+    line_index: int,
+    prefix: str,
+    current_groups: list[str],
+) -> tuple[str, ...] | None:
+    """Rebuild only a marker identity from the next adjacent OCR lines.
+
+    This does not create an output card. It prevents duplicate original and
+    enhanced OCR passes of the same wrapped card from inflating the expected
+    card count. A complete 4-4-(4|5) structure is required; unresolved markers
+    remain separate so genuine missing cards still trigger review.
+    """
+
+    groups = list(current_groups)
+    if len(groups) >= 3:
+        return None
+
+    continuation_pattern = re.compile(
+        r"^\s*([A-Z0-9]{1,5})"
+        r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
+        r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
+        r"\s*$"
+    )
+    for next_line in lines[line_index + 1 : line_index + 4]:
+        if prefix in next_line or "S07" in next_line:
+            break
+        continuation = continuation_pattern.match(next_line)
+        if continuation is None:
+            break
+        values = [value for value in continuation.groups() if value is not None]
+        if len(groups) + len(values) > 3:
+            return None
+        groups.extend(values)
+        if len(groups) == 3:
+            if len(groups[0]) == 4 and len(groups[1]) == 4 and len(groups[2]) in (4, 5):
+                return (prefix, *groups)
+            return None
+    return None
 
 
 def _same_pubg_marker_slot(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
