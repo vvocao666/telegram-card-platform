@@ -8,7 +8,10 @@ from services.ocr.thin_strip_review import review_conflicting_thin_strip
 from services.ocr.clear_fast_path import confirmed_clear_remote_card
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
-from services.ocr.source_consensus import repeated_pubg_source_consensus
+from services.ocr.source_consensus import (
+    exact_pubg_cross_source_consensus,
+    repeated_pubg_source_consensus,
+)
 from services.ocr.multi_card_consensus import (
     complete_dual_variant_multi_card_consensus,
     dual_variant_multi_card_consensus,
@@ -147,6 +150,18 @@ def route_ocr(
             f"[OCRSPACE]\n{fallback.raw_text.strip()}"
         ).strip()
         source_consensus_result = replace(remote, raw_text=merged_raw_text)
+        exact_cross_source = exact_pubg_cross_source_consensus(remote, fallback)
+        if exact_cross_source:
+            runtime.logger.info(
+                "OCR EXACT CROSS SOURCE CONSENSUS card=%s", exact_cross_source
+            )
+            return replace(
+                source_consensus_result,
+                cards=(exact_cross_source,),
+                pubg_expected_count=1,
+                uncertain_count=0,
+                has_unresolved_pubg_fragment=False,
+            )
         multi_card_consensus = dual_variant_multi_card_consensus(
             source_consensus_result, fallback
         )

@@ -15,11 +15,14 @@ class Result:
 
 def test_thin_strip_detection_is_narrow(tmp_path):
     thin = tmp_path / "thin.jpg"
+    duplicate_rows = tmp_path / "duplicate-rows.jpg"
     regular = tmp_path / "regular.jpg"
     Image.new("RGB", (500, 80), "white").save(thin)
+    Image.new("RGB", (236, 83), "white").save(duplicate_rows)
     Image.new("RGB", (500, 400), "white").save(regular)
 
     assert is_thin_strip_image(thin)
+    assert is_thin_strip_image(duplicate_rows)
     assert not is_thin_strip_image(regular)
 
 

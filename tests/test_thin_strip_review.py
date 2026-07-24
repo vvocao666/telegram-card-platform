@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from services.ocr.manual_review import ManualReviewNotifier
-from services.ocr.thin_strip_review import review_conflicting_thin_strip
+from services.ocr.thin_strip_review import build_review_image, review_conflicting_thin_strip
 
 
 PUBG_RE = re.compile(r"^S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$", re.MULTILINE)
@@ -59,6 +59,19 @@ def make_thin_image(tmp_path: Path) -> Path:
     path = tmp_path / "thin.jpg"
     Image.new("RGB", (700, 100), "white").save(path)
     return path
+
+
+def test_review_image_preserves_full_strip_before_upscale(tmp_path):
+    image = tmp_path / "duplicate-rows.jpg"
+    source = Image.new("RGB", (236, 83), "white")
+    source.putpixel((0, 40), (0, 0, 0))
+    source.save(image)
+
+    review = build_review_image(image, tmp_path / "review")
+
+    with Image.open(review) as opened:
+        assert opened.size == (944, 332)
+        assert opened.getpixel((0, 160)) < 255
 
 
 def test_conflicting_thin_strip_uses_independent_matching_review_results(tmp_path):

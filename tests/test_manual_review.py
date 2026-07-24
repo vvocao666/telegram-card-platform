@@ -149,3 +149,27 @@ def test_repeated_cross_source_consensus_does_not_hide_missing_card_count():
 
     assert item is not None
     assert item.reason == "识别数量少于图片中的卡密标记"
+
+
+def test_dominant_repeated_card_ignores_one_same_slot_noise_read():
+    card = "S07330-DHXN-P5ZS-4SSF7"
+    noise = "S07330-DHXN-P5ZS-ASSF7"
+    raw_text = "\n".join((card, card, noise, card))
+
+    assert (
+        ManualReviewNotifier().needs_review(
+            result(cards=(card,), uncertain_count=2, raw_text=raw_text)
+        )
+        is None
+    )
+
+
+def test_tied_same_slot_reads_still_require_review():
+    card = "S07330-QL67-QUWH-SWPEB"
+    noise = "S07330-QL67-QUWH-SWEBB"
+
+    item = ManualReviewNotifier().needs_review(
+        result(cards=(card,), uncertain_count=1, raw_text=f"{card}\n{noise}")
+    )
+
+    assert item is not None

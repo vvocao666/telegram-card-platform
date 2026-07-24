@@ -10,7 +10,7 @@ def is_thin_strip_image(
     image_path: Path,
     *,
     maximum_height: int = 200,
-    minimum_aspect_ratio: float = 3.2,
+    minimum_aspect_ratio: float = 2.5,
 ) -> bool:
     """仅识别明显的单行细长截图，避免改变普通图片 OCR 路径。"""
     try:

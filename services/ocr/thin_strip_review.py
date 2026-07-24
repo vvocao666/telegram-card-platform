@@ -7,7 +7,6 @@ from typing import Any
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
-from services.ocr.image_preprocess import crop_card_roi
 from services.ocr.pubg_candidate_merge import is_same_slot_conflict
 from services.ocr.source_consensus import repeated_pubg_source_consensus
 from services.ocr.thin_strip_policy import is_thin_strip_image
@@ -99,8 +98,9 @@ def build_review_image(image_path: Path, output_dir: Path) -> Path:
     """裁剪细长图的文字区域并放大，保留完整原始字符而不重排文本。"""
     with Image.open(image_path) as opened:
         source = ImageOps.exif_transpose(opened).convert("RGB")
-    roi, failed = crop_card_roi(source)
-    working = source if failed else roi
+    # Preserve the whole strip. Threshold-based ROI cropping can clip the
+    # faint leading "S" in small duplicate-row screenshots.
+    working = source
     scale = min(4, max(1, 2600 // max(working.width, 1)))
     if scale > 1:
         working = working.resize(

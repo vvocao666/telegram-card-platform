@@ -18,6 +18,30 @@ SOURCE_LABELS = {"REMOTE", "OCRSPACE"}
 MIN_DUAL_GPU_SCORE = 0.97
 
 
+def exact_pubg_cross_source_consensus(remote: Any, cloud: Any) -> str | None:
+    """Return one exact card independently produced by Remote and OCR.space.
+
+    Both providers must return the same single valid PUBG card, and neither
+    raw response may contain another complete valid PUBG candidate.
+    """
+
+    remote_card = _single_valid_card(remote)
+    cloud_card = _single_valid_card(cloud)
+    if remote_card is None or cloud_card is None or remote_card != cloud_card:
+        return None
+    raw_cards = PUBG_CARD_RE.findall(
+        "\n".join(
+            (
+                str(getattr(remote, "raw_text", "") or "").upper(),
+                str(getattr(cloud, "raw_text", "") or "").upper(),
+            )
+        )
+    )
+    if any(card != remote_card for card in raw_cards):
+        return None
+    return remote_card
+
+
 def repeated_pubg_source_consensus(
     result: Any,
     *,
@@ -67,6 +91,18 @@ def repeated_pubg_source_consensus(
     ):
         return confirmed
     return None
+
+
+def _single_valid_card(result: Any) -> str | None:
+    cards = tuple(str(card).upper() for card in (getattr(result, "cards", ()) or ()))
+    if (
+        len(cards) != 1
+        or getattr(result, "psn_cards", ())
+        or getattr(result, "psn_uncertain", ())
+        or not PUBG_CARD_RE.fullmatch(cards[0])
+    ):
+        return None
+    return cards[0]
 
 
 def _variant_cards(result: Any) -> dict[str, set[str]]:

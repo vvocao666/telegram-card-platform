@@ -6,6 +6,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
+from services.ocr.pubg_candidate_merge import compact_card, hamming_distance
 from services.ocr.source_consensus import PUBG_CARD_RE, repeated_pubg_source_consensus
 
 
@@ -28,7 +29,10 @@ class ManualReviewNotifier:
     def needs_review(self, result: Any) -> ManualReviewItem | None:
         expected = max(result.pubg_expected_count or 0, result.psn_expected_count or 0)
         actual = len(result.cards) + len(result.psn_cards)
-        if expected <= 1 and repeated_pubg_source_consensus(result):
+        if expected <= 1 and (
+            repeated_pubg_source_consensus(result)
+            or _has_dominant_repeated_pubg_evidence(result)
+        ):
             return None
         if result.has_unresolved_pubg_fragment:
             return ManualReviewItem(0, "存在无法按相邻行完整重建的卡密")
@@ -100,3 +104,28 @@ def _has_repeated_exact_pubg_evidence(result: Any) -> bool:
         return False
     raw_cards = PUBG_CARD_RE.findall(raw_text)
     return set(raw_cards) == set(cards) and all(raw_cards.count(card) >= 2 for card in cards)
+
+
+def _has_dominant_repeated_pubg_evidence(result: Any) -> bool:
+    """Ignore one-off same-slot noise when one complete card repeats clearly."""
+
+    cards = tuple(str(card).upper() for card in (getattr(result, "cards", ()) or ()))
+    if len(cards) != 1 or getattr(result, "psn_cards", ()):
+        return False
+    confirmed = cards[0]
+    raw_cards = PUBG_CARD_RE.findall(
+        str(getattr(result, "raw_text", "") or "").upper()
+    )
+    confirmed_count = raw_cards.count(confirmed)
+    if confirmed_count < 2:
+        return False
+    competing = [card for card in raw_cards if card != confirmed]
+    if not competing:
+        return True
+    if not all(
+        hamming_distance(compact_card(card), compact_card(confirmed)) == 1
+        for card in competing
+    ):
+        return False
+    highest_competing_count = max(competing.count(card) for card in set(competing))
+    return confirmed_count > highest_competing_count

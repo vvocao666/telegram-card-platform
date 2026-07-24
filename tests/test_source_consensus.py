@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from services.ocr.source_consensus import repeated_pubg_source_consensus
+from services.ocr.source_consensus import (
+    exact_pubg_cross_source_consensus,
+    repeated_pubg_source_consensus,
+)
 
 
 def make_result(card: str, raw_text: str, **kwargs):
@@ -65,6 +68,23 @@ def test_single_read_per_source_is_not_repeated_consensus():
     result = make_result(card, f"[REMOTE]\n{card}\n[OCRSPACE]\n{card}")
 
     assert repeated_pubg_source_consensus(result) is None
+
+
+def test_exact_single_card_from_remote_and_cloud_is_cross_source_consensus():
+    card = "S07330-5MSB-F36V-AC7W4"
+    remote = make_result(card, "S07330-5MSB-F36V-AC7\nW4")
+    cloud = make_result(card, "S07330-5MSB-F36V-AC7\nW4")
+
+    assert exact_pubg_cross_source_consensus(remote, cloud) == card
+
+
+def test_cross_source_consensus_rejects_another_complete_card():
+    card = "S07330-5MSB-F36V-AC7W4"
+    other = "S07330-5MSB-F36V-AC7W9"
+    remote = make_result(card, card)
+    cloud = make_result(card, f"{card}\n{other}")
+
+    assert exact_pubg_cross_source_consensus(remote, cloud) is None
 
 
 def test_original_and_enhanced_gpu_evidence_plus_cloud_is_consensus():

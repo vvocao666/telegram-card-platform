@@ -918,6 +918,42 @@ def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_exact_remote_and_cloud_card_clears_stale_wrap_uncertainty(
+    monkeypatch, tmp_path, caplog
+):
+    card = "S07330-5MSB-F36V-AC7W4"
+    remote = bot.OcrResult(
+        cards=(card,),
+        raw_text="S07330-5MSB-F36V-AC7\nW4",
+        uncertain_count=1,
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud = bot.OcrResult(
+        cards=(card,),
+        raw_text="S07330-5MSB-F36V-AC7\nW4",
+        uncertain_count=1,
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: cloud)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == (card,)
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR EXACT CROSS SOURCE CONSENSUS" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_cpu_and_cloud_resolve_duplicate_display_gpu_tail_conflict(
     monkeypatch, tmp_path
 ):
