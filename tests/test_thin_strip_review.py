@@ -186,6 +186,53 @@ def test_cloud_primary_and_independent_review_confirm_same_single_card(tmp_path)
     assert ManualReviewNotifier().needs_review(result) is None
 
 
+def test_cloud_review_resolves_multiple_variants_from_one_card_slot(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07330-UFZ6-DWUD-4FSRL"
+    initial = Result(
+        cards=("S07330-UF26-DWUD-4FSRL",),
+        raw_text="S07330-UF26-DWUD-4FSRL\nS07330-UF26-DWUD-4FSAL",
+        uncertain_count=2,
+    )
+    runtime = Runtime(None, Result(cards=(confirmed,), raw_text=confirmed))
+
+    result = review_conflicting_thin_strip(
+        runtime,
+        image,
+        initial,
+        primary_provider="ocrspace",
+    )
+
+    assert result.cards == (confirmed,)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+    assert ManualReviewNotifier().needs_review(result) is None
+
+
+def test_cloud_review_does_not_merge_candidates_from_different_card_slots(tmp_path):
+    image = make_thin_image(tmp_path)
+    initial = Result(
+        cards=("S07330-UF26-DWUD-4FSRL",),
+        raw_text="S07330-UF26-DWUD-4FSRL\nS07336-ABCD-EFGH-JKLMN",
+        uncertain_count=2,
+    )
+    runtime = Runtime(
+        None,
+        Result(cards=("S07330-UFZ6-DWUD-4FSRL",), raw_text="S07330-UFZ6-DWUD-4FSRL"),
+    )
+
+    result = review_conflicting_thin_strip(
+        runtime,
+        image,
+        initial,
+        primary_provider="ocrspace",
+    )
+
+    assert result.cards == ("S07330-UFZ6-DWUD-4FSRL",)
+    assert result.uncertain_count == 2
+    assert ManualReviewNotifier().needs_review(result) is not None
+
+
 def test_repeated_card_with_same_slot_noise_is_confirmed_without_manual_review(tmp_path):
     image = make_thin_image(tmp_path)
     confirmed = "S07336-CM57-HC46-F79KY"

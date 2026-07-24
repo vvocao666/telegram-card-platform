@@ -178,11 +178,13 @@ def _confirmed_candidate(
     original_is_ocrspace = (
         primary_provider == "ocrspace" or "[OCRSPACE]" in original_raw_text
     )
-    if not original_is_ocrspace or len(originals) != 1:
+    if not original_is_ocrspace or not originals:
         return None
-    original = originals[0]
-    if cloud_cards == [original]:
-        return original
+    if len(cloud_cards) != 1:
+        return None
+    confirmed = cloud_cards[0]
+    if all(is_same_slot_conflict(original, confirmed) for original in originals):
+        return confirmed
     return None
 
 
