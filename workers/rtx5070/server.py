@@ -9,7 +9,12 @@ from cpu_ocr import CpuOcrEngine
 from cpu_preprocess import CpuPreparationPool, cpu_evidence_image_path
 from cpu_review_policy import assess_cpu_review_risk
 from cpu_shadow_dispatcher import CpuShadowDispatcher
-from gpu_variant_review import review_gpu_variant_conflict, result_payload
+from gpu_variant_review import (
+    apply_confirmed_review_card,
+    confirm_third_candidate_with_cpu,
+    review_gpu_variant_conflict,
+    result_payload,
+)
 from thin_strip_input import prepare_worker_input
 import asyncio
 import copy
@@ -165,6 +170,33 @@ def _process_ocr(image_bytes, suffix):
             cpu_review.review_required,
             cpu_review.reasons,
         )
+        confirmed_variant = confirm_third_candidate_with_cpu(
+            variant_review,
+            original_result,
+            enhanced_result,
+            cpu_payload,
+        )
+        if confirmed_variant.resolved and not variant_review.resolved:
+            variant_review = confirmed_variant
+            best = apply_confirmed_review_card(best, variant_review)
+            best_engine = variant_review.selected_engine
+            cpu_review = assess_cpu_review_risk(
+                best,
+                original_result,
+                enhanced_result,
+                line_recoveries=line_recoveries,
+                image_metrics=metrics,
+                low_confidence=WORKER_CONFIG.cpu_low_confidence,
+                variant_conflict_resolved=True,
+            )
+            remaining_reasons = tuple(
+                reason
+                for reason in cpu_review.reasons
+                if reason not in {"gpu_variant_conflict", "thin_strip_pubg"}
+            )
+            cpu_payload["review_required"] = bool(remaining_reasons)
+            cpu_payload["review_reasons"] = list(remaining_reasons)
+            cpu_payload["roi_conflicts_resolved"] = True
 
         response = {
             "ok": True,

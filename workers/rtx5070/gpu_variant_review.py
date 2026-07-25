@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from copy import deepcopy
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any, Callable
 
 from cpu_preprocess import write_roi_crop
@@ -17,6 +19,8 @@ except Exception:  # Cloud Deploy test environments do not install Worker-only O
 PUBG_CARD_RE = re.compile(
     r"(?<![A-Z0-9])S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}(?![A-Z0-9])"
 )
+MIN_THIRD_CANDIDATE_REVIEW_SCORE = 0.995
+MIN_CPU_CONFIRMATION_SCORE = 0.90
 
 
 @dataclass(frozen=True)
@@ -89,6 +93,87 @@ def review_gpu_variant_conflict(
     )
 
 
+def confirm_third_candidate_with_cpu(
+    result: VariantReviewResult,
+    original: dict[str, Any],
+    enhanced: dict[str, Any],
+    cpu_payload: dict[str, Any],
+) -> VariantReviewResult:
+    """Confirm a third ROI candidate only with matching CPU glyph evidence.
+
+    This path never derives a card from CPU text. The ROI pass must already
+    return one complete valid card at high confidence, and all three GPU
+    candidates must differ at the same single character position. CPU is only
+    allowed to confirm the exact ROI suffix while rejecting both alternatives.
+    """
+
+    if (
+        result.resolved
+        or result.reason != "third_candidate"
+        or result.review_score < MIN_THIRD_CANDIDATE_REVIEW_SCORE
+        or not PUBG_CARD_RE.fullmatch(result.review_card)
+    ):
+        return result
+    original_card = _single_card(original)
+    enhanced_card = _single_card(enhanced)
+    if not _same_single_conflict_slot(
+        original_card,
+        enhanced_card,
+        result.review_card,
+    ):
+        return result
+    if not _cpu_supports_only_candidate(
+        cpu_payload,
+        result.review_card,
+        alternatives=(original_card, enhanced_card),
+    ):
+        return result
+    return replace(
+        result,
+        resolved=True,
+        selected_engine="roi_cpu",
+        selected_card=result.review_card,
+        reason="roi_cpu_confirmation",
+    )
+
+
+def apply_confirmed_review_card(
+    selected: dict[str, Any],
+    result: VariantReviewResult,
+) -> dict[str, Any]:
+    """Apply an already confirmed ROI card without changing its position."""
+
+    if not result.resolved or result.selected_engine != "roi_cpu":
+        return selected
+    cards = list(selected.get("cards", []) or [])
+    if len(cards) != 1:
+        return selected
+    current = str(
+        cards[0].get("text", "") if isinstance(cards[0], dict) else cards[0]
+    ).upper()
+    if not PUBG_CARD_RE.fullmatch(current):
+        return selected
+
+    updated = deepcopy(selected)
+    updated_card = updated["cards"][0]
+    if isinstance(updated_card, dict):
+        updated_card["text"] = result.selected_card
+        updated_card["score"] = result.review_score
+    else:
+        updated["cards"][0] = result.selected_card
+    for item in updated.get("texts", []) or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text", ""))
+        if current in text.upper():
+            start = text.upper().index(current)
+            item["text"] = (
+                text[:start] + result.selected_card + text[start + len(current) :]
+            )
+            item["score"] = result.review_score
+    return updated
+
+
 def _write_review_image(
     original_path: str,
     original: dict[str, Any],
@@ -150,6 +235,42 @@ def _eligible_conflict(original_card: str, enhanced_card: str) -> bool:
     if len(original_card) != len(enhanced_card):
         return False
     return sum(left != right for left, right in zip(original_card, enhanced_card)) == 1
+
+
+def _same_single_conflict_slot(*cards: str) -> bool:
+    if len(cards) < 3 or any(not PUBG_CARD_RE.fullmatch(card) for card in cards):
+        return False
+    if len({len(card) for card in cards}) != 1:
+        return False
+    differing = {
+        index
+        for index, values in enumerate(zip(*cards))
+        if len(set(values)) > 1
+    }
+    return len(differing) == 1
+
+
+def _cpu_supports_only_candidate(
+    payload: dict[str, Any],
+    candidate: str,
+    *,
+    alternatives: tuple[str, ...],
+) -> bool:
+    candidate_suffix = candidate[1:]
+    alternative_suffixes = {card[1:] for card in alternatives if card}
+    supporting_lines = 0
+    for line in payload.get("lines", []) or []:
+        try:
+            score = float(line.get("score", 0.0))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        raw_text = re.sub(r"\s+", "", str(line.get("raw_text", "")).upper())
+        if score < MIN_CPU_CONFIRMATION_SCORE or candidate_suffix not in raw_text:
+            continue
+        if any(suffix in raw_text for suffix in alternative_suffixes):
+            return False
+        supporting_lines += 1
+    return supporting_lines == 1
 
 
 def _single_card(result: dict[str, Any]) -> str:

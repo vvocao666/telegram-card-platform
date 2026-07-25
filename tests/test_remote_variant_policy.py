@@ -43,6 +43,22 @@ def test_mild_original_review_can_resolve_variant_conflict() -> None:
     assert remote_variants_conflict(payload) is False
 
 
+def test_roi_cpu_review_can_confirm_a_third_candidate() -> None:
+    payload = {
+        "ocr_original": variant("S07336-CLED-9GJV-Q5GHR"),
+        "ocr_enhanced": variant("S07336-CLED-9GJV-Q5GHI"),
+        "variant_review": {
+            "resolved": True,
+            "selected_engine": "roi_cpu",
+            "selected_card": "S07336-CLED-9GJV-Q5GHF",
+            "review_card": "S07336-CLED-9GJV-Q5GHF",
+            "reason": "roi_cpu_confirmation",
+        },
+    }
+
+    assert remote_variants_conflict(payload) is False
+
+
 def test_missing_variant_does_not_create_false_conflict() -> None:
     assert remote_variants_conflict(
         {"ocr_original": variant("S07336-C7P3-RMHQ-78288")}

@@ -15,9 +15,13 @@ def remote_variants_conflict(payload: dict[str, Any]) -> bool:
     if (
         isinstance(review, dict)
         and review.get("resolved") is True
-        and str(review.get("selected_card", "")).upper() in (set(original) | set(enhanced))
         and str(review.get("review_card", "")).upper()
         == str(review.get("selected_card", "")).upper()
+        and (
+            str(review.get("selected_card", "")).upper()
+            in (set(original) | set(enhanced))
+            or str(review.get("reason", "")) == "roi_cpu_confirmation"
+        )
     ):
         return False
     return bool(original and enhanced and original != enhanced)
