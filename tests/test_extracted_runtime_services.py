@@ -100,12 +100,50 @@ def test_ledger_text_service_keeps_recognition_toggle_behavior() -> None:
     assert message.replies == ["卡密识别已关闭，后续图片不会识别卡密。发送“开启识别”可重新开启。"]
 
 
+def test_ledger_text_service_sends_payout_confirmation_after_bill() -> None:
+    message = FakeMessage("下发1000")
+    update = SimpleNamespace(
+        message=message,
+        effective_chat=SimpleNamespace(id=-100),
+        effective_user=SimpleNamespace(id=7),
+    )
+    bill_replies: list[str] = []
+    hooks = LedgerTextHooks(
+        store=object(),
+        remember_bot_chat=lambda _update: None,
+        remember_ledger_user=lambda _update: None,
+        ensure_private_owner=lambda _update: None,
+        owner_ids=lambda _chat_id: {7},
+        extract_trc20_address=lambda _text: None,
+        reply_trc20_verify_image=lambda *_args: None,
+        set_realtime_rate=lambda _update: _false_async(),
+        is_price_command=lambda _text: False,
+        reply_okx_price=lambda _message: _none_async(),
+        calculate_expression=lambda _text: None,
+        actor_from_update=lambda _update: None,
+        actor_from_message=lambda _message: None,
+        handle_command_text=lambda **_kwargs: SimpleNamespace(
+            text="账单内容",
+            follow_up_text="💵1000UU💵已转，请您查收",
+        ),
+        reply_ledger=lambda _message, text: _append_async(bill_replies, text),
+    )
+
+    assert asyncio.run(handle_ledger_text(update, hooks)) is True
+    assert bill_replies == ["账单内容"]
+    assert message.replies == ["💵1000UU💵已转，请您查收"]
+
+
 async def _false_async() -> bool:
     return False
 
 
 async def _none_async() -> None:
     return None
+
+
+async def _append_async(target: list[str], value: str) -> None:
+    target.append(value)
 
 
 def test_group_lifecycle_service_initializes_and_welcomes_once() -> None:

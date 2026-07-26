@@ -26,6 +26,7 @@ class Actor:
 class CommandResult:
     text: str
     changed: bool = False
+    follow_up_text: str | None = None
 
 
 AMOUNT_RE = re.compile(r"(?P<amount>\d+(?:\.\d+)?)")
@@ -290,7 +291,10 @@ def handle_text(
             )
         except ValueError as exc:
             return CommandResult(str(exc))
-        return CommandResult(format_bill(store, chat_id), changed=True)
+        follow_up_text = None
+        if kind == "payout" and chat_id < 0:
+            follow_up_text = f"💵{_format_rate(amount)}UU💵已转，请您查收"
+        return CommandResult(format_bill(store, chat_id), changed=True, follow_up_text=follow_up_text)
 
     return None
 
@@ -316,7 +320,7 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
         f"总入款金额：{summary.income}",
         f"汇率：{_format_money(summary.rate)}",
         f"费率：{_format_percent(summary.fee_percent)}",
-        f"手续费：{summary.fees}",
+        "",
         f"应下发：{summary.payable_amount} | {_format_usdt(summary.income_usdt)}U",
         f"已下发：{_format_usdt(summary.payout_usdt)}U",
         f"未下发：【{_blue(f'{_format_usdt(summary.balance_usdt)}U')}】",

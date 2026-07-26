@@ -73,7 +73,8 @@ def test_fee_calculation_rate_ten(tmp_path):
         assert "总入款金额：50000.00" in bill.text
         assert "汇率：10.00" in bill.text
         assert "费率：10.00%" in bill.text
-        assert "手续费：5000.00" in bill.text
+        assert "手续费：" not in bill.text
+        assert "费率：10.00%\n\n应下发：" in bill.text
         assert "应下发：45000.00 | 4500.00U" in bill.text
     finally:
         store.close()
@@ -89,8 +90,27 @@ def test_fee_calculation_rate_six_point_eight(tmp_path):
         bill = ledger_commands.handle_text(store, -1001, boss, "账单", {12345})
 
         assert bill is not None
-        assert "手续费：5000.00" in bill.text
+        assert "手续费：" not in bill.text
         assert "应下发：45000.00 | 6617.65U" in bill.text
+    finally:
+        store.close()
+
+
+def test_payout_returns_compact_transfer_confirmation(tmp_path):
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        boss = actor()
+
+        payout = ledger_commands.handle_text(store, -1001, boss, "下发1000", {12345}, message_id=1)
+        income = ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=2)
+        private_payout = ledger_commands.handle_text(store, 12345, boss, "下发50", {12345}, message_id=3)
+
+        assert payout is not None
+        assert payout.follow_up_text == "💵1000UU💵已转，请您查收"
+        assert income is not None
+        assert income.follow_up_text is None
+        assert private_payout is not None
+        assert private_payout.follow_up_text is None
     finally:
         store.close()
 
@@ -130,9 +150,9 @@ def test_historical_bill_does_not_recalculate_after_fee_change(tmp_path):
 
         assert before is not None
         assert after is not None
-        assert "手续费：100.00" in before.text
+        assert "手续费：" not in before.text
         assert "应下发：900.00 | 90.00U" in before.text
-        assert "手续费：100.00" in after.text
+        assert "手续费：" not in after.text
         assert "应下发：900.00 | 90.00U" in after.text
     finally:
         store.close()
@@ -183,7 +203,7 @@ def test_legacy_data_migrates_with_zero_fee(tmp_path):
         assert entry.payable_amount == Decimal("50000.00")
         assert entry.payable_usdt == Decimal("5000.00")
         assert bill is not None
-        assert "手续费：0.00" in bill.text
+        assert "手续费：" not in bill.text
         assert "应下发：50000.00 | 5000.00U" in bill.text
     finally:
         store.close()
