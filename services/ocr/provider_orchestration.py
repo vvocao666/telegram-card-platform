@@ -13,6 +13,7 @@ from services.ocr.source_consensus import (
     repeated_pubg_source_consensus,
 )
 from services.ocr.multi_card_consensus import (
+    cloud_completes_one_rejected_remote_slot,
     complete_dual_variant_multi_card_consensus,
     dual_variant_multi_card_consensus,
 )
@@ -179,6 +180,22 @@ def route_ocr(
                 pubg_expected_count=1,
                 uncertain_count=0,
                 has_unresolved_pubg_fragment=False,
+            )
+        completed_remote_slots = cloud_completes_one_rejected_remote_slot(
+            remote, fallback
+        )
+        if completed_remote_slots:
+            runtime.logger.info(
+                "OCR CLOUD COMPLETED REJECTED REMOTE SLOT cards=%s",
+                len(completed_remote_slots),
+            )
+            return replace(
+                source_consensus_result,
+                cards=completed_remote_slots,
+                pubg_expected_count=len(completed_remote_slots),
+                uncertain_count=0,
+                has_unresolved_pubg_fragment=False,
+                remote_variant_conflict=False,
             )
         multi_card_consensus = dual_variant_multi_card_consensus(
             source_consensus_result, fallback

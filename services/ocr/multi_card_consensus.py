@@ -95,6 +95,67 @@ def dual_variant_multi_card_consensus(
     return remote_cards
 
 
+def cloud_completes_one_rejected_remote_slot(
+    remote: Any,
+    cloud: Any,
+) -> tuple[str, ...] | None:
+    """Accept one cloud-completed slot only with repeated, traceable evidence.
+
+    This covers multi-card images where Remote reconstructs every slot but one
+    candidate is rejected by the PUBG body validator.  OCR.space must read the
+    missing valid card at least twice, while a high-confidence Remote variant
+    anchors the same prefix and first two body groups with only one differing
+    character.  No character is corrected or guessed here.
+    """
+    remote_cards = _cards(remote)
+    cloud_cards = _cards(cloud)
+    expected = getattr(remote, "pubg_expected_count", None)
+    if (
+        len(remote_cards) < 2
+        or len(cloud_cards) != len(remote_cards) + 1
+        or expected != len(cloud_cards)
+        or getattr(remote, "psn_cards", ())
+        or getattr(cloud, "psn_cards", ())
+        or getattr(cloud, "uncertain_count", 0)
+        or not all(PUBG_CARD_RE.fullmatch(card) for card in remote_cards + cloud_cards)
+        or any(_has_forbidden_body_chars(card) for card in cloud_cards)
+        or not _is_exact_ordered_subset(cloud_cards, remote_cards)
+    ):
+        return None
+
+    missing = tuple(card for card in cloud_cards if card not in remote_cards)
+    if len(missing) != 1:
+        return None
+    confirmed = missing[0]
+    raw_cloud_cards = [
+        line.strip()
+        for line in str(getattr(cloud, "raw_text", "") or "").upper().splitlines()
+        if PUBG_CARD_RE.fullmatch(line.strip())
+    ]
+    if raw_cloud_cards.count(confirmed) < 2:
+        return None
+
+    variant_values = tuple(
+        (str(card).upper(), float(score))
+        for attribute in (
+            "remote_original_rebuilt_card_scores",
+            "remote_enhanced_rebuilt_card_scores",
+        )
+        for card, score in (getattr(remote, attribute, ()) or ())
+    )
+    anchored = [
+        card
+        for card, score in variant_values
+        if score >= MIN_VARIANT_SCORE
+        and _same_slot_prefix(card, confirmed)
+        and _compact_hamming(card, confirmed) == 1
+        and _has_forbidden_body_chars(card)
+    ]
+    if not anchored:
+        return None
+    return cloud_cards
+
+
 def _cards(result: Any) -> tuple[str, ...]:
     return tuple(str(card).upper() for card in (getattr(result, "cards", ()) or ()))
 
@@ -167,3 +228,18 @@ def _is_exact_ordered_subset(
             return False
         complete_index += 1
     return True
+
+
+def _same_slot_prefix(left: str, right: str) -> bool:
+    left_parts = left.split("-")
+    right_parts = right.split("-")
+    return (
+        len(left_parts) == 4
+        and len(right_parts) == 4
+        and left_parts[:3] == right_parts[:3]
+    )
+
+
+def _has_forbidden_body_chars(card: str) -> bool:
+    parts = card.split("-", 1)
+    return len(parts) == 2 and any(char in "01OI" for char in parts[1].replace("-", ""))

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from services.ocr.multi_card_consensus import (
+    cloud_completes_one_rejected_remote_slot,
     complete_dual_variant_multi_card_consensus,
     dual_variant_multi_card_consensus,
 )
@@ -187,3 +188,57 @@ def test_complete_dual_variant_consensus_rejects_conflicting_cpu_candidate():
     remote.remote_cpu_candidates = ("S07336-2238-JYAU-3LX7L",)
 
     assert complete_dual_variant_multi_card_consensus(remote) is None
+
+
+def test_cloud_completes_one_remote_slot_rejected_for_forbidden_body_char():
+    valid = (
+        "S07336-W6BB-G4EA-68FDA",
+        "S07336-E8RA-VXB4-EP3Z8",
+        "S07336-XJJN-T6S5-9CEJT",
+    )
+    confirmed = "S07336-ULVM-FXF2-TJAZL"
+    rejected = "S07336-ULVM-FXF2-TJAZI"
+    remote = _result(
+        cards=valid,
+        original=valid + ("S07336-ULVM-EXF2-TJAZI",),
+        enhanced=valid + (rejected,),
+        scores=(0.999, 0.999, 0.999, 0.992),
+        expected=4,
+        uncertain=1,
+    )
+    remote.psn_cards = tuple()
+    cloud = _result(
+        cards=valid + (confirmed,),
+        expected=None,
+        uncertain=0,
+    )
+    cloud.raw_text = "\n".join(valid + (confirmed, confirmed))
+
+    assert cloud_completes_one_rejected_remote_slot(remote, cloud) == valid + (
+        confirmed,
+    )
+
+
+def test_cloud_completion_rejects_single_cloud_read_or_valid_character_conflict():
+    valid = (
+        "S07336-W6BB-G4EA-68FDA",
+        "S07336-E8RA-VXB4-EP3Z8",
+        "S07336-XJJN-T6S5-9CEJT",
+    )
+    confirmed = "S07336-ULVM-FXF2-TJAZL"
+    remote = _result(
+        cards=valid,
+        original=valid + ("S07336-ULVM-FXF2-TJAZK",),
+        enhanced=valid + ("S07336-ULVM-FXF2-TJAZK",),
+        scores=(0.999, 0.999, 0.999, 0.992),
+        expected=4,
+        uncertain=1,
+    )
+    remote.psn_cards = tuple()
+    cloud = _result(cards=valid + (confirmed,), expected=None, uncertain=0)
+    cloud.raw_text = "\n".join(valid + (confirmed,))
+
+    assert cloud_completes_one_rejected_remote_slot(remote, cloud) is None
+
+    cloud.raw_text = "\n".join(valid + (confirmed, confirmed))
+    assert cloud_completes_one_rejected_remote_slot(remote, cloud) is None

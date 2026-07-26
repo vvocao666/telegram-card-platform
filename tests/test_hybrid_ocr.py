@@ -1107,6 +1107,54 @@ def test_multi_card_dual_gpu_consensus_ignores_one_cloud_character_conflict(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_repeated_cloud_card_completes_one_remote_slot_rejected_by_validator(
+    monkeypatch, tmp_path, caplog
+):
+    cards = (
+        "S07336-W6BB-G4EA-68FDA",
+        "S07336-E8RA-VXB4-EP3Z8",
+        "S07336-XJJN-T6S5-9CEJT",
+    )
+    confirmed = "S07336-ULVM-FXF2-TJAZL"
+    rejected = "S07336-ULVM-FXF2-TJAZI"
+    remote = bot.OcrResult(
+        cards=cards,
+        raw_text="\n".join(cards + (rejected,)),
+        pubg_expected_count=4,
+        uncertain_count=1,
+        remote_original_rebuilt_card_scores=tuple(
+            zip(cards + ("S07336-ULVM-EXF2-TJAZI",), (0.999, 0.999, 0.999, 0.922))
+        ),
+        remote_enhanced_rebuilt_card_scores=tuple(
+            zip(cards + (rejected,), (0.999, 0.999, 0.999, 0.992))
+        ),
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud = bot.OcrResult(
+        cards=cards + (confirmed,),
+        raw_text="\n".join(cards + (confirmed, confirmed)),
+    )
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", lambda *args, **kwargs: cloud)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == cards + (confirmed,)
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert "OCR CLOUD COMPLETED REJECTED REMOTE SLOT cards=4" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_complete_dual_gpu_multi_card_fast_path_skips_noisy_cloud(
     monkeypatch, tmp_path, caplog
 ):
