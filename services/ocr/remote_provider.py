@@ -8,6 +8,7 @@ import httpx
 
 from services.ocr.multi_source_decision import (
     cpu_payload_requires_review,
+    cpu_pubg_candidate_scores,
     cpu_pubg_candidates,
 )
 from services.ocr.remote_execution_gate import RemoteWorkerBusy
@@ -66,6 +67,7 @@ def recognize_remote(
         gpu_variant_conflict = runtime.remote_variants_conflict(payload)
         cpu_review_required = cpu_payload_requires_review(payload)
         cpu_candidates = cpu_pubg_candidates(payload)
+        cpu_candidate_scores = cpu_pubg_candidate_scores(payload)
         cpu_payload = payload.get("cpu_ocr") if isinstance(payload.get("cpu_ocr"), dict) else {}
         cpu_review_reasons = tuple(
             str(reason) for reason in (cpu_payload.get("review_reasons", []) or [])
@@ -179,6 +181,7 @@ def recognize_remote(
             remote_original_rebuilt_card_scores=original_rebuilt_card_scores,
             remote_enhanced_rebuilt_card_scores=enhanced_rebuilt_card_scores,
             remote_cpu_candidates=cpu_candidates,
+            remote_cpu_candidate_scores=cpu_candidate_scores,
             remote_cpu_review_required=cpu_review_required,
             remote_cpu_review_reasons=cpu_review_reasons,
             has_unresolved_pubg_fragment=(

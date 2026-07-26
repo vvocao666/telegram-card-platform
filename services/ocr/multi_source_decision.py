@@ -50,6 +50,29 @@ def cpu_pubg_candidates(payload: dict[str, Any]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def cpu_pubg_candidate_scores(payload: dict[str, Any]) -> tuple[tuple[str, float], ...]:
+    """Return strict CPU candidates together with their line confidence."""
+    candidates = set(cpu_pubg_candidates(payload))
+    if not candidates:
+        return tuple()
+    cpu = payload.get("cpu_ocr")
+    if not isinstance(cpu, dict):
+        return tuple()
+    result: list[tuple[str, float]] = []
+    for line in cpu.get("lines", []) or []:
+        if not isinstance(line, dict):
+            continue
+        raw_text = str(line.get("raw_text", "")).upper().replace(" ", "")
+        try:
+            score = float(line.get("score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        for card in PUBG_CARD_RE.findall(raw_text):
+            if card in candidates and card not in {item[0] for item in result}:
+                result.append((card, score))
+    return tuple(result)
+
+
 def cpu_cloud_confirmed_cards(
     cpu_candidates: tuple[str, ...],
     cloud_cards: tuple[str, ...],

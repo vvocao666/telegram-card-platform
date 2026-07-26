@@ -1,4 +1,5 @@
 from services.ocr.multi_source_decision import (
+    cpu_pubg_candidate_scores,
     apply_cpu_cloud_confirmations,
     cpu_cloud_confirmed_cards,
     cpu_payload_requires_review,
@@ -11,6 +12,28 @@ def test_cpu_conflict_only_triggers_review_in_strict_enabled_mode():
     assert not cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": False}})
     assert cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": True}})
     assert not cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": True, "roi_conflicts_resolved": True}})
+
+
+def test_cpu_candidate_scores_preserve_roi_confidence():
+    payload = {
+        "cpu_ocr": {
+            "enabled": True,
+            "shadow_only": False,
+            "can_affect_result": True,
+            "confirmation_mode": "strict",
+            "review_required": True,
+            "lines": [
+                {
+                    "raw_text": "卡号：S07336-5QZM-PLQ5-S813T",
+                    "score": 0.8754,
+                }
+            ],
+        }
+    }
+
+    assert cpu_pubg_candidate_scores(payload) == (
+        ("S07336-5QZM-PLQ5-S813T", 0.8754),
+    )
 
 
 def test_cpu_candidates_require_active_strict_review():

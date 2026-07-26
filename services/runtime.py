@@ -318,6 +318,7 @@ class OcrResult:
     remote_original_rebuilt_card_scores: tuple[tuple[str, float], ...] = tuple()
     remote_enhanced_rebuilt_card_scores: tuple[tuple[str, float], ...] = tuple()
     remote_cpu_candidates: tuple[str, ...] = tuple()
+    remote_cpu_candidate_scores: tuple[tuple[str, float], ...] = tuple()
     remote_cpu_review_required: bool = False
     remote_cpu_review_reasons: tuple[str, ...] = tuple()
     has_unresolved_pubg_fragment: bool = False

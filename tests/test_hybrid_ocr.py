@@ -1214,6 +1214,58 @@ def test_complete_dual_gpu_multi_card_fast_path_skips_noisy_cloud(
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_low_confidence_cpu_noise_does_not_force_clear_multi_card_review(
+    monkeypatch, tmp_path, caplog
+):
+    cards = (
+        "S07336-LML3-XJW3-HFEVL",
+        "S07336-5QZM-PLQS-S8L3J",
+        "S07336-5KC9-VU3G-E8MER",
+        "S07336-TFQD-3BDS-4CDTT",
+    )
+    scores = ((cards[0], 0.981), (cards[1], 0.991), (cards[2], 0.994), (cards[3], 0.972))
+    noisy_cpu = "S07336-5QZM-PLQ5-S813T"
+    remote = bot.OcrResult(
+        cards=cards,
+        raw_text="\n".join(cards),
+        pubg_expected_count=4,
+        remote_original_rebuilt_card_scores=scores,
+        remote_enhanced_rebuilt_card_scores=scores,
+        remote_cpu_candidates=(noisy_cpu, cards[2], cards[3]),
+        remote_cpu_candidate_scores=((noisy_cpu, 0.875), (cards[2], 0.953), (cards[3], 0.921)),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("pubg_marker_count_mismatch",),
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud_called = False
+
+    def cloud(*args, **kwargs):
+        nonlocal cloud_called
+        cloud_called = True
+        return bot.OcrResult(cards=())
+
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", lambda *args, **kwargs: remote)
+        monkeypatch.setattr(bot, "run_ocrspace", cloud)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(write_image(tmp_path))
+
+        assert result.cards == cards
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert cloud_called is False
+        assert "OCR MULTI CARD DUAL VARIANT FAST PATH cards=4" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_remote_ocr_status_command_is_registered():
     registry_source = Path("handlers/registry.py").read_text(encoding="utf-8")
 

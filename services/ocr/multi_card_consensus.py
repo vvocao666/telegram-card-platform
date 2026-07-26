@@ -9,6 +9,7 @@ PUBG_CARD_RE = re.compile(
 )
 MIN_VARIANT_SCORE = 0.97
 MIN_SECONDARY_VARIANT_SCORE = 0.95
+MAX_IGNORABLE_CPU_SCORE = 0.90
 
 
 def complete_dual_variant_multi_card_consensus(
@@ -43,7 +44,7 @@ def complete_dual_variant_multi_card_consensus(
         str(card).upper()
         for card in (getattr(remote, "remote_cpu_candidates", ()) or ())
     )
-    if cpu_cards and not _is_exact_ordered_subset(remote_cards, cpu_cards):
+    if cpu_cards and not _cpu_evidence_allows_dual_gpu_consensus(remote, remote_cards):
         return None
     cpu_reasons = set(getattr(remote, "remote_cpu_review_reasons", ()) or ())
     if cpu_reasons - {
@@ -243,3 +244,42 @@ def _same_slot_prefix(left: str, right: str) -> bool:
 def _has_forbidden_body_chars(card: str) -> bool:
     parts = card.split("-", 1)
     return len(parts) == 2 and any(char in "01OI" for char in parts[1].replace("-", ""))
+
+
+def _cpu_evidence_allows_dual_gpu_consensus(
+    remote: Any,
+    remote_cards: tuple[str, ...],
+) -> bool:
+    cpu_cards = tuple(
+        str(card).upper()
+        for card in (getattr(remote, "remote_cpu_candidates", ()) or ())
+    )
+    if _is_exact_ordered_subset(remote_cards, cpu_cards):
+        return True
+    score_by_card = {
+        str(card).upper(): float(score)
+        for card, score in (
+            getattr(remote, "remote_cpu_candidate_scores", ()) or ()
+        )
+    }
+    for cpu_card in cpu_cards:
+        if cpu_card in remote_cards:
+            continue
+        if score_by_card.get(cpu_card, 1.0) >= MAX_IGNORABLE_CPU_SCORE:
+            return False
+        matching_slots = [
+            card for card in remote_cards if _same_card_slot(card, cpu_card)
+        ]
+        if len(matching_slots) != 1:
+            return False
+    return True
+
+
+def _same_card_slot(left: str, right: str) -> bool:
+    left_parts = left.split("-")
+    right_parts = right.split("-")
+    return (
+        len(left_parts) == 4
+        and len(right_parts) == 4
+        and left_parts[:2] == right_parts[:2]
+    )

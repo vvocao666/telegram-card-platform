@@ -190,6 +190,25 @@ def test_complete_dual_variant_consensus_rejects_conflicting_cpu_candidate():
     assert complete_dual_variant_multi_card_consensus(remote) is None
 
 
+def test_complete_dual_variant_consensus_ignores_low_confidence_cpu_slot_noise():
+    remote = _result()
+    noisy = "S07336-6LHE-R6D4-2YHHN"
+    remote.remote_cpu_candidates = (noisy, CARDS[1])
+    remote.remote_cpu_candidate_scores = ((noisy, 0.875), (CARDS[1], 0.96))
+    remote.remote_cpu_review_reasons = ("pubg_marker_count_mismatch",)
+
+    assert complete_dual_variant_multi_card_consensus(remote) == CARDS
+
+
+def test_complete_dual_variant_consensus_keeps_high_confidence_cpu_conflict():
+    remote = _result()
+    conflicting = "S07336-6LHE-R6D4-2YHHN"
+    remote.remote_cpu_candidates = (conflicting,)
+    remote.remote_cpu_candidate_scores = ((conflicting, 0.93),)
+
+    assert complete_dual_variant_multi_card_consensus(remote) is None
+
+
 def test_cloud_completes_one_remote_slot_rejected_for_forbidden_body_char():
     valid = (
         "S07336-W6BB-G4EA-68FDA",

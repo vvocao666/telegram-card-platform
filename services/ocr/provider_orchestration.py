@@ -94,6 +94,7 @@ def route_ocr(
                 remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
                 remote_enhanced_rebuilt_card_scores=remote.remote_enhanced_rebuilt_card_scores,
                 remote_cpu_candidates=remote.remote_cpu_candidates,
+                remote_cpu_candidate_scores=remote.remote_cpu_candidate_scores,
                 remote_cpu_review_required=remote.remote_cpu_review_required,
                 remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
             )
@@ -344,6 +345,7 @@ def route_ocr(
                 remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
                 remote_enhanced_rebuilt_card_scores=remote.remote_enhanced_rebuilt_card_scores,
                 remote_cpu_candidates=remote.remote_cpu_candidates,
+                remote_cpu_candidate_scores=remote.remote_cpu_candidate_scores,
                 remote_cpu_review_required=remote.remote_cpu_review_required,
                 remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
                 ),
