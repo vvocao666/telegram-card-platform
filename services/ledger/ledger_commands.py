@@ -293,7 +293,7 @@ def handle_text(
             return CommandResult(str(exc))
         follow_up_text = None
         if kind == "payout" and chat_id < 0:
-            follow_up_text = f"💵{_format_rate(amount)}UU💵已转，请您查收"
+            follow_up_text = f"💰{_blue(f'【 {_format_rate(amount)} UU 】')}  已转✅，请您查收。"
         return CommandResult(format_bill(store, chat_id), changed=True, follow_up_text=follow_up_text)
 
     return None

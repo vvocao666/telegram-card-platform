@@ -82,6 +82,10 @@ async def handle_ledger_text(
     if result:
         await hooks.reply_ledger(update.message, result.text)
         if result.follow_up_text:
-            await update.message.reply_text(result.follow_up_text)
+            await update.message.reply_text(
+                result.follow_up_text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
         return True
     return False

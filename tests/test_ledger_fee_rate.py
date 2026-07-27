@@ -106,7 +106,7 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         private_payout = ledger_commands.handle_text(store, 12345, boss, "下发50", {12345}, message_id=3)
 
         assert payout is not None
-        assert payout.follow_up_text == "💵1000UU💵已转，请您查收"
+        assert payout.follow_up_text == '💰<a href="https://t.me/">【 1000 UU 】</a>  已转✅，请您查收。'
         assert income is not None
         assert income.follow_up_text is None
         assert private_payout is not None
