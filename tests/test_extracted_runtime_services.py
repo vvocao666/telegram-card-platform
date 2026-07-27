@@ -126,14 +126,14 @@ def test_ledger_text_service_sends_payout_confirmation_after_bill() -> None:
         actor_from_message=lambda _message: None,
         handle_command_text=lambda **_kwargs: SimpleNamespace(
             text="账单内容",
-            follow_up_text='💰<a href="https://t.me/">【 1000 UU 】</a>  已转✅，请您查收。',
+            follow_up_text='💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。',
         ),
         reply_ledger=lambda _message, text: _append_async(bill_replies, text),
     )
 
     assert asyncio.run(handle_ledger_text(update, hooks)) is True
     assert bill_replies == ["账单内容"]
-    assert message.replies == ['💰<a href="https://t.me/">【 1000 UU 】</a>  已转✅，请您查收。']
+    assert message.replies == ['💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。']
     assert message.reply_kwargs == [{"parse_mode": "HTML", "disable_web_page_preview": True}]
 
 
