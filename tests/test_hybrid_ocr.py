@@ -2,6 +2,7 @@ from pathlib import Path
 
 import asyncio
 import bot
+import httpx
 import pytest
 from PIL import Image
 from types import SimpleNamespace
@@ -311,6 +312,33 @@ def test_remote_busy_status_does_not_open_offline_circuit(monkeypatch, tmp_path)
     assert bot.run_remote_ocr(write_image(tmp_path)) is None
     assert not bot.remote_ocr_is_circuit_open()
     assert bot.remote_ocr_status["today_remote_busy"] == 1
+
+
+@pytest.mark.parametrize("error_type", [httpx.ReadTimeout, httpx.RemoteProtocolError])
+def test_remote_queue_transport_error_does_not_poison_remaining_batch(
+    monkeypatch, tmp_path, error_type
+):
+    calls = {"post": 0}
+
+    class BusyClient:
+        def post(self, *args, **kwargs):
+            calls["post"] += 1
+            raise error_type("worker busy")
+
+    monkeypatch.setattr(
+        bot,
+        "LOCAL_HYBRID_FLAGS",
+        SimpleNamespace(worker_queue_v2=False, busy_offline_separation=True),
+    )
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: BusyClient())
+
+    assert bot.run_remote_ocr(write_image(tmp_path)) is None
+    assert bot.run_remote_ocr(write_image(tmp_path)) is None
+
+    assert calls["post"] == 2
+    assert not bot.remote_ocr_is_circuit_open()
+    assert bot.remote_ocr_status["today_remote_busy"] == 2
+    assert bot.remote_ocr_status["today_remote_failed"] == 0
 
 
 def test_remote_ocr_health_probe_recovers_circuit(monkeypatch):

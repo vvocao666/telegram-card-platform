@@ -337,3 +337,32 @@ def test_complete_non_conflicting_thin_strip_uses_no_extra_ocr(tmp_path):
     assert result is initial
     assert runtime.remote_calls == 0
     assert runtime.cloud_calls == 0
+
+
+def test_multi_card_compact_image_is_not_collapsed_by_single_card_review(tmp_path):
+    image = make_thin_image(tmp_path)
+    confirmed = "S07336-N5TA-EQ7G-VDVE6"
+    initial = Result(
+        cards=(confirmed,),
+        raw_text=(
+            "S07336-H8EE-4GYJ-MBI6]\n"
+            "S07336-707T-PWV7-F5YH3\n"
+            f"{confirmed}"
+        ),
+        pubg_expected_count=3,
+        uncertain_count=2,
+        has_unresolved_pubg_fragment=True,
+    )
+    runtime = Runtime(
+        Result(cards=("S07336-H8EE-4GYJ-MBJ6J",)),
+        Result(cards=("S07336-7Q7T-PWVZ-F5YH3",)),
+    )
+    runtime.count_pubg_markers = lambda _text: 3
+
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result is initial
+    assert result.cards == (confirmed,)
+    assert result.pubg_expected_count == 3
+    assert runtime.remote_calls == 0
+    assert runtime.cloud_calls == 0

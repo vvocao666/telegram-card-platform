@@ -134,6 +134,15 @@ def _needs_review(
     cards = tuple(getattr(result, "cards", ()) or ())
     if len(cards) != 1 or not is_thin_strip_image(image_path):
         return False
+    # 细长只是图片外形，不能据此把多行多卡图当成单卡图处理。单卡复核会
+    # 用一个候选替换整个结果；图片中存在多个独立 S07 卡位时必须留给多卡
+    # 合并路径逐槽处理，避免一个冲突撤回其他已经确认的卡。
+    marker_counter = getattr(runtime, "count_pubg_markers", None)
+    marker_count = 0
+    if callable(marker_counter):
+        marker_count = int(marker_counter(str(getattr(result, "raw_text", ""))) or 0)
+    if marker_count > 1:
+        return False
     if (
         primary_provider == "ocrspace"
         and int(getattr(result, "uncertain_count", 0) or 0) > 0

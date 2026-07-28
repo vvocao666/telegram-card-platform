@@ -15,6 +15,16 @@ from services.ocr.remote_execution_gate import RemoteWorkerBusy
 from services.ocr.variant_rebuild_evidence import variant_rebuilt_card_scores
 
 
+def _is_worker_busy_error(exc: BaseException) -> bool:
+    """区分 Worker 排队繁忙与电脑真实离线。
+
+    ReadTimeout 表示连接已经建立但结果未在预算内返回；RemoteProtocolError
+    也常见于繁忙连接被服务端提前关闭。二者只让当前图片回退，不能让后续
+    整批图片跳过仍在线的 Worker。连接超时、拒绝连接等错误仍走离线冷却。
+    """
+    return isinstance(exc, (httpx.ReadTimeout, httpx.RemoteProtocolError))
+
+
 def recognize_remote(
     runtime: Any,
     image_path: Path,
@@ -36,7 +46,10 @@ def recognize_remote(
     runtime.record_remote_ocr_start()
     runtime.logger.info("REMOTE OCR START url=%s", runtime.REMOTE_OCR_URL)
     try:
-        client = runtime.get_remote_http_client(runtime.REMOTE_OCR_TIMEOUT)
+        client = runtime.get_remote_http_client(
+            runtime.REMOTE_OCR_TIMEOUT,
+            runtime.REMOTE_OCR_CONNECT_TIMEOUT,
+        )
         if runtime.LOCAL_HYBRID_FLAGS.worker_queue_v2:
             with runtime.remote_ocr_execution_slot():
                 with image_path.open("rb") as image_file:
@@ -193,11 +206,25 @@ def recognize_remote(
         return None
     except (httpx.TimeoutException, TimeoutError) as exc:
         latency_ms = int((time.time() - started_at) * 1000)
+        if (
+            runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation
+            and _is_worker_busy_error(exc)
+        ):
+            runtime.record_remote_ocr_busy(type(exc).__name__)
+            return None
         if runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation:
             healthy, _payload, _reason = runtime.remote_worker_health()
             if healthy:
                 runtime.record_remote_ocr_busy(type(exc).__name__)
                 return None
+        runtime.record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
+        runtime.mark_remote_ocr_offline(type(exc).__name__)
+        return None
+    except httpx.RemoteProtocolError as exc:
+        latency_ms = int((time.time() - started_at) * 1000)
+        if runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation:
+            runtime.record_remote_ocr_busy(type(exc).__name__)
+            return None
         runtime.record_remote_ocr_status(False, latency_ms, error=type(exc).__name__)
         runtime.mark_remote_ocr_offline(type(exc).__name__)
         return None
