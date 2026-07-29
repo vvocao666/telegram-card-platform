@@ -80,7 +80,8 @@ async def handle_ledger_text(
         reply_message_id=reply_message_id,
     )
     if result:
-        await hooks.reply_ledger(update.message, result.text)
+        if result.text:
+            await hooks.reply_ledger(update.message, result.text)
         if result.follow_up_text:
             await update.message.reply_text(
                 result.follow_up_text,

@@ -115,6 +115,32 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         store.close()
 
 
+def test_payout_confirmation_still_sends_when_ledger_is_disabled_without_writing_entry(tmp_path):
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        boss = actor()
+        store.set_ledger_enabled(-1001, False)
+
+        named_payout = ledger_commands.handle_text(store, -1001, boss, "下发1000", {12345}, message_id=1)
+        signed_payout = ledger_commands.handle_text(store, -1001, boss, "-500", {12345}, message_id=2)
+        income = ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=3)
+
+        assert named_payout is not None
+        assert named_payout.text == ""
+        assert named_payout.follow_up_text == (
+            '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
+        )
+        assert signed_payout is not None
+        assert signed_payout.text == ""
+        assert signed_payout.follow_up_text == (
+            '💰<b><a href="https://t.me/">【 500 UU 】</a></b>  已转✅，请您查收。'
+        )
+        assert income is None
+        assert store.entries(-1001) == []
+    finally:
+        store.close()
+
+
 def test_fee_change_only_affects_new_entries(tmp_path):
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     try:

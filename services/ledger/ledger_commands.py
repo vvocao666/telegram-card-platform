@@ -159,6 +159,11 @@ def handle_text(
         )
 
     if not store.is_ledger_enabled(chat_id):
+        parsed = _parse_entry(normalized)
+        if parsed is not None:
+            kind, amount, _note = parsed
+            if kind == "payout" and amount > 0 and chat_id < 0:
+                return CommandResult("", follow_up_text=_payout_confirmation(amount))
         return None
 
     if normalized in {"/start", "/help", "help", "帮助", "菜单"}:
@@ -293,7 +298,7 @@ def handle_text(
             return CommandResult(str(exc))
         follow_up_text = None
         if kind == "payout" and chat_id < 0:
-            follow_up_text = f"💰<b>{_blue(f'【 {_format_rate(amount)} UU 】')}</b>  已转✅，请您查收。"
+            follow_up_text = _payout_confirmation(amount)
         return CommandResult(format_bill(store, chat_id), changed=True, follow_up_text=follow_up_text)
 
     return None
@@ -401,6 +406,10 @@ def _format_percent(value: Decimal) -> str:
 
 def _blue(value: object) -> str:
     return f'<a href="{BLUE_LINK}">{escape(str(value))}</a>'
+
+
+def _payout_confirmation(amount: Decimal) -> str:
+    return f"💰<b>{_blue(f'【 {_format_rate(amount)} UU 】')}</b>  已转✅，请您查收。"
 
 
 def _reply_entry_number(text: str) -> int | None:

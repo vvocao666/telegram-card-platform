@@ -137,6 +137,41 @@ def test_ledger_text_service_sends_payout_confirmation_after_bill() -> None:
     assert message.reply_kwargs == [{"parse_mode": "HTML", "disable_web_page_preview": True}]
 
 
+def test_ledger_text_service_sends_confirmation_without_empty_bill_reply() -> None:
+    message = FakeMessage("下发1000")
+    update = SimpleNamespace(
+        message=message,
+        effective_chat=SimpleNamespace(id=-100),
+        effective_user=SimpleNamespace(id=7),
+    )
+    bill_replies: list[str] = []
+    hooks = LedgerTextHooks(
+        store=object(),
+        remember_bot_chat=lambda _update: None,
+        remember_ledger_user=lambda _update: None,
+        ensure_private_owner=lambda _update: None,
+        owner_ids=lambda _chat_id: {7},
+        extract_trc20_address=lambda _text: None,
+        reply_trc20_verify_image=lambda *_args: None,
+        set_realtime_rate=lambda _update: _false_async(),
+        is_price_command=lambda _text: False,
+        reply_okx_price=lambda _message: _none_async(),
+        calculate_expression=lambda _text: None,
+        actor_from_update=lambda _update: None,
+        actor_from_message=lambda _message: None,
+        handle_command_text=lambda **_kwargs: SimpleNamespace(
+            text="",
+            follow_up_text='💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。',
+        ),
+        reply_ledger=lambda _message, text: _append_async(bill_replies, text),
+    )
+
+    assert asyncio.run(handle_ledger_text(update, hooks)) is True
+    assert bill_replies == []
+    assert message.replies == ['💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。']
+    assert message.reply_kwargs == [{"parse_mode": "HTML", "disable_web_page_preview": True}]
+
+
 async def _false_async() -> bool:
     return False
 
