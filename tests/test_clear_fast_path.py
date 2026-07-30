@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,22 +11,23 @@ from services.ocr.provider_orchestration import route_ocr
 CARD = "S07336-ABCD-EFGH-JKLMN"
 
 
+@dataclass(frozen=True)
+class Result:
+    cards: tuple[str, ...] = (CARD,)
+    psn_cards: tuple[str, ...] = ()
+    uncertain_count: int = 0
+    has_unresolved_pubg_fragment: bool = False
+    remote_variant_conflict: bool = False
+    pubg_expected_count: int | None = 1
+    remote_original_card_scores: tuple[tuple[str, float], ...] = ((CARD, 0.995),)
+    remote_enhanced_card_scores: tuple[tuple[str, float], ...] = ((CARD, 0.996),)
+    remote_cpu_candidates: tuple[str, ...] = (CARD,)
+    remote_cpu_review_required: bool = False
+    remote_cpu_review_reasons: tuple[str, ...] = ()
+
+
 def result(**overrides):
-    values = {
-        "cards": (CARD,),
-        "psn_cards": (),
-        "uncertain_count": 0,
-        "has_unresolved_pubg_fragment": False,
-        "remote_variant_conflict": False,
-        "pubg_expected_count": 1,
-        "remote_original_card_scores": ((CARD, 0.995),),
-        "remote_enhanced_card_scores": ((CARD, 0.996),),
-        "remote_cpu_candidates": (CARD,),
-        "remote_cpu_review_required": False,
-        "remote_cpu_review_reasons": (),
-    }
-    values.update(overrides)
-    return SimpleNamespace(**values)
+    return replace(Result(), **overrides)
 
 
 def test_three_exact_sources_allow_clear_fast_path():
@@ -127,7 +129,10 @@ def test_route_skips_ocrspace_only_for_confirmed_clear_remote_card():
         def run_ocrspace(*args, **kwargs):
             raise AssertionError("confirmed clear remote result must skip OCR.space")
 
-    assert route_ocr(Runtime(), Path("unused.png")) is remote
+    routed = route_ocr(Runtime(), Path("unused.png"))
+    assert routed.cards == (CARD,)
+    assert routed.uncertain_count == 0
+    assert routed.has_unresolved_pubg_fragment is False
 
 
 def test_route_skips_noisy_cloud_for_exact_thin_strip_three_source_consensus():
@@ -156,4 +161,7 @@ def test_route_skips_noisy_cloud_for_exact_thin_strip_three_source_consensus():
         def run_ocrspace(*args, **kwargs):
             raise AssertionError("exact GPU+CPU consensus must not call noisy OCR.space")
 
-    assert route_ocr(Runtime(), Path("unused.png")) is remote
+    routed = route_ocr(Runtime(), Path("unused.png"))
+    assert routed.cards == (CARD,)
+    assert routed.uncertain_count == 0
+    assert routed.has_unresolved_pubg_fragment is False

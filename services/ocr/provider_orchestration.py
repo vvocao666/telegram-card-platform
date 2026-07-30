@@ -65,7 +65,13 @@ def route_ocr(
             "OCR FAST PATH provider=remote evidence=gpu_original+gpu_enhanced+cpu card=%s",
             clear_remote_card,
         )
-        return remote
+        return replace(
+            remote,
+            cards=(clear_remote_card,),
+            pubg_expected_count=1,
+            uncertain_count=0,
+            has_unresolved_pubg_fragment=False,
+        )
     if (
         remote is not None
         and runtime.is_thin_strip_image(image_path)
