@@ -7,6 +7,9 @@ import re
 PUBG_CARD_RE = re.compile(
     r"S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}"
 )
+CPU_STRUCTURAL_REVIEW_REASONS = frozenset(
+    {"pubg_marker_without_valid_card", "pubg_marker_count_mismatch"}
+)
 
 
 def cpu_payload_requires_review(payload: dict[str, Any]) -> bool:
@@ -24,6 +27,24 @@ def cpu_payload_requires_review(payload: dict[str, Any]) -> bool:
 def cpu_payload_is_available(payload: dict[str, Any]) -> bool:
     cpu = payload.get("cpu_ocr")
     return isinstance(cpu, dict) and bool(cpu.get("available"))
+
+
+def cpu_structural_review_resolved_by_rebuild(
+    reasons: tuple[str, ...],
+    *,
+    rebuilt_count: int,
+    marker_count: int,
+    unresolved: bool,
+    uncertain_count: int,
+) -> bool:
+    """Clear only Worker line-parser warnings proven complete by ordered rebuild."""
+
+    return bool(reasons) and set(reasons).issubset(CPU_STRUCTURAL_REVIEW_REASONS) and (
+        marker_count > 0
+        and rebuilt_count == marker_count
+        and not unresolved
+        and uncertain_count == 0
+    )
 
 
 def cpu_pubg_candidates(payload: dict[str, Any]) -> tuple[str, ...]:

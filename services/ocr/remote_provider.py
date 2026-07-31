@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from services.ocr.multi_source_decision import (
+    cpu_structural_review_resolved_by_rebuild,
     cpu_payload_requires_review,
     cpu_pubg_candidate_scores,
     cpu_pubg_candidates,
@@ -168,6 +169,20 @@ def recognize_remote(
         if ordered_pubg_markers:
             remote_pubg_expected_count = max(
                 remote_pubg_expected_count or 0, ordered_pubg_markers
+            )
+        if cpu_review_required and cpu_structural_review_resolved_by_rebuild(
+            cpu_review_reasons,
+            rebuilt_count=len(cards),
+            marker_count=ordered_pubg_markers,
+            unresolved=has_unresolved_pubg_fragment,
+            uncertain_count=uncertain,
+        ):
+            cpu_review_required = False
+            variant_conflict = gpu_variant_conflict
+            runtime.logger.info(
+                "CPU STRUCTURAL REVIEW RESOLVED BY ORDERED REBUILD cards=%s markers=%s",
+                len(cards),
+                ordered_pubg_markers,
             )
         runtime.mark_remote_ocr_online()
         runtime.record_remote_ocr_status(

@@ -136,6 +136,47 @@ def test_remote_ocr_duplicate_complete_lines_count_as_one_card_slot(monkeypatch,
     assert bot.remote_needs_ocrspace_complement(result) == (False, "")
 
 
+def test_remote_ordered_rebuild_clears_worker_line_parser_warning(monkeypatch, tmp_path):
+    cards = (
+        "S07304-XT3D-WWCZ-7DGQZ",
+        "S07304-C8EB-3NNY-2RX9S",
+        "S07304-ST8J-9WHF-KLUXL",
+    )
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": [
+            {"text": "CDK:S07304-XT3D-", "score": 0.97, "box": [0, 33, 242, 61]},
+            {"text": "WWCZ-7DGQZ", "score": 0.99, "box": [0, 65, 170, 97]},
+            {"text": "CDK:S07304-", "score": 0.98, "box": [0, 104, 173, 133]},
+            {"text": "C8EB-3NNY-2RX9S", "score": 0.97, "box": [0, 137, 224, 168]},
+            {"text": "CDK:S07304-ST8J-9WHF-", "score": 0.96, "box": [0, 170, 316, 204]},
+            {"text": "KLUXL", "score": 0.99, "box": [0, 211, 78, 241]},
+        ],
+        "cpu_ocr": {
+            "enabled": True,
+            "shadow_only": False,
+            "can_affect_result": True,
+            "confirmation_mode": "strict",
+            "review_required": True,
+            "review_reasons": ["pubg_marker_without_valid_card"],
+        },
+    }
+    monkeypatch.setattr(
+        bot.httpx,
+        "Client",
+        lambda timeout: FakeClient(FakeResponse(payload=payload)),
+    )
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == cards
+    assert result.remote_cpu_review_required is False
+    assert result.has_unresolved_pubg_fragment is False
+    assert bot.remote_needs_ocrspace_complement(result) == (False, "")
+
+
 def test_remote_ocr_preserves_original_and_enhanced_card_evidence(monkeypatch, tmp_path):
     original = "S07336-9L9E-W6T6-FKECC"
     enhanced = "S07336-9L9E-W6T6-FKECQ"

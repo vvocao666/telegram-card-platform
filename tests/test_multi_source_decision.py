@@ -3,6 +3,7 @@ from services.ocr.multi_source_decision import (
     apply_cpu_cloud_confirmations,
     cpu_cloud_confirmed_cards,
     cpu_payload_requires_review,
+    cpu_structural_review_resolved_by_rebuild,
     cpu_pubg_candidates,
 )
 
@@ -12,6 +13,32 @@ def test_cpu_conflict_only_triggers_review_in_strict_enabled_mode():
     assert not cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": False}})
     assert cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": True}})
     assert not cpu_payload_requires_review({"cpu_ocr": {"enabled": True, "can_affect_result": True, "confirmation_mode": "strict", "review_required": True, "roi_conflicts_resolved": True}})
+
+
+def test_cpu_line_parser_warning_clears_only_after_complete_ordered_rebuild():
+    reasons = ("pubg_marker_without_valid_card",)
+
+    assert cpu_structural_review_resolved_by_rebuild(
+        reasons,
+        rebuilt_count=3,
+        marker_count=3,
+        unresolved=False,
+        uncertain_count=0,
+    )
+    assert not cpu_structural_review_resolved_by_rebuild(
+        reasons,
+        rebuilt_count=2,
+        marker_count=3,
+        unresolved=False,
+        uncertain_count=0,
+    )
+    assert not cpu_structural_review_resolved_by_rebuild(
+        ("gpu_variant_conflict",),
+        rebuilt_count=3,
+        marker_count=3,
+        unresolved=False,
+        uncertain_count=0,
+    )
 
 
 def test_cpu_candidate_scores_preserve_roi_confidence():
