@@ -25,20 +25,21 @@ def prepare_worker_input(
     suffix: str,
     metrics: dict[str, Any],
 ) -> PreparedWorkerInput:
-    """Add a small background border to extreme thin strips before detection.
+    """Add a small background border when text can touch an image edge.
 
     The border gives the detector room around glyphs touching an image edge. It
     does not crop, resize, rewrite, or infer any card character.
     """
     width = int(metrics.get("width", 0) or 0)
     height = int(metrics.get("height", 0) or 0)
+    extreme_thin_strip = height <= 120 and width / max(height, 1) >= 3.0
+    narrow_vertical_list = width <= 480 and height >= 180 and height / max(width, 1) >= 1.2
     if (
         cv2 is None
         or np is None
         or width <= 0
         or height <= 0
-        or height > 120
-        or width / height < 3.0
+        or not (extreme_thin_strip or narrow_vertical_list)
     ):
         return PreparedWorkerInput(image_bytes, suffix)
 
