@@ -13,7 +13,10 @@ from services.ocr.multi_source_decision import (
     cpu_pubg_candidates,
 )
 from services.ocr.remote_execution_gate import RemoteWorkerBusy
-from services.ocr.variant_rebuild_evidence import variant_rebuilt_card_scores
+from services.ocr.variant_rebuild_evidence import (
+    complete_original_variant_recovery,
+    variant_rebuilt_card_scores,
+)
 
 
 def _is_worker_busy_error(exc: BaseException) -> bool:
@@ -122,6 +125,7 @@ def recognize_remote(
 
         raw_text = "\n".join(text_values)
         text_raw = "\n".join(line.text for line in ordered_lines)
+        ordered_pubg_markers = runtime.count_pubg_markers(text_raw) or 0
         worker_text = "\n".join(runtime.ocr_item_text(item) for item in worker_cards)
         if ordered_lines and runtime.is_pubg_image_text(text_raw):
             extracted_cards = runtime.merge_text_rebuilt_and_worker_cards(
@@ -143,6 +147,30 @@ def recognize_remote(
         cards, uncertain, card_corrections = runtime.settle_and_correct_pubg_cards(
             extracted_cards
         )
+        original_recovery = complete_original_variant_recovery(
+            runtime,
+            payload.get("ocr_original"),
+            payload.get("ocr_enhanced"),
+            marker_count=ordered_pubg_markers,
+            selected_card_count=len(cards),
+        )
+        if original_recovery:
+            recovered_cards, recovered_uncertain, recovered_corrections = (
+                runtime.settle_and_correct_pubg_cards(list(original_recovery))
+            )
+            if (
+                len(recovered_cards) == ordered_pubg_markers
+                and recovered_uncertain == 0
+            ):
+                cards = recovered_cards
+                uncertain = 0
+                card_corrections = recovered_corrections
+                has_unresolved_pubg_fragment = False
+                runtime.logger.info(
+                    "OCR ORIGINAL VARIANT COMPLETE RECOVERY cards=%s markers=%s",
+                    len(cards),
+                    ordered_pubg_markers,
+                )
         psn_ordered = runtime.limit_psn_ordered(
             runtime.psn_ordered_for_image(raw_text, cards, psn_hint=psn_hint),
             psn_expected_count,
@@ -165,7 +193,6 @@ def recognize_remote(
         # Count canonical card slots instead of raw OCR lines so a duplicate
         # display does not look like a missing second card.  Incomplete,
         # separately anchored markers remain distinct in the shared counter.
-        ordered_pubg_markers = runtime.count_pubg_markers(text_raw) or 0
         if ordered_pubg_markers:
             remote_pubg_expected_count = max(
                 remote_pubg_expected_count or 0, ordered_pubg_markers

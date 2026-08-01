@@ -5,7 +5,10 @@ from services.ocr.multi_card_consensus import (
     complete_dual_variant_multi_card_consensus,
     dual_variant_multi_card_consensus,
 )
-from services.ocr.variant_rebuild_evidence import variant_rebuilt_card_scores
+from services.ocr.variant_rebuild_evidence import (
+    complete_original_variant_recovery,
+    variant_rebuilt_card_scores,
+)
 from services import runtime
 
 
@@ -52,6 +55,61 @@ def test_variant_does_not_join_across_label_or_next_card():
     evidence = variant_rebuilt_card_scores(runtime, payload)
 
     assert evidence == (("S07336-QEDY-ST2R-HTJDA", 0.999),)
+
+
+def test_complete_original_variant_recovers_slot_damaged_by_enhancement():
+    original = {
+        "texts": [
+            {"text": "S07304-493T-VFQY-", "score": 0.9998, "box": [10, 10, 220, 30]},
+            {"text": "YUFQJ", "score": 0.9997, "box": [10, 35, 100, 55]},
+            {"text": "S07304-PMA7-JCY6-", "score": 0.9996, "box": [10, 70, 220, 90]},
+            {"text": "RE26Y", "score": 0.9993, "box": [10, 95, 100, 115]},
+            {"text": "S07304-9QVW-3MR7-", "score": 0.9992, "box": [10, 130, 220, 150]},
+            {"text": "VQBMB", "score": 0.9888, "box": [10, 155, 100, 175]},
+        ]
+    }
+    enhanced = {
+        "texts": [
+            *original["texts"][:-1],
+            {"text": "/QBMB", "score": 0.9991, "box": [10, 155, 100, 175]},
+        ]
+    }
+
+    recovered = complete_original_variant_recovery(
+        runtime,
+        original,
+        enhanced,
+        marker_count=3,
+        selected_card_count=2,
+    )
+
+    assert recovered == (
+        "S07304-493T-VFQY-YUFQJ",
+        "S07304-PMA7-JCY6-RE26Y",
+        "S07304-9QVW-3MR7-VQBMB",
+    )
+
+
+def test_complete_original_variant_rejects_low_confidence_or_complete_enhancement():
+    cards = [
+        {"text": "S07304-493T-VFQY-YUFQJ", "score": 0.999},
+        {"text": "S07304-PMA7-JCY6-RE26Y", "score": 0.96},
+    ]
+
+    assert complete_original_variant_recovery(
+        runtime,
+        {"texts": cards},
+        {"texts": cards[:1]},
+        marker_count=2,
+        selected_card_count=1,
+    ) == tuple()
+    assert complete_original_variant_recovery(
+        runtime,
+        {"texts": [{**cards[1], "score": 0.99}, cards[0]]},
+        {"texts": [{**cards[1], "score": 0.99}, cards[0]]},
+        marker_count=2,
+        selected_card_count=1,
+    ) == tuple()
 
 
 def _result(

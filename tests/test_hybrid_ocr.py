@@ -177,6 +177,56 @@ def test_remote_ordered_rebuild_clears_worker_line_parser_warning(monkeypatch, t
     assert bot.remote_needs_ocrspace_complement(result) == (False, "")
 
 
+def test_remote_uses_complete_original_when_enhancement_drops_one_card(monkeypatch, tmp_path):
+    cards = (
+        "S07304-493T-VFQY-YUFQJ",
+        "S07304-PMA7-JCY6-RE26Y",
+        "S07304-9QVW-3MR7-VQBMB",
+    )
+    original_texts = [
+        {"text": "CDK:S07304-493T-VFQY-", "score": 0.9998, "box": [10, 10, 230, 30]},
+        {"text": "YUFQJ", "score": 0.9997, "box": [10, 35, 100, 55]},
+        {"text": "CDK:S07304-PMA7-JCY6-", "score": 0.9996, "box": [10, 70, 230, 90]},
+        {"text": "RE26Y", "score": 0.9993, "box": [10, 95, 100, 115]},
+        {"text": "CDK:S07304-9QVW-3MR7-", "score": 0.9992, "box": [10, 130, 230, 150]},
+        {"text": "VQBMB", "score": 0.9888, "box": [10, 155, 100, 175]},
+    ]
+    enhanced_texts = [
+        *original_texts[:-1],
+        {"text": "/QBMB", "score": 0.9991, "box": [10, 155, 100, 175]},
+    ]
+    payload = {
+        "ok": True,
+        "cards": [],
+        "texts": enhanced_texts,
+        "ocr_original": {"texts": original_texts},
+        "ocr_enhanced": {"texts": enhanced_texts},
+        "enhanced_used": True,
+        "cpu_ocr": {
+            "enabled": True,
+            "shadow_only": False,
+            "can_affect_result": True,
+            "confirmation_mode": "strict",
+            "review_required": True,
+            "review_reasons": ["pubg_marker_without_valid_card"],
+        },
+    }
+    monkeypatch.setattr(
+        bot.httpx,
+        "Client",
+        lambda timeout: FakeClient(FakeResponse(payload=payload)),
+    )
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == cards
+    assert result.pubg_expected_count == 3
+    assert result.remote_cpu_review_required is False
+    assert result.has_unresolved_pubg_fragment is False
+    assert bot.remote_needs_ocrspace_complement(result) == (False, "")
+
+
 def test_remote_ocr_preserves_original_and_enhanced_card_evidence(monkeypatch, tmp_path):
     original = "S07336-9L9E-W6T6-FKECC"
     enhanced = "S07336-9L9E-W6T6-FKECQ"

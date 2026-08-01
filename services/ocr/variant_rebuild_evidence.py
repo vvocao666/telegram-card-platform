@@ -5,6 +5,7 @@ from typing import Any
 
 
 PUBG_COMPACT_RE = re.compile(r"^S07[0-9]{3}[A-Z0-9]{4}[A-Z0-9]{4}[A-Z0-9]{5}$")
+COMPLETE_VARIANT_MIN_SCORE = 0.97
 
 
 def variant_rebuilt_card_scores(
@@ -51,6 +52,37 @@ def variant_rebuilt_card_scores(
                 _append_evidence(evidence, seen, card, min(scores))
                 break
     return tuple(evidence)
+
+
+def complete_original_variant_recovery(
+    runtime: Any,
+    original_payload: Any,
+    enhanced_payload: Any,
+    *,
+    marker_count: int,
+    selected_card_count: int,
+) -> tuple[str, ...]:
+    """Recover a complete ordered multi-card read when enhancement drops a slot.
+
+    This is deliberately narrower than source voting: the untouched image must
+    rebuild every visible slot at high confidence, while the selected/enhanced
+    variant is demonstrably incomplete. Character disagreements remain review
+    cases and are never corrected here.
+    """
+    if marker_count < 2 or selected_card_count >= marker_count:
+        return tuple()
+
+    original = variant_rebuilt_card_scores(runtime, original_payload)
+    enhanced = variant_rebuilt_card_scores(runtime, enhanced_payload)
+    if len(original) != marker_count or len(enhanced) >= marker_count:
+        return tuple()
+    if any(score < COMPLETE_VARIANT_MIN_SCORE for _card, score in original):
+        return tuple()
+
+    cards = tuple(card for card, _score in original)
+    if len(set(cards)) != marker_count:
+        return tuple()
+    return cards
 
 
 def _item_score(item: Any) -> float:
