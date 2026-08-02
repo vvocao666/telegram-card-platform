@@ -1076,6 +1076,56 @@ def test_cpu_candidate_alone_never_replaces_gpu_result(monkeypatch, tmp_path):
         bot.OCR_SPACE_API_KEYS = old_keys
 
 
+def test_duplicate_card_password_rows_use_repeated_cloud_evidence(
+    monkeypatch, tmp_path, caplog
+):
+    correct = "S07336-W5NS-KNE6-UQL3B"
+    remote = bot.OcrResult(
+        cards=("S07336-W5NS-KNE6-UQL36",),
+        raw_text=(
+            "卡号\nS07336-W5NS-KNE6-UQL36\n"
+            "密码\nS07336-W5NS-KNE6-UQL3E"
+        ),
+        has_unresolved_pubg_fragment=True,
+    )
+    cloud = bot.OcrResult(
+        cards=(correct,),
+        raw_text="\n".join((correct, correct, correct, correct)),
+    )
+    calls = {"remote": 0, "cloud": 0}
+
+    def run_remote(*_args, **_kwargs):
+        calls["remote"] += 1
+        return remote
+
+    def run_cloud(*_args, **_kwargs):
+        calls["cloud"] += 1
+        return cloud
+
+    old_provider = bot.OCR_PROVIDER
+    old_keys = bot.OCR_SPACE_API_KEYS
+    try:
+        bot.OCR_PROVIDER = "ocrspace"
+        bot.OCR_SPACE_API_KEYS = ["key"]
+        monkeypatch.setattr(bot, "run_remote_ocr", run_remote)
+        monkeypatch.setattr(bot, "run_ocrspace", run_cloud)
+        image_path = tmp_path / "duplicate-row.jpg"
+        Image.new("RGB", (520, 190), "white").save(image_path)
+
+        with caplog.at_level("INFO", logger="telegram-card-platform"):
+            result = bot.run_ocr(image_path)
+
+        assert result.cards == (correct,)
+        assert result.uncertain_count == 0
+        assert result.has_unresolved_pubg_fragment is False
+        assert bot.manual_review_notifier.needs_review(result) is None
+        assert calls == {"remote": 1, "cloud": 1}
+        assert "OCR THIN STRIP DUPLICATE ROW CONSENSUS" in caplog.text
+    finally:
+        bot.OCR_PROVIDER = old_provider
+        bot.OCR_SPACE_API_KEYS = old_keys
+
+
 def test_exact_remote_and_cloud_card_clears_stale_wrap_uncertainty(
     monkeypatch, tmp_path, caplog
 ):

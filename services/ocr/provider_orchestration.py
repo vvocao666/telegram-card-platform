@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from services.ocr.thin_strip_review import review_conflicting_thin_strip
+from services.ocr.thin_strip_policy import repeated_cloud_same_slot_card
 from services.ocr.clear_fast_path import confirmed_clear_remote_card
 from services.ocr.prefix_recovery_policy import choose_cloud_same_slot_card
 from services.ocr.remote_variant_policy import cloud_resolves_remote_variant_conflict
@@ -91,6 +92,32 @@ def route_ocr(
             f"[REMOTE]\n{remote.raw_text.strip()}\n"
             f"[OCRSPACE]\n{cloud.raw_text.strip()}"
         ).strip()
+        repeated_cloud_card = repeated_cloud_same_slot_card(
+            remote,
+            cloud,
+            valid_card=runtime.valid_card,
+        )
+        if repeated_cloud_card is not None:
+            runtime.logger.info(
+                "OCR THIN STRIP DUPLICATE ROW CONSENSUS card=%s",
+                repeated_cloud_card,
+            )
+            return replace(
+                cloud,
+                cards=(repeated_cloud_card,),
+                raw_text=merged_raw_text,
+                pubg_expected_count=1,
+                uncertain_count=0,
+                has_unresolved_pubg_fragment=False,
+                remote_original_card_scores=remote.remote_original_card_scores,
+                remote_enhanced_card_scores=remote.remote_enhanced_card_scores,
+                remote_original_rebuilt_card_scores=remote.remote_original_rebuilt_card_scores,
+                remote_enhanced_rebuilt_card_scores=remote.remote_enhanced_rebuilt_card_scores,
+                remote_cpu_candidates=remote.remote_cpu_candidates,
+                remote_cpu_candidate_scores=remote.remote_cpu_candidate_scores,
+                remote_cpu_review_required=remote.remote_cpu_review_required,
+                remote_cpu_review_reasons=remote.remote_cpu_review_reasons,
+            )
         if selected is cloud:
             selected = replace(
                 cloud,

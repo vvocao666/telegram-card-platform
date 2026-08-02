@@ -11,6 +11,7 @@ class Result:
     psn_cards: tuple[str, ...] = ()
     psn_uncertain: tuple[str, ...] = ()
     uncertain_count: int = 0
+    raw_text: str = ""
 
 
 def test_thin_strip_detection_is_narrow(tmp_path):
@@ -54,3 +55,50 @@ def test_uncertain_cloud_result_does_not_replace_remote():
 
     assert selected is remote
     assert changed is False
+
+
+def test_repeated_duplicate_row_cloud_evidence_resolves_gpu_tail_conflict():
+    remote = Result(
+        cards=("S07336-W5NS-KNE6-UQL36",),
+        raw_text=(
+            "卡号\nS07336-W5NS-KNE6-UQL36\n"
+            "密码\nS07336-W5NS-KNE6-UQL3E"
+        ),
+    )
+    cloud = Result(
+        cards=("S07336-W5NS-KNE6-UQL3B",),
+        raw_text=(
+            "S07336-W5NS-KNE6-UQL3B\n"
+            "S07336-W5NS-KNE6-UQL3B\n"
+            "S07336-W5NS-KNE6-UQL3B"
+        ),
+    )
+
+    selected, changed = choose_thin_strip_result(
+        remote,
+        cloud,
+        valid_card=lambda _card: True,
+    )
+
+    assert selected is cloud
+    assert changed is False
+
+
+def test_repeated_cloud_evidence_does_not_merge_different_card_slots():
+    remote = Result(
+        cards=("S07336-W5NS-AAAA-UQL36",),
+        raw_text="S07336-W5NS-AAAA-UQL36",
+    )
+    cloud = Result(
+        cards=("S07336-W5NS-KNE6-UQL3B",),
+        raw_text="S07336-W5NS-KNE6-UQL3B\nS07336-W5NS-KNE6-UQL3B",
+    )
+
+    selected, changed = choose_thin_strip_result(
+        remote,
+        cloud,
+        valid_card=lambda _card: True,
+    )
+
+    assert selected is remote
+    assert changed is True
