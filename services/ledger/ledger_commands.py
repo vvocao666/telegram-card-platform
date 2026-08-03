@@ -352,7 +352,7 @@ def format_entry(
     display_number = number if number is not None else store.active_entry_number(chat_id, entry.id)
     note = f" {escape(entry.note)}" if entry.note else ""
     operator_name = escape(entry.operator_name)
-    display_amount = entry.net_amount if entry.kind == "income" else entry.net_amount
+    display_amount = entry.net_amount if entry.kind == "income" else abs(entry.net_amount)
     amount_value = f"{sign}{display_amount} U"
     amount_text = _blue(amount_value) if entry.kind == "payout" else amount_value
     if for_bill:
@@ -375,7 +375,7 @@ def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
         amount = f"{entry.amount}"
         net_amount = f"{entry.net_amount}U"
         if entry.kind == "payout":
-            amount = f"-{amount}"
+            amount = f"-{abs(entry.amount)}"
             calculation = _blue(f"{amount}U")
         else:
             calculation = f"{amount}/{_format_rate(entry.rate)}={net_amount}"
@@ -491,10 +491,10 @@ def _summarize_entries(store: LedgerStore, chat_id: int, entries: list[LedgerEnt
         payout=money(payout_usdt),
         fees=money(fees),
         payable_amount=money(payable_rmb),
-        balance=money(max(income_usdt - payout_usdt, Decimal("0"))),
+        balance=money(income_usdt - payout_usdt),
         income_usdt=money(income_usdt),
         payout_usdt=money(payout_usdt),
-        balance_usdt=money(max(income_usdt - payout_usdt, Decimal("0"))),
+        balance_usdt=money(income_usdt - payout_usdt),
         count=len(entries),
         rate=current_rate,
         fee_percent=fee_percent,
@@ -537,14 +537,14 @@ def _parse_entry(text: str) -> tuple[str, Decimal, str] | None:
         ("下分", "payout"),
     ):
         if text.startswith(prefix):
-            value, note = _amount_after_prefix(text, prefix)
+            value, note = _amount_after_prefix(text, prefix, allow_signed=kind == "payout")
             return (kind, value, note) if value is not None else None
     return None
 
 
-def _amount_after_prefix(text: str, prefix: str) -> tuple[Decimal | None, str]:
+def _amount_after_prefix(text: str, prefix: str, *, allow_signed: bool = False) -> tuple[Decimal | None, str]:
     tail = text[len(prefix) :].strip()
-    match = AMOUNT_RE.search(tail)
+    match = (SIGNED_AMOUNT_RE if allow_signed else AMOUNT_RE).search(tail)
     if not match:
         return None, ""
     try:

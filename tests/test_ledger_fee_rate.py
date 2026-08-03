@@ -115,6 +115,32 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         store.close()
 
 
+def test_payout_sign_is_preserved_in_paid_and_unpaid_totals(tmp_path):
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        boss = actor()
+
+        positive = ledger_commands.handle_text(store, -1001, boss, "下发100", {12345}, message_id=1)
+        assert positive is not None
+        assert "应下发：0.00 | 0.00U" in positive.text
+        assert "已下发：100.00U" in positive.text
+        assert '未下发：【<a href="https://t.me/">-100.00U</a>】' in positive.text
+
+        store.clear_entries(-1001)
+        negative = ledger_commands.handle_text(store, -1001, boss, "下发-200", {12345}, message_id=2)
+        assert negative is not None
+        assert "应下发：0.00 | 0.00U" in negative.text
+        assert "已下发：-200.00U" in negative.text
+        assert '未下发：【<a href="https://t.me/">200.00U</a>】' in negative.text
+        assert "--200" not in negative.text
+
+        entry = store.entries(-1001)[0]
+        assert entry.amount == Decimal("-200.00")
+        assert entry.net_amount == Decimal("-200.00")
+    finally:
+        store.close()
+
+
 def test_payout_confirmation_still_sends_when_ledger_is_disabled_without_writing_entry(tmp_path):
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     try:

@@ -925,7 +925,7 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIn("总入款金额：1000.00", bill.text)
                 self.assertIn("应下发：1000.00 | 100.00U", bill.text)
                 self.assertIn("已下发：1500.00U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">0.00U</a>】', bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">-1400.00U</a>】', bill.text)
             finally:
                 store.close()
 

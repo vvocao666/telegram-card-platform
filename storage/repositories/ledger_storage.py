@@ -576,8 +576,10 @@ class LedgerStore:
         if kind not in {"income", "payout"}:
             raise ValueError("kind must be income or payout")
         amount_value = money(amount)
-        if amount_value <= 0:
+        if kind == "income" and amount_value <= 0:
             raise ValueError("amount must be greater than 0")
+        if kind == "payout" and amount_value == 0:
+            raise ValueError("amount must not be zero")
 
         current_rate, fee_percent = self.get_settings(chat_id)
         if kind == "income":
@@ -921,10 +923,10 @@ class LedgerStore:
             payout=money(payout_usdt),
             fees=money(fees),
             payable_amount=money(payable_amount),
-            balance=money(max(income_usdt - payout_usdt, Decimal("0"))),
+            balance=money(income_usdt - payout_usdt),
             income_usdt=money(income_usdt),
             payout_usdt=money(payout_usdt),
-            balance_usdt=money(max(income_usdt - payout_usdt, Decimal("0"))),
+            balance_usdt=money(income_usdt - payout_usdt),
             count=len(rows),
             rate=current_rate,
             fee_percent=fee_percent,
