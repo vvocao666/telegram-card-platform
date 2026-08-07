@@ -357,7 +357,7 @@ def format_entry(
     amount_value = f"{sign}{display_amount} U"
     amount_text = _blue(amount_value) if entry.kind == "payout" else amount_value
     if for_bill:
-        return f"#{display_number} {label}  {entry_time}：{amount_text}{note}\n ({operator_name})"
+        return f"#{display_number} {label}  {entry_time}：{amount_text}"
     return f"#{display_number} {label}  {entry_time}：{amount_text}{note}\n ({operator_name})"
 
 

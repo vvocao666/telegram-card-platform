@@ -159,6 +159,12 @@ def test_group_lines_use_compact_amounts_and_requested_attribution(tmp_path):
         assert payout_lines[0].endswith(
             '<a href="https://t.me/">-50U</a> User 12345'
         )
+
+        bill = ledger_commands.format_bill(store, -1001)
+        recent = bill.split("最近流水：", 1)[1]
+        assert "User 67890" not in recent
+        assert "User 12345" not in recent
+        assert "雄霸小火箭" not in recent
     finally:
         store.close()
 
