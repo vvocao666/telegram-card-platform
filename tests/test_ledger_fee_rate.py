@@ -104,6 +104,11 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         payout = ledger_commands.handle_text(store, -1001, boss, "下发1000", {12345}, message_id=1)
         income = ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=2)
         private_payout = ledger_commands.handle_text(store, 12345, boss, "下发50", {12345}, message_id=3)
+        shorthand_payout = ledger_commands.handle_text(store, -1001, boss, "-500", {12345}, message_id=4)
+        negative_named_payout = ledger_commands.handle_text(
+            store, -1001, boss, "下发-200", {12345}, message_id=5
+        )
+        payout_alias = ledger_commands.handle_text(store, -1001, boss, "出款300", {12345}, message_id=6)
 
         assert payout is not None
         assert payout.follow_up_text == '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
@@ -111,6 +116,12 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         assert income.follow_up_text is None
         assert private_payout is not None
         assert private_payout.follow_up_text is None
+        assert shorthand_payout is not None
+        assert shorthand_payout.follow_up_text is None
+        assert negative_named_payout is not None
+        assert negative_named_payout.follow_up_text is None
+        assert payout_alias is not None
+        assert payout_alias.follow_up_text is None
     finally:
         store.close()
 
@@ -156,11 +167,7 @@ def test_payout_confirmation_still_sends_when_ledger_is_disabled_without_writing
         assert named_payout.follow_up_text == (
             '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
         )
-        assert signed_payout is not None
-        assert signed_payout.text == ""
-        assert signed_payout.follow_up_text == (
-            '💰<b><a href="https://t.me/">【 500 UU 】</a></b>  已转✅，请您查收。'
-        )
+        assert signed_payout is None
         assert income is None
         assert store.entries(-1001) == []
     finally:

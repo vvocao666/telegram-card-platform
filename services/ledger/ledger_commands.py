@@ -162,7 +162,7 @@ def handle_text(
         parsed = _parse_entry(normalized)
         if parsed is not None:
             kind, amount, _note = parsed
-            if kind == "payout" and amount > 0 and chat_id < 0:
+            if _should_confirm_payout(normalized, kind, amount, chat_id):
                 return CommandResult("", follow_up_text=_payout_confirmation(amount))
         return None
 
@@ -297,7 +297,7 @@ def handle_text(
         except ValueError as exc:
             return CommandResult(str(exc))
         follow_up_text = None
-        if kind == "payout" and chat_id < 0:
+        if _should_confirm_payout(normalized, kind, amount, chat_id):
             follow_up_text = _payout_confirmation(amount)
         return CommandResult(format_bill(store, chat_id), changed=True, follow_up_text=follow_up_text)
 
@@ -410,6 +410,10 @@ def _blue(value: object) -> str:
 
 def _payout_confirmation(amount: Decimal) -> str:
     return f"💰<b>{_blue(f'【 {_format_rate(amount)} UU 】')}</b>  已转✅，请您查收。"
+
+
+def _should_confirm_payout(text: str, kind: str, amount: Decimal, chat_id: int) -> bool:
+    return chat_id < 0 and kind == "payout" and amount > 0 and text.startswith("下发")
 
 
 def _reply_entry_number(text: str) -> int | None:
