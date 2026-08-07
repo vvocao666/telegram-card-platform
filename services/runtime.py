@@ -39,6 +39,7 @@ from services.calculator import (
 from services.ledger import ledger_commands
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
+from services.ledger.message_identity import actor_from_message as ledger_actor_from_message
 from services.price.price_service import (
     fetch_okx_usdt_cny_prices,
     format_okx_prices,
@@ -2306,14 +2307,6 @@ def owner_user_id() -> int | None:
 
 def is_owner_update(update: Update | None) -> bool:
     return update_user_is_owner(update, OWNER_CHAT_ID)
-
-
-def ledger_actor_from_message(message) -> LedgerActor | None:
-    user = getattr(message, "from_user", None)
-    if not user:
-        return None
-    display_name = " ".join(part for part in [user.first_name, user.last_name] if part)
-    return LedgerActor(user_id=user.id, username=user.username or "", display_name=display_name)
 
 
 async def reply_ledger(message, text: str) -> None:
