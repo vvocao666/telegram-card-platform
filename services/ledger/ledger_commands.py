@@ -118,14 +118,14 @@ def handle_text(
     normalized = raw.replace("：", ":").strip()
 
     if normalized in {"开启记账", "打开记账", "启用记账", "开启"}:
-        if not _is_owner(actor.user_id, owner_ids):
-            return CommandResult("只有拉机器人进群的人可以开启记账。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("只有群主或操作员可以开启记账。")
         store.set_ledger_enabled(chat_id, True)
         return CommandResult("记账功能已开启。", changed=True)
 
     if normalized in {"关闭记账", "停止记账", "停用记账", "暂停记账", "暂停"}:
-        if not _is_owner(actor.user_id, owner_ids):
-            return CommandResult("只有拉机器人进群的人可以关闭记账。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("只有群主或操作员可以关闭记账。")
         store.set_ledger_enabled(chat_id, False)
         return CommandResult("记账功能已关闭，已暂停记账，后续只识别卡密。发送“开启”可重新开启。", changed=True)
 
@@ -134,8 +134,8 @@ def handle_text(
         or normalized.startswith("设置日切")
         or normalized.startswith("/set_cutoff")
     ):
-        if not _is_owner(actor.user_id, owner_ids):
-            return CommandResult("只有拉机器人进群的人可以设置日切时间。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("只有群主或操作员可以设置日切时间。")
         value = _first_signed_decimal(normalized)
         if value is None:
             hour = store.get_ledger_reset_hour(chat_id)
@@ -273,8 +273,8 @@ def handle_text(
         )
 
     if normalized in {"清账", "清空", "清空账单", "清除账单", "/clear"}:
-        if not _is_owner(actor.user_id, owner_ids):
-            return CommandResult("只有拉机器人进群的人可以清账。")
+        if not _can_operate(store, chat_id, actor.user_id, owner_ids):
+            return CommandResult("只有群主或操作员可以清账。")
         count = store.clear_entries(chat_id)
         return CommandResult(f"已清空 {count} 笔流水，账单已重新计数。", changed=True)
 

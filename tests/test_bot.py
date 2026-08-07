@@ -1041,7 +1041,7 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_ledger_reset_hour_requires_owner(self):
+    def test_ledger_reset_hour_rejects_regular_member(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             try:
@@ -1052,7 +1052,7 @@ class BotFormattingTests(unittest.TestCase):
                 result = ledger_commands.handle_text(store, -1001, guest, "日切5", {owner.user_id})
 
                 self.assertIsNotNone(result)
-                self.assertIn("只有拉机器人进群的人可以设置日切时间", result.text)
+                self.assertIn("只有群主或操作员可以设置日切时间", result.text)
                 self.assertEqual(0, store.get_ledger_reset_hour(-1001))
             finally:
                 store.close()
@@ -1120,7 +1120,7 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_ledger_management_requires_chat_owner(self):
+    def test_ledger_management_rejects_regular_member(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             try:
@@ -1133,9 +1133,9 @@ class BotFormattingTests(unittest.TestCase):
                 allowed_close = ledger_commands.handle_text(store, -1001, owner, "关闭记账", {owner.user_id})
 
                 self.assertIsNotNone(denied_close)
-                self.assertIn("只有拉机器人进群的人可以关闭记账", denied_close.text)
+                self.assertIn("只有群主或操作员可以关闭记账", denied_close.text)
                 self.assertIsNotNone(denied_clear)
-                self.assertIn("只有拉机器人进群的人可以清账", denied_clear.text)
+                self.assertIn("只有群主或操作员可以清账", denied_clear.text)
                 self.assertIsNotNone(allowed_close)
                 self.assertIn("记账功能已关闭", allowed_close.text)
             finally:
