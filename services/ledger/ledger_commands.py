@@ -284,14 +284,15 @@ def handle_text(
         if amount == 0:
             return CommandResult(format_bill(store, chat_id, scope="today", show_all_records=True))
         try:
+            entry_note = _entry_attribution(kind, note, actor, reply_user)
             entry = store.add_entry(
                 chat_id=chat_id,
                 kind=kind,
                 amount=amount,
                 currency="USDT",
-                note=note,
+                note=entry_note,
                 operator_id=actor.user_id,
-                operator_name=actor.label,
+                operator_name=actor.display_name or actor.label,
                 source_message_id=message_id,
             )
         except ValueError as exc:
@@ -372,14 +373,15 @@ def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
         return []
     lines = []
     for _, entry in entries:
-        amount = f"{entry.amount}"
-        net_amount = f"{entry.net_amount}U"
+        amount = _format_compact_money(entry.amount)
+        net_amount = f"{_format_compact_money(entry.net_amount)}U"
         if entry.kind == "payout":
-            amount = f"-{abs(entry.amount)}"
-            calculation = _blue(f"{amount}U")
+            calculation = _blue(f"-{_format_compact_money(abs(entry.amount))}U")
         else:
-            calculation = f"{amount}/{_format_rate(entry.rate)}={net_amount}"
-        lines.append(f"{_format_entry_time(entry.created_at)} {calculation}")
+            calculation = f"{amount}/{_format_compact_money(entry.rate)}={net_amount}"
+        attribution = entry.note or (entry.operator_name if entry.kind == "payout" else "")
+        suffix = f" {escape(attribution)}" if attribution else ""
+        lines.append(f"{_format_entry_time(entry.created_at)} {calculation}{suffix}")
     return lines
 
 
@@ -400,6 +402,13 @@ def _format_money(value: Decimal) -> str:
     return f"{money(value):.2f}"
 
 
+def _format_compact_money(value: Decimal) -> str:
+    rounded = money(value)
+    if rounded == rounded.to_integral_value():
+        return format(rounded, ".0f")
+    return f"{rounded:.2f}"
+
+
 def _format_percent(value: Decimal) -> str:
     return f"{money(value):.2f}%"
 
@@ -414,6 +423,16 @@ def _payout_confirmation(amount: Decimal) -> str:
 
 def _should_confirm_payout(text: str, kind: str, amount: Decimal, chat_id: int) -> bool:
     return chat_id < 0 and kind == "payout" and amount > 0 and text.startswith("下发")
+
+
+def _entry_attribution(kind: str, note: str, actor: Actor, reply_user: Actor | None) -> str:
+    if reply_user is not None:
+        return reply_user.display_name or reply_user.label
+    if note:
+        return note
+    if kind == "payout":
+        return actor.display_name or actor.label
+    return ""
 
 
 def _reply_entry_number(text: str) -> int | None:

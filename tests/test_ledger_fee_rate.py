@@ -126,6 +126,43 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         store.close()
 
 
+def test_group_lines_use_compact_amounts_and_requested_attribution(tmp_path):
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        boss = actor()
+        customer = actor(67890)
+        ledger_commands.handle_text(store, -1001, boss, "设置汇率10", {12345})
+        ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=1)
+        ledger_commands.handle_text(
+            store,
+            -1001,
+            boss,
+            "+25",
+            {12345},
+            reply_user=customer,
+            message_id=2,
+        )
+        ledger_commands.handle_text(store, -1001, boss, "+12.5 雄霸小火箭", {12345}, message_id=3)
+        ledger_commands.handle_text(store, -1001, boss, "下发50", {12345}, message_id=4)
+
+        entries = store.entries(-1001)
+        income_lines = ledger_commands._format_group_lines(
+            [(index, entry) for index, entry in enumerate(entries, start=1) if entry.kind == "income"]
+        )
+        payout_lines = ledger_commands._format_group_lines(
+            [(index, entry) for index, entry in enumerate(entries, start=1) if entry.kind == "payout"]
+        )
+
+        assert income_lines[0].endswith("100/10=10U")
+        assert income_lines[1].endswith("25/10=2.50U User 67890")
+        assert income_lines[2].endswith("12.50/10=1.25U 雄霸小火箭")
+        assert payout_lines[0].endswith(
+            '<a href="https://t.me/">-50U</a> User 12345'
+        )
+    finally:
+        store.close()
+
+
 def test_payout_sign_is_preserved_in_paid_and_unpaid_totals(tmp_path):
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     try:
