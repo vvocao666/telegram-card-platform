@@ -379,7 +379,7 @@ def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
             calculation = _blue(f"-{_format_compact_money(abs(entry.amount))}U")
         else:
             calculation = f"{amount}/{_format_compact_money(entry.rate)}={net_amount}"
-        attribution = entry.operator_name
+        attribution = entry.note or entry.operator_name
         suffix = f" {escape(attribution)}" if attribution else ""
         lines.append(f"{_format_entry_time(entry.created_at)} {calculation}{suffix}")
     return lines
@@ -430,9 +430,7 @@ def _entry_attribution(kind: str, note: str, actor: Actor, reply_user: Actor | N
         return reply_user.display_name or reply_user.label
     if note:
         return note
-    if kind == "payout":
-        return actor.display_name or actor.label
-    return ""
+    return actor.display_name or actor.label
 
 
 def _reply_entry_number(text: str) -> int | None:

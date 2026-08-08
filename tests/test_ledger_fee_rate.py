@@ -154,8 +154,8 @@ def test_group_lines_use_compact_amounts_and_command_sender_attribution(tmp_path
         )
 
         assert income_lines[0].endswith("100/10=10U User 12345")
-        assert income_lines[1].endswith("25/10=2.50U User 12345")
-        assert income_lines[2].endswith("12.50/10=1.25U User 12345")
+        assert income_lines[1].endswith("25/10=2.50U User 67890")
+        assert income_lines[2].endswith("12.50/10=1.25U 雄霸小火箭")
         assert payout_lines[0].endswith(
             '<a href="https://t.me/">-50U</a> User 12345'
         )
