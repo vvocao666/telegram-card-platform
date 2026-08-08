@@ -379,7 +379,7 @@ def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
             calculation = _blue(f"-{_format_compact_money(abs(entry.amount))}U")
         else:
             calculation = f"{amount}/{_format_compact_money(entry.rate)}={net_amount}"
-        attribution = entry.note or (entry.operator_name if entry.kind == "payout" else "")
+        attribution = entry.operator_name
         suffix = f" {escape(attribution)}" if attribution else ""
         lines.append(f"{_format_entry_time(entry.created_at)} {calculation}{suffix}")
     return lines
