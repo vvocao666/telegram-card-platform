@@ -43,9 +43,15 @@ class DailyOcrStats:
         return self.pubg_cards + self.psn_cards
 
 
-def collect_daily_ocr_stats(audit_root: Path, report_date: date) -> DailyOcrStats:
+def collect_daily_ocr_stats(
+    audit_root: Path,
+    report_date: date,
+    *,
+    excluded_user_ids: set[int] | None = None,
+) -> DailyOcrStats:
     """按群和用户汇总指定北京时间自然日的 OCR 审计记录。"""
     grouped: dict[tuple[int, int], dict[str, object]] = {}
+    excluded = excluded_user_ids or set()
     seen_pubg: set[str] = set()
     seen_psn: set[str] = set()
     date_root = audit_root / report_date.isoformat()
@@ -57,6 +63,8 @@ def collect_daily_ocr_stats(audit_root: Path, report_date: date) -> DailyOcrStat
         source = source if isinstance(source, dict) else {}
         chat_id = _safe_int(source.get("chat_id"))
         user_id = _safe_int(source.get("user_id"))
+        if user_id in excluded:
+            continue
         key = (chat_id, user_id)
         row = grouped.setdefault(
             key,

@@ -234,6 +234,39 @@ def test_chat_daily_stats_excludes_only_the_configured_bot_owner(tmp_path: Path)
     assert "用户：@owner" not in message
 
 
+def test_excluded_owner_cards_do_not_consume_first_occurrence(tmp_path: Path):
+    report_date = date(2026, 7, 13)
+    duplicate = "S07336-AAAA-BBBB-CCCCC"
+    _write_record(
+        tmp_path,
+        report_date,
+        "001-owner",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=20,
+        username="owner",
+        pubg=[duplicate],
+        psn=[],
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "002-ordinary",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=10,
+        username="ordinary",
+        pubg=[duplicate],
+        psn=[],
+    )
+
+    stats = collect_daily_ocr_stats(tmp_path, report_date, excluded_user_ids={20})
+
+    assert stats.images == 1
+    assert stats.pubg_cards == 1
+    assert [row.username for row in stats.sources] == ["ordinary"]
+
+
 def test_daily_stats_counts_failed_or_empty_image_without_inventing_cards(tmp_path: Path):
     report_date = date(2026, 7, 13)
     _write_record(

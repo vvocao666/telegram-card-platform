@@ -47,7 +47,13 @@ def test_group_daily_stats_excludes_only_the_configured_bot_owner(monkeypatch):
                 SimpleNamespace(chat_id=-1001, user_id=20),
             )
         )
-        monkeypatch.setattr("handlers.ocr_stats_handler.collect_daily_ocr_stats", lambda *_args: stats)
+        captured_collect: dict[str, object] = {}
+
+        def collect_stats(*_args, excluded_user_ids):
+            captured_collect["excluded_user_ids"] = excluded_user_ids
+            return stats
+
+        monkeypatch.setattr("handlers.ocr_stats_handler.collect_daily_ocr_stats", collect_stats)
         monkeypatch.setattr("handlers.ocr_stats_handler._owner_user_id", lambda: 20)
         captured: dict[str, object] = {}
 
@@ -60,6 +66,7 @@ def test_group_daily_stats_excludes_only_the_configured_bot_owner(monkeypatch):
         await group_daily_ocr_stats_command(update, SimpleNamespace())
 
         assert captured["excluded_user_ids"] == {20}
+        assert captured_collect["excluded_user_ids"] == {20}
         assert message.replies == [{"text": "统计结果", "parse_mode": "HTML"}]
 
     asyncio.run(scenario())
