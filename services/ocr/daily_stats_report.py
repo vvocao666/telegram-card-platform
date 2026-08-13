@@ -46,6 +46,8 @@ class DailyOcrStats:
 def collect_daily_ocr_stats(audit_root: Path, report_date: date) -> DailyOcrStats:
     """按群和用户汇总指定北京时间自然日的 OCR 审计记录。"""
     grouped: dict[tuple[int, int], dict[str, object]] = {}
+    seen_pubg: set[str] = set()
+    seen_psn: set[str] = set()
     date_root = audit_root / report_date.isoformat()
     for record_path in sorted(date_root.glob("*/record.json")) if date_root.exists() else ():
         record = _read_json(record_path)
@@ -69,8 +71,10 @@ def collect_daily_ocr_stats(audit_root: Path, report_date: date) -> DailyOcrStat
             },
         )
         row["images"] = int(row["images"]) + 1
-        row["pubg_cards"] = int(row["pubg_cards"]) + len(_stable_cards(record.get("final_cards")))
-        row["psn_cards"] = int(row["psn_cards"]) + len(_stable_cards(record.get("final_psn_cards")))
+        pubg_cards = _new_cards(record.get("final_cards"), seen_pubg)
+        psn_cards = _new_cards(record.get("final_psn_cards"), seen_psn)
+        row["pubg_cards"] = int(row["pubg_cards"]) + len(pubg_cards)
+        row["psn_cards"] = int(row["psn_cards"]) + len(psn_cards)
 
     sources = tuple(
         OcrSourceStats(**row)
@@ -115,9 +119,19 @@ def format_daily_ocr_stats(stats: DailyOcrStats) -> list[str]:
     return _chunk_report(header, blocks, footer)
 
 
-def format_chat_daily_ocr_stats(stats: DailyOcrStats, chat_id: int) -> list[str]:
-    """按用户生成当前群当天的卡密统计，不包含其他群或无卡图片。"""
-    sources = tuple(source for source in stats.sources if source.chat_id == chat_id and source.cards > 0)
+def format_chat_daily_ocr_stats(
+    stats: DailyOcrStats,
+    chat_id: int,
+    *,
+    excluded_user_ids: set[int] | None = None,
+) -> list[str]:
+    """按用户生成当前群当天的图片与卡密统计，不包含其他群。"""
+    excluded = excluded_user_ids or set()
+    sources = tuple(
+        source
+        for source in stats.sources
+        if source.chat_id == chat_id and source.images > 0 and source.user_id not in excluded
+    )
     if not sources:
         return ["今日暂无卡密识别记录。"]
 
@@ -134,6 +148,7 @@ def format_chat_daily_ocr_stats(stats: DailyOcrStats, chat_id: int) -> list[str]
                     f"用户：{user_label}",
                     f"PUBG：【 <b>{source.pubg_cards}</b> 】",
                     f"P S N：【 <b>{source.psn_cards}</b> 】",
+                    f"合计发送图片：{source.images}张",
                 )
             )
         )
@@ -259,6 +274,17 @@ def _stable_cards(value: object) -> list[str]:
         if card and card not in seen:
             seen.add(card)
             result.append(card)
+    return result
+
+
+def _new_cards(value: object, seen: set[str]) -> list[str]:
+    """按审计顺序保留当天第一次出现的卡密。"""
+    result: list[str] = []
+    for card in _stable_cards(value):
+        if card in seen:
+            continue
+        seen.add(card)
+        result.append(card)
     return result
 
 

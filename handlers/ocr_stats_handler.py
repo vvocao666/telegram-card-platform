@@ -23,5 +23,14 @@ async def group_daily_ocr_stats_command(update: Update, context: ContextTypes.DE
 
     report_date = datetime.now(SHANGHAI_TZ).date()
     stats = await asyncio.to_thread(collect_daily_ocr_stats, DEFAULT_AUDIT_ROOT, report_date)
-    for text in format_chat_daily_ocr_stats(stats, chat.id):
+    owner_id = _owner_user_id()
+    excluded_user_ids = {owner_id} if owner_id is not None else set()
+    for text in format_chat_daily_ocr_stats(stats, chat.id, excluded_user_ids=excluded_user_ids):
         await message.reply_text(text, parse_mode="HTML")
+
+
+def _owner_user_id() -> int | None:
+    """延迟读取全局机器人 owner，避免 handler 注册阶段形成循环依赖。"""
+    from services.runtime import owner_user_id
+
+    return owner_user_id()
