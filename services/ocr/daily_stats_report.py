@@ -43,11 +43,57 @@ class DailyOcrStats:
         return self.pubg_cards + self.psn_cards
 
 
+@dataclass(frozen=True)
+class OcrStatsTimeRange:
+    start_at: datetime
+    end_at: datetime
+
+
+class OcrStatsTimeRangeError(ValueError):
+    pass
+
+
+def parse_ocr_stats_time_range(command_text: str, command_time: datetime) -> OcrStatsTimeRange:
+    """Parse /统计, /统计HH:MM, or /统计HH:MM-HH:MM in Beijing time."""
+    current = _as_shanghai(command_time)
+    text = str(command_text or "").strip()
+    if not text.startswith("/统计"):
+        raise OcrStatsTimeRangeError("时间格式错误，请使用：/统计、/统计12:01 或 /统计12:00-18:00")
+    argument = text[len("/统计") :].strip()
+    if argument.startswith("@"):
+        _bot_name, separator, remainder = argument.partition(" ")
+        argument = remainder.strip() if separator else ""
+
+    midnight = datetime.combine(current.date(), time.min, SHANGHAI_TZ)
+    if not argument:
+        return OcrStatsTimeRange(midnight, current)
+
+    parts = argument.split("-")
+    if len(parts) == 1:
+        start_at = _parse_clock_time(parts[0], current.date())
+        end_at = current
+    elif len(parts) == 2:
+        start_at = _parse_clock_time(parts[0], current.date())
+        end_at = _parse_clock_time(parts[1], current.date())
+    else:
+        raise OcrStatsTimeRangeError("时间格式错误，请使用：/统计、/统计12:01 或 /统计12:00-18:00")
+
+    if start_at > current:
+        raise OcrStatsTimeRangeError("开始时间不能晚于命令发送时间。")
+    if end_at > current:
+        raise OcrStatsTimeRangeError("结束时间不能晚于命令发送时间。")
+    if end_at <= start_at:
+        raise OcrStatsTimeRangeError("结束时间必须晚于开始时间。")
+    return OcrStatsTimeRange(start_at, end_at)
+
+
 def collect_daily_ocr_stats(
     audit_root: Path,
     report_date: date,
     *,
     excluded_user_ids: set[int] | None = None,
+    start_at: datetime | None = None,
+    end_at: datetime | None = None,
 ) -> DailyOcrStats:
     """按群和用户汇总指定北京时间自然日的 OCR 审计记录。"""
     grouped: dict[tuple[int, int], dict[str, object]] = {}
@@ -59,6 +105,14 @@ def collect_daily_ocr_stats(
         record = _read_json(record_path)
         if not record:
             continue
+        if start_at is not None or end_at is not None:
+            created_at = _record_created_at(record, record_path, report_date)
+            if created_at is None:
+                continue
+            if start_at is not None and created_at < _as_shanghai(start_at):
+                continue
+            if end_at is not None and created_at > _as_shanghai(end_at):
+                continue
         source = record.get("source")
         source = source if isinstance(source, dict) else {}
         chat_id = _safe_int(source.get("chat_id"))
@@ -309,6 +363,33 @@ def _safe_int(value: object) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _parse_clock_time(value: str, report_date: date) -> datetime:
+    try:
+        parsed = datetime.strptime(value.strip(), "%H:%M").time()
+    except ValueError as exc:
+        raise OcrStatsTimeRangeError(
+            "时间格式错误，请使用：/统计、/统计12:01 或 /统计12:00-18:00"
+        ) from exc
+    return datetime.combine(report_date, parsed, SHANGHAI_TZ)
+
+
+def _record_created_at(record: dict[str, object], record_path: Path, report_date: date) -> datetime | None:
+    value = str(record.get("created_at", "") or "").strip()
+    if value:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI_TZ)
+        except ValueError:
+            pass
+    folder_time = record_path.parent.name.split("_", 1)[0]
+    if len(folder_time) == 6 and folder_time.isdigit():
+        try:
+            parsed = datetime.strptime(folder_time, "%H%M%S").time()
+        except ValueError:
+            return None
+        return datetime.combine(report_date, parsed, SHANGHAI_TZ)
+    return None
 
 
 def _last_sent_date(state_path: Path) -> date | None:

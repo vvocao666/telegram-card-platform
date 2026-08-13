@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime
 import json
 from pathlib import Path
 
@@ -9,7 +9,9 @@ from services.ocr.daily_stats_report import (
     collect_daily_ocr_stats,
     format_chat_daily_ocr_stats,
     format_daily_ocr_stats,
+    parse_ocr_stats_time_range,
     send_daily_ocr_stats,
+    SHANGHAI_TZ,
 )
 
 
@@ -24,12 +26,14 @@ def _write_record(
     username: str,
     pubg: list[str],
     psn: list[str],
+    created_at: str | None = None,
 ) -> None:
     record_dir = root / report_date.isoformat() / name
     record_dir.mkdir(parents=True)
     (record_dir / "record.json").write_text(
         json.dumps(
             {
+                **({"created_at": created_at} if created_at else {}),
                 "source": {
                     "chat_id": chat_id,
                     "chat_title": chat_title,
@@ -44,6 +48,114 @@ def _write_record(
         ),
         encoding="utf-8",
     )
+
+
+def test_parse_ocr_stats_time_range_variants():
+    current = datetime(2026, 8, 13, 18, 30, tzinfo=SHANGHAI_TZ)
+
+    full_day = parse_ocr_stats_time_range("/统计", current)
+    from_time = parse_ocr_stats_time_range("/统计12:01", current)
+    fixed_range = parse_ocr_stats_time_range("/统计12:00-18:00", current)
+
+    assert full_day.start_at.strftime("%H:%M") == "00:00"
+    assert full_day.end_at == current
+    assert from_time.start_at.strftime("%H:%M") == "12:01"
+    assert from_time.end_at == current
+    assert fixed_range.start_at.strftime("%H:%M") == "12:00"
+    assert fixed_range.end_at.strftime("%H:%M") == "18:00"
+
+
+def test_daily_stats_filters_requested_time_range_before_deduplication(tmp_path: Path):
+    report_date = date(2026, 8, 13)
+    duplicate = "S07336-AAAA-BBBB-CCCCC"
+    _write_record(
+        tmp_path,
+        report_date,
+        "090000_000000-before",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=10,
+        username="alice",
+        pubg=[duplicate],
+        psn=[],
+        created_at="2026-08-13 09:00:00",
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "120100_000000-first-in-range",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=20,
+        username="bob",
+        pubg=[duplicate],
+        psn=[],
+        created_at="2026-08-13 12:01:00",
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "130000_000000-duplicate-in-range",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=30,
+        username="carol",
+        pubg=[duplicate],
+        psn=[],
+        created_at="2026-08-13 13:00:00",
+    )
+    _write_record(
+        tmp_path,
+        report_date,
+        "180001_000000-after",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=40,
+        username="dave",
+        pubg=["S07336-DDDD-EEEE-FFFFF"],
+        psn=[],
+        created_at="2026-08-13 18:00:01",
+    )
+
+    stats = collect_daily_ocr_stats(
+        tmp_path,
+        report_date,
+        start_at=datetime(2026, 8, 13, 12, 0, tzinfo=SHANGHAI_TZ),
+        end_at=datetime(2026, 8, 13, 18, 0, tzinfo=SHANGHAI_TZ),
+    )
+
+    assert stats.images == 2
+    assert stats.pubg_cards == 1
+    assert {row.username for row in stats.sources} == {"bob", "carol"}
+    bob = next(row for row in stats.sources if row.username == "bob")
+    carol = next(row for row in stats.sources if row.username == "carol")
+    assert bob.pubg_cards == 1
+    assert carol.pubg_cards == 0
+
+
+def test_daily_stats_uses_audit_folder_time_when_created_at_is_missing(tmp_path: Path):
+    report_date = date(2026, 8, 13)
+    _write_record(
+        tmp_path,
+        report_date,
+        "120100_123456-legacy",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=10,
+        username="alice",
+        pubg=["S07336-AAAA-BBBB-CCCCC"],
+        psn=[],
+    )
+
+    stats = collect_daily_ocr_stats(
+        tmp_path,
+        report_date,
+        start_at=datetime(2026, 8, 13, 12, 1, tzinfo=SHANGHAI_TZ),
+        end_at=datetime(2026, 8, 13, 12, 2, tzinfo=SHANGHAI_TZ),
+    )
+
+    assert stats.images == 1
+    assert stats.pubg_cards == 1
 
 
 def test_daily_stats_group_by_chat_and_user_and_dedupe_per_image(tmp_path: Path):
