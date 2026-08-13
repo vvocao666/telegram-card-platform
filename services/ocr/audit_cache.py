@@ -24,17 +24,19 @@ def stage_ocr_audit_image(
     source_chat_title: str = "",
     source_user_id: int = 0,
     source_username: str = "",
+    message_created_at: datetime | None = None,
     root: Path | str = DEFAULT_AUDIT_ROOT,
     now: datetime | None = None,
 ) -> Path:
     """保存待审计原图，并返回该图片的记录目录。"""
     current_time = now or datetime.now(LOCAL_TZ)
+    message_time = _as_local_time(message_created_at) if message_created_at is not None else current_time
     audit_root = Path(root)
     cleanup_expired_audits(audit_root, now=current_time)
 
     safe_unique_id = _safe_name(file_unique_id) or "unknown"
     record_name = f"{current_time:%H%M%S_%f}_{int(message_id)}_{safe_unique_id}"
-    record_dir = audit_root / current_time.strftime("%Y-%m-%d") / record_name
+    record_dir = audit_root / message_time.strftime("%Y-%m-%d") / record_name
     record_dir.mkdir(parents=True, exist_ok=False)
 
     suffix = image_path.suffix.lower() if image_path.suffix else ".jpg"
@@ -47,6 +49,7 @@ def stage_ocr_audit_image(
         record_dir,
         {
             "created_at": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "message_created_at": message_time.strftime("%Y-%m-%d %H:%M:%S"),
             "message_id": int(message_id),
             "file_unique_id": file_unique_id,
             "media_group_id": media_group_id,
@@ -61,6 +64,12 @@ def stage_ocr_audit_image(
         },
     )
     return record_dir
+
+
+def _as_local_time(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=LOCAL_TZ)
+    return value.astimezone(LOCAL_TZ)
 
 
 def finalize_ocr_audit(

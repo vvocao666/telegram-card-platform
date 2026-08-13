@@ -100,6 +100,7 @@ def collect_daily_ocr_stats(
     excluded = excluded_user_ids or set()
     seen_pubg: set[str] = set()
     seen_psn: set[str] = set()
+    seen_images: set[tuple[str, ...]] = set()
     date_root = audit_root / report_date.isoformat()
     for record_path in sorted(date_root.glob("*/record.json")) if date_root.exists() else ():
         record = _read_json(record_path)
@@ -119,6 +120,10 @@ def collect_daily_ocr_stats(
         user_id = _safe_int(source.get("user_id"))
         if user_id in excluded:
             continue
+        image_key = _record_image_key(record, record_path, chat_id)
+        if image_key in seen_images:
+            continue
+        seen_images.add(image_key)
         key = (chat_id, user_id)
         row = grouped.setdefault(
             key,
@@ -376,12 +381,13 @@ def _parse_clock_time(value: str, report_date: date) -> datetime:
 
 
 def _record_created_at(record: dict[str, object], record_path: Path, report_date: date) -> datetime | None:
-    value = str(record.get("created_at", "") or "").strip()
-    if value:
-        try:
-            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI_TZ)
-        except ValueError:
-            pass
+    for field_name in ("message_created_at", "created_at"):
+        value = str(record.get(field_name, "") or "").strip()
+        if value:
+            try:
+                return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI_TZ)
+            except ValueError:
+                pass
     folder_time = record_path.parent.name.split("_", 1)[0]
     if len(folder_time) == 6 and folder_time.isdigit():
         try:
@@ -390,6 +396,15 @@ def _record_created_at(record: dict[str, object], record_path: Path, report_date
             return None
         return datetime.combine(report_date, parsed, SHANGHAI_TZ)
     return None
+
+
+def _record_image_key(record: dict[str, object], record_path: Path, chat_id: int) -> tuple[str, ...]:
+    """新记录按 Telegram 消息去重；没有消息标识的旧记录保持逐条计数。"""
+    message_id = _safe_int(record.get("message_id"))
+    file_unique_id = str(record.get("file_unique_id", "") or "").strip()
+    if message_id or file_unique_id:
+        return ("telegram", str(chat_id), str(message_id), file_unique_id)
+    return ("legacy", str(record_path.parent.resolve()))
 
 
 def _last_sent_date(state_path: Path) -> date | None:

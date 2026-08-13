@@ -1846,6 +1846,7 @@ async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 source_chat_title=str(getattr(chat, "title", "") or ""),
                 source_user_id=getattr(user, "id", 0),
                 source_username=str(getattr(user, "username", "") or ""),
+                message_created_at=getattr(message, "date", None),
             )
         except Exception:
             logger.exception("Failed to stage OCR audit image")

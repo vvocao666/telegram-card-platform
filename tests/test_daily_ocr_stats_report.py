@@ -27,6 +27,9 @@ def _write_record(
     pubg: list[str],
     psn: list[str],
     created_at: str | None = None,
+    message_created_at: str | None = None,
+    message_id: int | None = None,
+    file_unique_id: str = "",
 ) -> None:
     record_dir = root / report_date.isoformat() / name
     record_dir.mkdir(parents=True)
@@ -34,6 +37,9 @@ def _write_record(
         json.dumps(
             {
                 **({"created_at": created_at} if created_at else {}),
+                **({"message_created_at": message_created_at} if message_created_at else {}),
+                **({"message_id": message_id} if message_id is not None else {}),
+                **({"file_unique_id": file_unique_id} if file_unique_id else {}),
                 "source": {
                     "chat_id": chat_id,
                     "chat_title": chat_title,
@@ -155,6 +161,58 @@ def test_daily_stats_uses_audit_folder_time_when_created_at_is_missing(tmp_path:
     )
 
     assert stats.images == 1
+    assert stats.pubg_cards == 1
+
+
+def test_daily_stats_prefers_telegram_message_time_over_audit_write_time(tmp_path: Path):
+    report_date = date(2026, 8, 13)
+    _write_record(
+        tmp_path,
+        report_date,
+        "130500_000000-delayed-processing",
+        chat_id=-1001,
+        chat_title="目标群",
+        user_id=10,
+        username="alice",
+        pubg=["S07336-AAAA-BBBB-CCCCC"],
+        psn=[],
+        created_at="2026-08-13 13:05:00",
+        message_created_at="2026-08-13 12:00:30",
+        message_id=100,
+        file_unique_id="file-a",
+    )
+
+    stats = collect_daily_ocr_stats(
+        tmp_path,
+        report_date,
+        start_at=datetime(2026, 8, 13, 12, 0, tzinfo=SHANGHAI_TZ),
+        end_at=datetime(2026, 8, 13, 12, 1, tzinfo=SHANGHAI_TZ),
+    )
+
+    assert stats.images == 1
+    assert stats.pubg_cards == 1
+
+
+def test_daily_stats_deduplicates_only_the_same_telegram_image_record(tmp_path: Path):
+    report_date = date(2026, 8, 13)
+    card = "S07336-AAAA-BBBB-CCCCC"
+    common = {
+        "chat_id": -1001,
+        "chat_title": "目标群",
+        "user_id": 10,
+        "username": "alice",
+        "pubg": [card],
+        "psn": [],
+        "message_created_at": "2026-08-13 12:00:00",
+        "file_unique_id": "same-file",
+    }
+    _write_record(tmp_path, report_date, "first", message_id=100, **common)
+    _write_record(tmp_path, report_date, "duplicate-audit", message_id=100, **common)
+    _write_record(tmp_path, report_date, "resent-image", message_id=101, **common)
+
+    stats = collect_daily_ocr_stats(tmp_path, report_date)
+
+    assert stats.images == 2
     assert stats.pubg_cards == 1
 
 

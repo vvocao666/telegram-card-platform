@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
 
 from services.ocr.audit_cache import cleanup_expired_audits, finalize_ocr_audit, stage_ocr_audit_image
 
@@ -69,3 +70,24 @@ def test_audit_cache_removes_only_records_older_than_seven_days(tmp_path):
     assert cleanup_expired_audits(root, now=now) == 1
     assert not old_record.exists()
     assert current_record.exists()
+
+
+def test_audit_cache_records_original_telegram_message_time(tmp_path):
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"image-data")
+    staged_at = datetime(2026, 8, 14, 0, 1, tzinfo=TZ)
+    message_at_utc = datetime(2026, 8, 13, 15, 59, tzinfo=timezone.utc)
+
+    record_dir = stage_ocr_audit_image(
+        source,
+        message_id=456,
+        file_unique_id="original-time",
+        message_created_at=message_at_utc,
+        root=tmp_path / "audit",
+        now=staged_at,
+    )
+    record = json.loads((record_dir / "record.json").read_text(encoding="utf-8"))
+
+    assert record_dir.parent.name == "2026-08-13"
+    assert record["message_created_at"] == "2026-08-13 23:59:00"
+    assert record["created_at"] == "2026-08-14 00:01:00"
