@@ -22,6 +22,7 @@ class Result:
     remote_original_card_scores: tuple[tuple[str, float], ...] = ((CARD, 0.995),)
     remote_enhanced_card_scores: tuple[tuple[str, float], ...] = ((CARD, 0.996),)
     remote_cpu_candidates: tuple[str, ...] = (CARD,)
+    remote_cpu_candidate_scores: tuple[tuple[str, float], ...] = ((CARD, 0.95),)
     remote_cpu_review_required: bool = False
     remote_cpu_review_reasons: tuple[str, ...] = ()
 
@@ -81,6 +82,49 @@ def test_thin_strip_consensus_does_not_clear_other_review_reasons():
         has_unresolved_pubg_fragment=True,
         remote_cpu_review_required=True,
         remote_cpu_review_reasons=("thin_strip_pubg", "line_roi_recovery"),
+    )
+
+    assert confirmed_clear_remote_card(current) is None
+
+
+def test_gpu_original_roi_and_cpu_confirm_one_slot_variant_without_cloud():
+    enhanced = "S07336-ABCD-5FGH-JKLMN"
+    current = result(
+        has_unresolved_pubg_fragment=True,
+        remote_original_card_scores=((CARD, 0.9993),),
+        remote_enhanced_card_scores=((enhanced, 0.9990),),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("gpu_variant_conflict",),
+        remote_cpu_candidate_scores=((CARD, 0.92),),
+    )
+
+    assert confirmed_clear_remote_card(current) == CARD
+
+
+def test_gpu_variant_review_rejects_cpu_disagreement():
+    enhanced = "S07336-ABCD-5FGH-JKLMN"
+    current = result(
+        has_unresolved_pubg_fragment=True,
+        remote_original_card_scores=((CARD, 0.9993),),
+        remote_enhanced_card_scores=((enhanced, 0.9990),),
+        remote_cpu_candidates=(enhanced,),
+        remote_cpu_candidate_scores=((enhanced, 0.95),),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("gpu_variant_conflict",),
+    )
+
+    assert confirmed_clear_remote_card(current) is None
+
+
+def test_gpu_variant_review_rejects_unrelated_review_reason():
+    enhanced = "S07336-ABCD-5FGH-JKLMN"
+    current = result(
+        has_unresolved_pubg_fragment=True,
+        remote_original_card_scores=((CARD, 0.9993),),
+        remote_enhanced_card_scores=((enhanced, 0.9990),),
+        remote_cpu_review_required=True,
+        remote_cpu_review_reasons=("gpu_variant_conflict", "line_roi_recovery"),
+        remote_cpu_candidate_scores=((CARD, 0.95),),
     )
 
     assert confirmed_clear_remote_card(current) is None

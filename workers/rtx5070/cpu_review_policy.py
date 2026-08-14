@@ -40,12 +40,7 @@ def assess_cpu_review_risk(
 
     original_cards = _card_set(original)
     enhanced_cards = _card_set(enhanced)
-    if (
-        original_cards
-        and enhanced_cards
-        and original_cards != enhanced_cards
-        and not variant_conflict_resolved
-    ):
+    if original_cards and enhanced_cards and original_cards != enhanced_cards:
         reasons.append("gpu_variant_conflict")
 
     valid_scores = [

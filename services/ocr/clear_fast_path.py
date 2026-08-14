@@ -6,6 +6,7 @@ from typing import Any
 
 MIN_CONFIRMATION_SCORE = 0.985
 MIN_SUPPORTING_SCORE = 0.97
+MIN_CPU_CONFIRMATION_SCORE = 0.90
 PUBG_CARD_RE = re.compile(r"S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}")
 
 
@@ -37,6 +38,8 @@ def confirmed_clear_remote_card(result: Any) -> str | None:
     )
     if cpu_candidates != (card,):
         return None
+    if _resolved_gpu_cpu_variant_review(result, card):
+        return card
     thin_strip_only_review = _thin_strip_only_cpu_review(result)
     if bool(getattr(result, "has_unresolved_pubg_fragment", False)) and not thin_strip_only_review:
         return None
@@ -49,6 +52,48 @@ def confirmed_clear_remote_card(result: Any) -> str | None:
     ):
         return None
     return card
+
+
+def _resolved_gpu_cpu_variant_review(result: Any, card: str) -> bool:
+    """Accept a resolved one-slot GPU conflict only with exact CPU ROI support.
+
+    The Worker has already selected one existing GPU candidate by rereading the
+    original ROI.  This branch requires the independent CPU ROI to return that
+    exact candidate at high confidence.  It never repairs or creates text.
+    """
+
+    if not bool(getattr(result, "remote_cpu_review_required", False)):
+        return False
+    reasons = set(getattr(result, "remote_cpu_review_reasons", ()) or ())
+    if "gpu_variant_conflict" not in reasons or not reasons.issubset(
+        {"gpu_variant_conflict", "thin_strip_pubg"}
+    ):
+        return False
+    cpu_score = _exact_score(result, "remote_cpu_candidate_scores", card)
+    if cpu_score is None or cpu_score < MIN_CPU_CONFIRMATION_SCORE:
+        return False
+
+    original = tuple(getattr(result, "remote_original_card_scores", ()) or ())
+    enhanced = tuple(getattr(result, "remote_enhanced_card_scores", ()) or ())
+    if len(original) != 1 or len(enhanced) != 1:
+        return False
+    original_card, original_score = original[0]
+    enhanced_card, enhanced_score = enhanced[0]
+    original_card = str(original_card).upper()
+    enhanced_card = str(enhanced_card).upper()
+    try:
+        scores = (float(original_score), float(enhanced_score))
+    except (TypeError, ValueError):
+        return False
+    if (
+        card not in {original_card, enhanced_card}
+        or original_card == enhanced_card
+        or len(original_card) != len(enhanced_card)
+        or sum(left != right for left, right in zip(original_card, enhanced_card)) != 1
+    ):
+        return False
+    selected_score = scores[0] if original_card == card else scores[1]
+    return min(scores) >= MIN_SUPPORTING_SCORE and selected_score >= MIN_CONFIRMATION_SCORE
 
 
 def _high_score_exact(result: Any, attribute: str, card: str) -> bool:

@@ -428,7 +428,7 @@ def _cache_key(image_bytes):
     cpu = CPU_OCR.status()
     version = "|".join(
         (
-            "hybrid-v5-edge-padding",
+            "hybrid-v6-cpu-variant-evidence",
             str(cpu.get("model_fingerprint", "")),
             str(cpu.get("preprocess_version", "")),
             str(WORKER_CONFIG.confirmation_mode),

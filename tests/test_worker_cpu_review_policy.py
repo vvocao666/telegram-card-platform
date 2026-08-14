@@ -50,7 +50,7 @@ def test_gpu_variant_conflict_is_high_risk():
     assert "gpu_variant_conflict" in decision.reasons
 
 
-def test_confirmed_mild_gpu_review_suppresses_only_variant_conflict_reason():
+def test_confirmed_gpu_review_still_requests_independent_cpu_evidence():
     other = "S07336-Z483-CNEE-W6C5V"
     best = _result([CARD])
     decision = assess_cpu_review_risk(
@@ -60,7 +60,8 @@ def test_confirmed_mild_gpu_review_suppresses_only_variant_conflict_reason():
         variant_conflict_resolved=True,
     )
 
-    assert decision.review_required is False
+    assert decision.review_required is True
+    assert decision.reasons == ("gpu_variant_conflict",)
 
 
 def test_low_card_confidence_is_high_risk():
