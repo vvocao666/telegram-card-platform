@@ -23,7 +23,7 @@ def calculate_expression(text: str) -> str | None:
     except (SyntaxError, ValueError, InvalidOperation, DivisionByZero, OverflowError):
         return None
     display_expression = re.sub(r"\s+", "", expression)
-    return f"{display_expression}={format_calc_result(value)}"
+    return f"{display_expression}={format_expression_result(value)}"
 
 
 def normalize_calc_expression(text: str) -> str:
@@ -32,6 +32,13 @@ def normalize_calc_expression(text: str) -> str:
 
 def format_calc_result(value: Decimal) -> str:
     return format(value.quantize(Decimal("0.01")), "f")
+
+
+def format_expression_result(value: Decimal) -> str:
+    rounded = value.quantize(Decimal("0.01"))
+    if rounded == rounded.to_integral_value():
+        return format(rounded, ".0f")
+    return format(rounded, ".2f")
 
 
 def _eval_calc_node(node: ast.AST) -> Decimal:
