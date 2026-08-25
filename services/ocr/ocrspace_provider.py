@@ -119,6 +119,22 @@ def recognize_ocrspace(
                             break
                     if response is None:
                         break
+                    if 500 <= response.status_code <= 599:
+                        latency_ms = int(
+                            (time.monotonic() - request_started_at) * 1000
+                        )
+                        runtime.logger.warning(
+                            "OCRSPACE TRANSIENT FAILURE engine=%s key_index=%s latency_ms=%s status=%s; trying next key/engine",
+                            engine,
+                            key_index,
+                            latency_ms,
+                            response.status_code,
+                        )
+                        # OCR.space 5xx responses are service-side failures.
+                        # Do not abort the whole image: remaining configured
+                        # keys and engines are a bounded, independent fallback.
+                        response = None
+                        continue
                     if response.status_code != 429:
                         break
                     runtime.ocrspace_key_cooldowns[api_key] = (

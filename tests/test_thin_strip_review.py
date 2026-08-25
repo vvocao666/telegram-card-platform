@@ -8,7 +8,11 @@ from pathlib import Path
 from PIL import Image
 
 from services.ocr.manual_review import ManualReviewNotifier
-from services.ocr.thin_strip_review import build_review_image, review_conflicting_thin_strip
+from services.ocr.thin_strip_review import (
+    build_review_image,
+    build_retry_review_image,
+    review_conflicting_thin_strip,
+)
 
 
 PUBG_RE = re.compile(r"^S07[0-9]{3}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{5}$", re.MULTILINE)
@@ -79,6 +83,19 @@ def test_review_image_preserves_full_strip_before_upscale(tmp_path):
         assert opened.getpixel((0, 160)) < 255
 
 
+def test_retry_review_image_adds_padding_without_clipping_strip_edges(tmp_path):
+    image = tmp_path / "faint-card.jpg"
+    source = Image.new("RGB", (260, 50), "white")
+    source.putpixel((0, 25), (0, 0, 0))
+    source.save(image)
+
+    review = build_retry_review_image(image, tmp_path / "review")
+
+    with Image.open(review) as opened:
+        assert opened.size == (1340, 290)
+        assert opened.getpixel((20, 145)) < 255
+
+
 def test_conflicting_thin_strip_uses_independent_matching_review_results(tmp_path):
     image = make_thin_image(tmp_path)
     initial = Result(
@@ -141,6 +158,43 @@ def test_unconfirmed_thin_strip_conflict_is_not_output_as_a_false_card(tmp_path)
     assert result.cards == ()
     assert result.uncertain_count == 1
     assert result.has_unresolved_pubg_fragment is True
+    assert runtime.remote_calls == 2
+    assert runtime.cloud_calls == 2
+
+
+def test_second_review_render_can_resolve_a_tiny_single_card_conflict(tmp_path):
+    image = make_thin_image(tmp_path)
+    initial = Result(
+        cards=("S07362-QZZ3-GBT8-K2JWP",),
+        raw_text="S07362-QZZ3-GBT8-K2JWP\nS07362-QZZ3-GBT8-K2JWR",
+        uncertain_count=1,
+    )
+    first_remote = Result(cards=("S07362-QZZ3-GBT8-K2JWP",))
+    first_cloud = Result(cards=("S07362-QZZ3-GBT8-K2JWR",))
+    confirmed = Result(cards=("S07362-QZZ3-GBT8-K2JWP",))
+
+    class RetryRuntime(Runtime):
+        def __init__(self):
+            super().__init__(None, None)
+            self.remote_results = [first_remote, confirmed]
+            self.cloud_results = [first_cloud, confirmed]
+
+        def run_remote_ocr(self, *_args, **_kwargs):
+            self.remote_calls += 1
+            return self.remote_results.pop(0)
+
+        def run_ocrspace(self, *_args, **_kwargs):
+            self.cloud_calls += 1
+            return self.cloud_results.pop(0)
+
+    runtime = RetryRuntime()
+    result = review_conflicting_thin_strip(runtime, image, initial)
+
+    assert result.cards == ("S07362-QZZ3-GBT8-K2JWP",)
+    assert result.uncertain_count == 0
+    assert result.has_unresolved_pubg_fragment is False
+    assert runtime.remote_calls == 2
+    assert runtime.cloud_calls == 2
 
 
 def test_gpu_variants_and_cpu_confirm_remote_tail_over_wrong_cloud_review(tmp_path):

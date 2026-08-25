@@ -50,49 +50,53 @@ def review_conflicting_thin_strip(
     runtime.logger.warning(
         "OCR THIN STRIP REVIEW START candidates=%s", list(_raw_pubg_cards(runtime, result.raw_text))
     )
+    remote = None
+    cloud = None
     try:
         with tempfile.TemporaryDirectory(prefix="ocr_thin_strip_review_") as directory:
-            review_path = build_review_image(image_path, Path(directory))
-            remote = runtime.run_remote_ocr(
-                review_path,
-                psn_hint=psn_hint,
-                psn_expected_count=psn_expected_count,
-                pubg_expected_count=pubg_expected_count,
-            )
-            cloud = None
-            if runtime.OCR_PROVIDER == "ocrspace" and runtime.OCR_SPACE_API_KEYS:
-                cloud = runtime.run_ocrspace(
+            review_directory = Path(directory)
+            # A light first pass retains the current behavior.  A second,
+            # padded high-contrast pass is attempted only after it fails to
+            # reach independent agreement.  This is bounded to two
+            # sequential retries for one exceptional thin-strip image.
+            for attempt, builder in enumerate(
+                (build_review_image, build_retry_review_image), start=1
+            ):
+                review_path = builder(image_path, review_directory)
+                remote = runtime.run_remote_ocr(
                     review_path,
                     psn_hint=psn_hint,
                     psn_expected_count=psn_expected_count,
                     pubg_expected_count=pubg_expected_count,
                 )
+                cloud = None
+                if runtime.OCR_PROVIDER == "ocrspace" and runtime.OCR_SPACE_API_KEYS:
+                    cloud = runtime.run_ocrspace(
+                        review_path,
+                        psn_hint=psn_hint,
+                        psn_expected_count=psn_expected_count,
+                        pubg_expected_count=pubg_expected_count,
+                    )
+                confirmed = _confirmed_candidate(
+                    runtime,
+                    original_cards,
+                    remote,
+                    cloud,
+                    original_raw_text=str(getattr(result, "raw_text", "")),
+                    primary_provider=primary_provider,
+                )
+                if confirmed:
+                    runtime.logger.info(
+                        "OCR THIN STRIP REVIEW CONFIRMED attempt=%s card=%s",
+                        attempt,
+                        confirmed,
+                    )
+                    return _confirmed_review_result(
+                        runtime, result, confirmed, remote, cloud
+                    )
     except Exception as exc:
         runtime.logger.warning("OCR THIN STRIP REVIEW FAILED reason=%s", type(exc).__name__)
         return _drop_unconfirmed_conflict(result, original_cards)
-
-    confirmed = _confirmed_candidate(
-        runtime,
-        original_cards,
-        remote,
-        cloud,
-        original_raw_text=str(getattr(result, "raw_text", "")),
-        primary_provider=primary_provider,
-    )
-    if confirmed:
-        runtime.logger.info("OCR THIN STRIP REVIEW CONFIRMED card=%s", confirmed)
-        review_raw = _review_raw_text(remote, cloud)
-        only_confirmed_slot = _only_confirmed_slot(runtime, result, confirmed)
-        return replace(
-            result,
-            cards=(confirmed,),
-            card_locations=tuple(),
-            raw_text="\n".join(part for part in (result.raw_text, review_raw) if part).strip(),
-            pubg_expected_count=(
-                1 if only_confirmed_slot else getattr(result, "pubg_expected_count", None)
-            ),
-            uncertain_count=_remaining_uncertainty(runtime, result, confirmed),
-        )
 
     runtime.logger.warning(
         "OCR THIN STRIP REVIEW UNRESOLVED remote=%s ocrspace=%s",
@@ -122,6 +126,54 @@ def build_review_image(image_path: Path, output_dir: Path) -> Path:
     output_path = output_dir / "thin_strip_review.png"
     enhanced.save(output_path, format="PNG", optimize=True)
     return output_path
+
+
+def build_retry_review_image(image_path: Path, output_dir: Path) -> Path:
+    """Create one bounded alternate rendering for tiny, low-contrast card strips.
+
+    Padding keeps edge glyphs such as the leading ``S`` away from an OCR crop
+    boundary.  The image still contains exactly the original pixels; this
+    helper only scales and adjusts contrast, and never edits text.
+    """
+
+    with Image.open(image_path) as opened:
+        source = ImageOps.exif_transpose(opened).convert("RGB")
+    scale = min(5, max(2, 1800 // max(source.width, 1)))
+    working = source.resize(
+        (source.width * scale, source.height * scale), Image.Resampling.LANCZOS
+    )
+    grayscale = ImageOps.grayscale(working)
+    enhanced = ImageOps.autocontrast(grayscale, cutoff=1)
+    enhanced = ImageEnhance.Contrast(enhanced).enhance(2.1).filter(
+        ImageFilter.UnsharpMask(radius=1.0, percent=140, threshold=1)
+    )
+    padding = max(12, scale * 4)
+    enhanced = ImageOps.expand(enhanced, border=padding, fill="white")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "thin_strip_review_retry.png"
+    enhanced.save(output_path, format="PNG", optimize=True)
+    return output_path
+
+
+def _confirmed_review_result(
+    runtime: Any,
+    result: Any,
+    confirmed: str,
+    remote: Any,
+    cloud: Any,
+) -> Any:
+    review_raw = _review_raw_text(remote, cloud)
+    only_confirmed_slot = _only_confirmed_slot(runtime, result, confirmed)
+    return replace(
+        result,
+        cards=(confirmed,),
+        card_locations=tuple(),
+        raw_text="\n".join(part for part in (result.raw_text, review_raw) if part).strip(),
+        pubg_expected_count=(
+            1 if only_confirmed_slot else getattr(result, "pubg_expected_count", None)
+        ),
+        uncertain_count=_remaining_uncertainty(runtime, result, confirmed),
+    )
 
 
 def _needs_review(
