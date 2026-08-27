@@ -576,8 +576,8 @@ class LedgerStore:
         if kind not in {"income", "payout"}:
             raise ValueError("kind must be income or payout")
         amount_value = money(amount)
-        if kind == "income" and amount_value <= 0:
-            raise ValueError("amount must be greater than 0")
+        if kind == "income" and amount_value == 0:
+            raise ValueError("amount must not be zero")
         if kind == "payout" and amount_value == 0:
             raise ValueError("amount must not be zero")
 

@@ -41,11 +41,11 @@ HELP_TEXT = """【记账】
 
 <code>+10000</code>：入款 10000 RMB
 
-<code>-100 备注</code>：下发 100 U
+<code>-100 备注</code>：减分 100 RMB
 
 <code>入款 100 备注</code>：新增入款
 
-<code>下发 100 备注</code>：新增下发
+<code>下发 100 备注</code>：新增下发（下发仅支持此指令）
 
 <code>账单</code>：查看总额和最近流水
 
@@ -311,13 +311,26 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
     title = _bill_title(scope)
     recent_entries = entries if show_all_records else entries[-RECENT_LIMIT:]
     numbered_entries = list(enumerate(entries, start=1))
-    all_income_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "income"]
+    all_income_entries = [
+        (number, entry)
+        for number, entry in numbered_entries
+        if entry.kind == "income" and entry.amount > 0
+    ]
+    all_adjustment_entries = [
+        (number, entry)
+        for number, entry in numbered_entries
+        if entry.kind == "income" and entry.amount < 0
+    ]
     all_payout_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "payout"]
     income_entries = all_income_entries[-RECENT_LIMIT:]
+    adjustment_entries = all_adjustment_entries[-RECENT_LIMIT:]
     payout_entries = all_payout_entries[-RECENT_LIMIT:]
     lines = [
         f"已入款({len(all_income_entries)}笔)",
         *_format_group_lines(income_entries),
+        "--------------------------------",
+        f"减分({len(all_adjustment_entries)}笔)",
+        *_format_group_lines(adjustment_entries),
         "--------------------------------",
         f"已下发({len(all_payout_entries)}笔)",
         *_format_group_lines(payout_entries),
@@ -348,13 +361,13 @@ def format_entry(
     for_bill: bool = False,
 ) -> str:
     sign = "+" if entry.kind == "income" else "-"
-    label = "加分" if entry.kind == "income" else "下发"
+    label = "减分" if entry.kind == "income" and entry.amount < 0 else ("加分" if entry.kind == "income" else "下发")
     entry_time = _format_entry_time(entry.created_at)
     display_number = number if number is not None else store.active_entry_number(chat_id, entry.id)
     note = f" {escape(entry.note)}" if entry.note else ""
     operator_name = escape(entry.operator_name)
     display_amount = entry.net_amount if entry.kind == "income" else abs(entry.net_amount)
-    amount_value = f"{sign}{display_amount} U"
+    amount_value = f"{display_amount:+.2f} U" if entry.kind == "income" else f"{sign}{display_amount} U"
     amount_text = _blue(amount_value) if entry.kind == "payout" else amount_value
     if for_bill:
         attribution = entry.note or entry.operator_name
@@ -551,19 +564,15 @@ def _parse_entry(text: str) -> tuple[str, Decimal, str] | None:
         return ("income", value, note) if value is not None else None
     if text.startswith("-"):
         value, note = _amount_after_prefix(text, "-")
-        return ("payout", value, note) if value is not None else None
+        return ("income", -value, note) if value is not None else None
 
     for prefix, kind in (
         ("/in", "income"),
         ("/income", "income"),
-        ("/out", "payout"),
-        ("/payout", "payout"),
         ("入款", "income"),
         ("收款", "income"),
         ("上分", "income"),
         ("下发", "payout"),
-        ("出款", "payout"),
-        ("下分", "payout"),
     ):
         if text.startswith(prefix):
             value, note = _amount_after_prefix(text, prefix, allow_signed=kind == "payout")

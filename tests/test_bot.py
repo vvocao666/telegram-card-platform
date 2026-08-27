@@ -850,17 +850,20 @@ class BotFormattingTests(unittest.TestCase):
                 actor = ledger_commands.Actor(user_id=12345, username="boss", display_name="Boss")
 
                 income = ledger_commands.handle_text(store, -1001, actor, "+100", {12345}, message_id=10)
-                payout = ledger_commands.handle_text(store, -1001, actor, "-40", {12345}, message_id=11)
+                adjustment = ledger_commands.handle_text(store, -1001, actor, "-40", {12345}, message_id=11)
                 bill = ledger_commands.handle_text(store, -1001, actor, "完整账单", {12345})
 
                 self.assertIsNotNone(income)
-                self.assertIsNotNone(payout)
+                self.assertIsNotNone(adjustment)
                 self.assertIsNotNone(bill)
                 self.assertIn("已入款(1笔)", bill.text)
-                self.assertIn("已下发(1笔)", bill.text)
-                self.assertIn("应下发：100.00 | 100.00U", bill.text)
-                self.assertIn("已下发：40.00U", bill.text)
+                self.assertIn("减分(1笔)", bill.text)
+                self.assertIn("已下发(0笔)", bill.text)
+                self.assertIn("总入款金额：60.00", bill.text)
+                self.assertIn("应下发：60.00 | 60.00U", bill.text)
+                self.assertIn("已下发：0.00U", bill.text)
                 self.assertIn('未下发：【<a href="https://t.me/">60.00U</a>】', bill.text)
+                self.assertIn("#2 减分", bill.text)
             finally:
                 store.close()
 
@@ -922,10 +925,10 @@ class BotFormattingTests(unittest.TestCase):
                 bill = ledger_commands.handle_text(store, -1001, actor, "账单", {12345})
 
                 self.assertIsNotNone(bill)
-                self.assertIn("总入款金额：1000.00", bill.text)
-                self.assertIn("应下发：1000.00 | 100.00U", bill.text)
-                self.assertIn("已下发：1500.00U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">-1400.00U</a>】', bill.text)
+                self.assertIn("总入款金额：-500.00", bill.text)
+                self.assertIn("应下发：-500.00 | -50.00U", bill.text)
+                self.assertIn("已下发：0.00U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">-50.00U</a>】', bill.text)
             finally:
                 store.close()
 

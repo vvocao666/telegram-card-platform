@@ -104,11 +104,14 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         payout = ledger_commands.handle_text(store, -1001, boss, "下发1000", {12345}, message_id=1)
         income = ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=2)
         private_payout = ledger_commands.handle_text(store, 12345, boss, "下发50", {12345}, message_id=3)
-        shorthand_payout = ledger_commands.handle_text(store, -1001, boss, "-500", {12345}, message_id=4)
+        shorthand_adjustment = ledger_commands.handle_text(store, -1001, boss, "-500", {12345}, message_id=4)
         negative_named_payout = ledger_commands.handle_text(
             store, -1001, boss, "下发-200", {12345}, message_id=5
         )
         payout_alias = ledger_commands.handle_text(store, -1001, boss, "出款300", {12345}, message_id=6)
+        slash_alias = ledger_commands.handle_text(store, -1001, boss, "/out300", {12345}, message_id=7)
+        payout_slash_alias = ledger_commands.handle_text(store, -1001, boss, "/payout300", {12345}, message_id=8)
+        lower_alias = ledger_commands.handle_text(store, -1001, boss, "下分300", {12345}, message_id=9)
 
         assert payout is not None
         assert payout.follow_up_text == '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
@@ -116,12 +119,44 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         assert income.follow_up_text is None
         assert private_payout is not None
         assert private_payout.follow_up_text is None
-        assert shorthand_payout is not None
-        assert shorthand_payout.follow_up_text is None
+        assert shorthand_adjustment is not None
+        assert shorthand_adjustment.follow_up_text is None
         assert negative_named_payout is not None
         assert negative_named_payout.follow_up_text is None
-        assert payout_alias is not None
-        assert payout_alias.follow_up_text is None
+        assert payout_alias is None
+        assert slash_alias is None
+        assert payout_slash_alias is None
+        assert lower_alias is None
+        entries = store.entries(-1001)
+        assert [(entry.kind, entry.amount) for entry in entries] == [
+            ("payout", Decimal("1000.00")),
+            ("income", Decimal("100.00")),
+            ("income", Decimal("-500.00")),
+            ("payout", Decimal("-200.00")),
+        ]
+    finally:
+        store.close()
+
+
+def test_negative_amount_adjusts_income_without_creating_a_payout(tmp_path):
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        boss = actor()
+
+        ledger_commands.handle_text(store, -1001, boss, "+1000", {12345}, message_id=1)
+        adjustment = ledger_commands.handle_text(store, -1001, boss, "-100", {12345}, message_id=2)
+
+        assert adjustment is not None
+        assert "总入款金额：900.00" in adjustment.text
+        assert "应下发：900.00 | 900.00U" in adjustment.text
+        assert "已入款(1笔)" in adjustment.text
+        assert "减分(1笔)" in adjustment.text
+        assert "已下发(0笔)" in adjustment.text
+        assert "已下发：0.00U" in adjustment.text
+        assert [(entry.kind, entry.amount) for entry in store.entries(-1001)] == [
+            ("income", Decimal("1000.00")),
+            ("income", Decimal("-100.00")),
+        ]
     finally:
         store.close()
 
