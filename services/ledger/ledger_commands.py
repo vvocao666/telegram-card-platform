@@ -311,26 +311,13 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
     title = _bill_title(scope)
     recent_entries = entries if show_all_records else entries[-RECENT_LIMIT:]
     numbered_entries = list(enumerate(entries, start=1))
-    all_income_entries = [
-        (number, entry)
-        for number, entry in numbered_entries
-        if entry.kind == "income" and entry.amount > 0
-    ]
-    all_adjustment_entries = [
-        (number, entry)
-        for number, entry in numbered_entries
-        if entry.kind == "income" and entry.amount < 0
-    ]
+    all_income_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "income"]
     all_payout_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "payout"]
     income_entries = all_income_entries[-RECENT_LIMIT:]
-    adjustment_entries = all_adjustment_entries[-RECENT_LIMIT:]
     payout_entries = all_payout_entries[-RECENT_LIMIT:]
     lines = [
         f"已入款({len(all_income_entries)}笔)",
         *_format_group_lines(income_entries),
-        "--------------------------------",
-        f"减分({len(all_adjustment_entries)}笔)",
-        *_format_group_lines(adjustment_entries),
         "--------------------------------",
         f"已下发({len(all_payout_entries)}笔)",
         *_format_group_lines(payout_entries),

@@ -149,8 +149,8 @@ def test_negative_amount_adjusts_income_without_creating_a_payout(tmp_path):
         assert adjustment is not None
         assert "总入款金额：900.00" in adjustment.text
         assert "应下发：900.00 | 900.00U" in adjustment.text
-        assert "已入款(1笔)" in adjustment.text
-        assert "减分(1笔)" in adjustment.text
+        assert "已入款(2笔)" in adjustment.text
+        assert "减分(1笔)" not in adjustment.text
         assert "已下发(0笔)" in adjustment.text
         assert "已下发：0.00U" in adjustment.text
         assert [(entry.kind, entry.amount) for entry in store.entries(-1001)] == [
