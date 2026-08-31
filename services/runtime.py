@@ -204,6 +204,9 @@ from services.ocr.photo_sequence import (
     photo_sequence,  # noqa: F401 - compatibility export
     photo_sequence_by_update,  # noqa: F401 - compatibility export used by ordering tests
 )
+from services.card_manager.collector import persist_ocr_batch
+from services.card_manager.image_cache import CachedOriginalImage, cache_original_image, cleanup_expired_card_images
+from storage.repositories.card_manager_storage import CardManagerStore
 from storage.repositories.ledger_storage import LedgerStore
 
 
@@ -260,6 +263,8 @@ CLEANUP_AFTER_SECONDS = max(60, int(float(os.getenv("CLEANUP_AFTER_HOURS", "24")
 CLEANUP_CHECK_SECONDS = max(60, int(os.getenv("CLEANUP_CHECK_SECONDS", "300")))
 CLEANUP_OUTPUTS_DIR = Path(os.getenv("CLEANUP_OUTPUTS_DIR", "outputs")).expanduser()
 LEDGER_DB_PATH = Path(os.getenv("LEDGER_DB_PATH", "outputs/ledger.sqlite3")).expanduser()
+CARD_MANAGER_DB_PATH = Path(os.getenv("CARD_MANAGER_DB_PATH", str(LEDGER_DB_PATH))).expanduser()
+CARD_IMAGE_CACHE_DIR = Path(os.getenv("CARD_IMAGE_CACHE_DIR", "outputs/card_image_cache")).expanduser()
 OCR_CANDIDATES_PATH = Path(os.getenv("OCR_CANDIDATES_PATH", "outputs/ocr_candidates.json")).expanduser()
 TODAY_OCR_CACHE_PATH = Path(os.getenv("TODAY_OCR_CACHE_PATH", "outputs/today_ocr_cache.json")).expanduser()
 PHOTO_BATCH_MAX_IMAGES = max(0, int(os.getenv("PHOTO_BATCH_MAX_IMAGES", "0")))
@@ -368,6 +373,8 @@ ocr_semaphore = asyncio.Semaphore(max(1, OCR_CONCURRENCY))
 ocr_batch_jobs = OcrBatchJobPool()
 ocr_live_progresses: dict[int, "LiveOcrBatchProgress"] = {}
 ledger_store = LedgerStore(LEDGER_DB_PATH)
+card_manager_store = CardManagerStore(CARD_MANAGER_DB_PATH)
+card_manager_images_by_update: dict[int, CachedOriginalImage] = {}
 font_repository = FontRepository()
 pending_learning_texts: dict[int, str] = {}
 welcome_sent_at: dict[int, float] = {}
@@ -563,7 +570,7 @@ PUBG_PREFIX_TAIL_RE = re.compile(r"7[0-9]{3}")
 
 
 def cleanup_server_files(now: float | None = None) -> int:
-    return cleanup_server_file_records(
+    removed = cleanup_server_file_records(
         enabled=CLEANUP_ENABLED,
         after_seconds=CLEANUP_AFTER_SECONDS,
         outputs_dir=CLEANUP_OUTPUTS_DIR,
@@ -573,6 +580,12 @@ def cleanup_server_files(now: float | None = None) -> int:
         now=now,
         temp_root=Path(tempfile.gettempdir()),
     )
+    # 管理端核对图固定留存 24 小时；仅清理图片，从不删除卡密记录。
+    try:
+        removed += cleanup_expired_card_images(CARD_IMAGE_CACHE_DIR)
+    except Exception:
+        logger.exception("Failed to clean card manager image cache")
+    return removed
 
 
 async def server_file_cleanup_loop() -> None:
@@ -1851,6 +1864,20 @@ async def recognize_update(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except Exception:
             logger.exception("Failed to stage OCR audit image")
         try:
+            cached_image = await asyncio.to_thread(
+                cache_original_image,
+                image_path,
+                chat_id=int(getattr(chat, "id", 0) or 0),
+                message_id=int(getattr(message, "message_id", 0) or 0),
+                image_index=0,
+                file_unique_id=str(getattr(photo, "file_unique_id", "") or ""),
+                root=CARD_IMAGE_CACHE_DIR,
+            )
+            card_manager_images_by_update[id(update)] = cached_image
+        except Exception:
+            # 管理端缓存是旁路：失败绝不能妨碍现有 OCR 和 Telegram 回复。
+            logger.exception("Failed to cache original image for card manager")
+        try:
             result = await asyncio.to_thread(run_ocr, image_path, psn_hint, psn_expected_count, pubg_expected_count)
             return replace(result, source_caption=caption.strip()), audit_record
         except Exception as exc:
@@ -2625,8 +2652,10 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
         )
         batch_results = order_batch_results(batch_results)
         results: list[OcrResult] = []
+        raw_results: list[OcrResult] = []
         for _batch_index, corrected, raw_result, success in batch_results:
             results.append(corrected)
+            raw_results.append(raw_result)
             if success:
                 try:
                     append_today_ocr_cache(
@@ -2657,6 +2686,30 @@ async def flush_chat_batch(chat_id: int, context: ContextTypes.DEFAULT_TYPE, wai
                     item=item,
                 )
 
+        manager_images = {
+            id(update): card_manager_images_by_update.pop(id(update))
+            for update in updates
+            if id(update) in card_manager_images_by_update
+        }
+
+        async def persist_card_manager_records() -> None:
+            try:
+                await asyncio.to_thread(
+                    persist_ocr_batch,
+                    card_manager_store,
+                    updates=updates,
+                    final_results=results,
+                    raw_results=raw_results,
+                    images_by_update=manager_images,
+                    result_card_lines=result_card_lines,
+                )
+            except Exception:
+                # 桌面管理端异常不能成为 OCR 成功或 Telegram 回复的前置条件。
+                logger.exception("Failed to persist card manager records")
+
+        asyncio.create_task(persist_card_manager_records())
+
+        # 管理端会保留未识别图片供人工录入；这条旁路任务不参与原机器人流程。
         if not has_results:
             return
 
