@@ -59,8 +59,8 @@ class NotifyController:
             return
         chat_id = update.effective_chat.id
         now = time.monotonic()
-        last_sent_at = self.cooldowns.get(chat_id, 0)
-        if now - last_sent_at < 300:
+        last_sent_at = self.cooldowns.get(chat_id)
+        if last_sent_at is not None and now - last_sent_at < 300:
             await update.message.reply_text(f"通知所有人冷却中，请 {int(300 - (now - last_sent_at))} 秒后再试。")
             return
         members = self.ledger_store.list_active_known_members(chat_id, days=30)

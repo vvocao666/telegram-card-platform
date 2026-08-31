@@ -193,6 +193,7 @@ def test_broadcast_text_previews_then_confirm_sends_to_selected_groups(monkeypat
 def test_group_notify_all_mentions_current_group_members(monkeypatch):
     monkeypatch.setattr(bot, "OWNER_CHAT_ID", "123")
     monkeypatch.setattr(bot, "ledger_store", FakeLedgerStore())
+    monkeypatch.setattr(notify_service.time, "monotonic", lambda: 60)
     monkeypatch.setattr(bot.asyncio, "sleep", lambda delay: asyncio.sleep(0))
     update = fake_update("通知所有人 今晚维护10分钟", chat_id=-1001, chat_type="supergroup")
     context = FakeContext()
