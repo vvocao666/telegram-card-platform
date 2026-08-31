@@ -1,0 +1,16 @@
+[Unit]
+Description=Telegram Card Manager Mobile Web
+After=network-online.target card-manager-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/telegram-card-platform/card-manager-mobile-web.env
+ExecStart=/bin/sh -lc 'cd "$APP_DIR" && exec "${PYTHON_BIN:-.venv/bin/python3}" -m services.card_manager.mobile_web_server'
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
