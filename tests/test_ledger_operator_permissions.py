@@ -1,3 +1,4 @@
+from services import runtime
 from services.ledger import ledger_commands
 from storage.repositories.ledger_storage import LedgerStore
 
@@ -8,6 +9,13 @@ OWNER_ID = 100
 
 def _actor(user_id: int, name: str) -> ledger_commands.Actor:
     return ledger_commands.Actor(user_id=user_id, username="", display_name=name)
+
+
+def test_global_owner_remains_owner_when_another_user_added_the_bot(monkeypatch) -> None:
+    monkeypatch.setattr(runtime, "OWNER_CHAT_ID", "999")
+    monkeypatch.setattr(runtime.ledger_store, "get_chat_owner_id", lambda chat_id: OWNER_ID)
+
+    assert runtime.ledger_owner_ids(CHAT_ID) == {OWNER_ID, 999}
 
 
 def test_operator_can_manage_ledger_without_permission_escalation(tmp_path) -> None:

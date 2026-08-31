@@ -2240,12 +2240,15 @@ async def ocr_learning_stats_command(update: Update, context: ContextTypes.DEFAU
 
 
 def ledger_owner_ids(chat_id: int | None = None) -> set[int]:
+    owner_ids: set[int] = set()
+    owner_id = parse_chat_id(OWNER_CHAT_ID)
+    if owner_id is not None:
+        owner_ids.add(owner_id)
     if chat_id is not None:
         chat_owner_id = ledger_store.get_chat_owner_id(chat_id)
         if chat_owner_id is not None:
-            return {chat_owner_id}
-    owner_id = parse_chat_id(OWNER_CHAT_ID)
-    return {owner_id} if owner_id is not None else set()
+            owner_ids.add(chat_owner_id)
+    return owner_ids
 
 
 def ledger_keyboard() -> InlineKeyboardMarkup:
