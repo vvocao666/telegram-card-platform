@@ -105,12 +105,12 @@ def test_any_s07_prefix_with_five_char_tail_is_pubg():
     assert bot.extract_psn_ordered(text, force=True) == []
 
 
-def test_any_s07_prefix_tail_fragment_is_not_psn():
+def test_three_group_code_without_explicit_s07_is_psn():
     text = "7999-ABCD-EFGH"
 
-    assert bot.is_pubg_image_text(text) is True
-    assert bot.extract_psn_cards(text, force=True) == []
-    assert bot.extract_psn_ordered(text, force=True) == []
+    assert bot.is_pubg_image_text(text) is False
+    assert bot.extract_psn_cards(text, force=True) == [text]
+    assert bot.extract_psn_ordered(text, force=True) == [text]
 
 
 def test_any_missing_s0_pubg_prefix_is_repaired_when_complete():
@@ -494,12 +494,12 @@ def test_format_reply_filters_existing_dirty_psn():
     assert "PSN" not in reply
 
 
-def test_pubg_prefix_tail_does_not_become_psn():
+def test_known_numeric_prefix_tail_alone_is_still_psn():
     text = "7292-P67A-CX6E"
 
-    assert bot.is_pubg_image_text(text) is True
-    assert bot.extract_psn_ordered(text, force=True) == []
-    assert bot.extract_psn_cards(text, force=True) == []
+    assert bot.is_pubg_image_text(text) is False
+    assert bot.extract_psn_ordered(text, force=True) == [text]
+    assert bot.extract_psn_cards(text, force=True) == [text]
 
 
 def test_pubg_missing_s0_prefix_is_repaired_when_complete():
@@ -524,7 +524,7 @@ def test_s07298_prefix_is_valid_pubg():
     assert bot.extract_psn_ordered("S07298-SF9Y-BEYJ-PXYHZ", force=True) == []
 
 
-def test_remote_worker_pubg_tail_fragment_does_not_output_psn(monkeypatch, tmp_path):
+def test_remote_worker_numeric_psn_prefix_outputs_psn(monkeypatch, tmp_path):
     image_path = tmp_path / "card.jpg"
     image_path.write_bytes(b"fake-image")
     payload = {
@@ -536,4 +536,6 @@ def test_remote_worker_pubg_tail_fragment_does_not_output_psn(monkeypatch, tmp_p
 
     result = bot.run_remote_ocr(image_path)
 
-    assert result is None
+    assert result is not None
+    assert result.cards == tuple()
+    assert result.psn_cards == ("7292-P67A-CX6E",)

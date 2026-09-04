@@ -7,6 +7,7 @@ from typing import Any, Callable, Pattern
 
 
 BLUE_LINK = "https://t.me/"
+SUSPICIOUS_PUBG_PREFIX_RE = re.compile(r"(?<![A-Z0-9])SJ7[0-9]{3}")
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,9 @@ def count_unique_pubg_markers(
         r"(?:\s*-\s*([A-Z0-9]{1,5}))?"
     )
     for line_index, line in enumerate(lines):
-        for match in prefix_pattern.finditer(line):
+        matches = list(prefix_pattern.finditer(line))
+        matches.extend(SUSPICIOUS_PUBG_PREFIX_RE.finditer(line))
+        for match in matches:
             anchor = [match.group(0)]
             body_match = body_pattern.match(line[match.end() :])
             if body_match:
@@ -69,6 +72,10 @@ def count_unique_pubg_markers(
             )
             if rebuilt is not None:
                 anchor = list(rebuilt)
+            if match.re is SUSPICIOUS_PUBG_PREFIX_RE:
+                if tuple(map(len, anchor[1:])) not in {(4, 4, 4), (4, 4, 5)}:
+                    continue
+                anchor[0] = f"S0{anchor[0][2:]}"
             anchors.append(tuple(anchor))
 
     unique: list[tuple[str, ...]] = []

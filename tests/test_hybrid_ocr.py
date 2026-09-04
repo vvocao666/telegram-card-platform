@@ -742,6 +742,27 @@ def test_distinct_pubg_markers_still_trigger_missing_card_complement(monkeypatch
     )
 
 
+def test_complete_sj7_prefix_misread_triggers_missing_card_complement(monkeypatch):
+    monkeypatch.setattr(bot, "REMOTE_OCR_COMPLEMENT", False)
+    raw_text = (
+        "S07362-ABCD-EFGH-JKLMN\n"
+        "SJ7362-CDEF-GHJK-LMNPQ\n"
+        "S07362-EFGH-JKLM-NPQRS"
+    )
+    remote = bot.OcrResult(
+        cards=("S07362-ABCD-EFGH-JKLMN", "S07362-EFGH-JKLM-NPQRS"),
+        raw_text=raw_text,
+        pubg_expected_count=bot.merge_pubg_expected_count(None, raw_text),
+    )
+
+    assert bot.count_pubg_markers(raw_text) == 3
+    assert bot.remote_needs_ocrspace_complement(remote) == (
+        True,
+        "remote pubg marker count mismatch",
+    )
+    assert bot.count_pubg_markers("SJ7362-CDEF-GHJK") is None
+
+
 def test_pubg_markers_with_same_first_group_but_different_second_group_remain_distinct():
     raw_text = (
         "S07336-ABCD-EFGH-JKLMN\n"

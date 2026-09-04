@@ -739,10 +739,10 @@ def is_pubg_image_text(text: str) -> bool:
     compact = re.sub(r"[^A-Z0-9$]", "", normalized)
     if PUBG_PREFIX_RE.search(normalized):
         return True
-    # 中文说明：缺失 S0 的 PUBG 前缀只允许 7 + 三位数字，避免 PSN 尾段如 7LML 被误判成 PUBG 图。
+    # 中文说明：缺失 S0 的 PUBG 痕迹必须仍有第四段；完整三段 4-4-4 优先作为 PSN。
     if not re.search(r"(?<![A-Z0-9])7[0-9]{3}", normalized):
         normalized = re.sub(r"(?<![A-Z0-9])7[A-Z0-9]{3}", "XXXX", normalized)
-    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}", normalized):
+    if re.search(r"(?<![A-Z0-9])7[A-Z0-9]{3}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4}[\s\-_|:：；;,.，。/\\]+[A-Z0-9]{4,5}(?![A-Z0-9-])", normalized):
         return True
     if "S07" in normalized:
         return True

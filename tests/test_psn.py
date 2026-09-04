@@ -38,3 +38,11 @@ def test_psn_tail_starting_with_7_letter_is_not_pubg_trace():
     assert not bot.is_pubg_image_text(text)
     assert bot.extract_psn_cards(text) == ["AH5F-C63H-7LML", "GXGQ-GH68-X2PG"]
     assert bot.extract_psn_ordered(text) == ["AH5F-C63H-7LML", "GXGQ-GH68-X2PG"]
+
+
+def test_psn_starting_with_7_and_three_digits_is_not_pubg_trace():
+    text = "7654-ABCD-EFGH"
+
+    assert not bot.is_pubg_image_text(text)
+    assert bot.extract_psn_cards(text) == [text]
+    assert bot.extract_psn_ordered(text) == [text]
