@@ -94,6 +94,7 @@ from services.ocr.correction_service import (
 )
 from services.ocr.pubg_char_correction import apply_pubg_char_corrections
 from services.ocr.pubg_candidate_merge import incomplete_pubg_prefix_keys, merge_text_and_worker_pubg_cards
+from services.ocr.psn_line_recovery import normalize_psn_ocr_layout
 from services.ocr.provider_router import (
     average_latency_ms as provider_average_latency_ms,
     circuit_is_open as provider_circuit_is_open,
@@ -1074,7 +1075,7 @@ def repair_psn_group(group: str, index: int) -> tuple[str, bool]:
 
 
 def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]]:
-    text = normalize_text(text)
+    text = normalize_psn_ocr_layout(normalize_text(text))
     pubg_cards = extract_cards(text)
     text = text_without_s07_lines(text)
     pattern = (
@@ -1100,7 +1101,7 @@ def scan_psn_candidates(text: str, force: bool = False) -> list[tuple[str, bool]
 
 
 def scan_labeled_psn_candidates(text: str) -> list[tuple[str, bool]]:
-    text = normalize_text(text)
+    text = normalize_psn_ocr_layout(normalize_text(text))
     pubg_cards = extract_cards(text)
     text = text_without_s07_lines(text)
     label_pattern = re.compile(r"(\u5361\s*\u53f7|\u5bc6\s*\u7801)")

@@ -46,3 +46,16 @@ def test_psn_starting_with_7_and_three_digits_is_not_pubg_trace():
     assert not bot.is_pubg_image_text(text)
     assert bot.extract_psn_cards(text) == [text]
     assert bot.extract_psn_ordered(text) == [text]
+
+
+def test_psn_first_group_wrapped_across_adjacent_ocr_lines_is_recovered():
+    text = "PSN港服200港币卡密：\npsn50港币TJBD-XP8R-3GTCpsn150港币JL4\n2-LC6F-PPAB"
+
+    assert bot.extract_psn_cards(text) == ["TJBD-XP8R-3GTC", "JL42-LC6F-PPAB"]
+    assert bot.extract_psn_ordered(text) == ["TJBD-XP8R-3GTC", "JL42-LC6F-PPAB"]
+
+
+def test_psn_first_group_is_not_recovered_across_unrelated_line():
+    text = "JL4\n说明文字\n2-LC6F-PPAB"
+
+    assert bot.extract_psn_cards(text, force=True) == []

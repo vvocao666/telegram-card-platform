@@ -112,6 +112,27 @@ def test_remote_ocr_success_returns_valid_cards(monkeypatch, tmp_path):
     assert bot.avg_remote_latency_ms() >= 0
 
 
+def test_remote_ocr_recovers_psn_first_group_wrapped_between_text_items(monkeypatch, tmp_path):
+    payload = {
+        "ok": True,
+        "cards": [{"text": "TJBD-XP8R-3GTC", "score": 0.9995}],
+        "texts": [
+            {
+                "text": "psn50港币TJBD-XP8R-3GTCpsn150港币JL4",
+                "score": 0.9995,
+                "box": [108, 44, 920, 99],
+            },
+            {"text": "2-LC6F-PPAB", "score": 0.9999, "box": [111, 106, 362, 143]},
+        ],
+    }
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: FakeClient(FakeResponse(payload=payload)))
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.psn_cards == ("TJBD-XP8R-3GTC", "JL42-LC6F-PPAB")
+
+
 def test_remote_ocr_duplicate_complete_lines_count_as_one_card_slot(monkeypatch, tmp_path):
     card = "S07336-Z483-CNEE-W6C5W"
     payload = {
