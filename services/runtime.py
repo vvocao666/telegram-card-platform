@@ -254,7 +254,7 @@ VERIFY_WITH_LOCAL = os.getenv("VERIFY_WITH_LOCAL", "0").strip() == "1"
 OCR_MAX_SIDE = int(os.getenv("OCR_MAX_SIDE", "3000"))
 OCR_MIN_SIDE = int(os.getenv("OCR_MIN_SIDE", "2600"))
 LOCAL_OCR_MIN_CARD_VOTES = max(1, int(os.getenv("LOCAL_OCR_MIN_CARD_VOTES", "2")))
-MAX_PSN_PER_IMAGE = int(os.getenv("MAX_PSN_PER_IMAGE", "2"))
+MAX_PSN_PER_IMAGE = int(os.getenv("MAX_PSN_PER_IMAGE", "10"))
 TESSERACT_CMD = os.getenv("TESSERACT_CMD", "").strip()
 PROXY_URL = os.getenv("PROXY_URL", "").strip()
 TELEGRAM_TIMEOUT = float(os.getenv("TELEGRAM_TIMEOUT", "60"))

@@ -59,3 +59,12 @@ def test_psn_first_group_is_not_recovered_across_unrelated_line():
     text = "JL4\n说明文字\n2-LC6F-PPAB"
 
     assert bot.extract_psn_cards(text, force=True) == []
+
+
+def test_default_psn_limit_keeps_batches_up_to_ten():
+    cards = [f"A{index:03}-BBBB-CCCC" for index in range(11)]
+
+    assert bot.MAX_PSN_PER_IMAGE == 10
+    for count in (3, 4, 5, 7, 10):
+        assert bot.limit_psn_ordered(cards[:count], None) == cards[:count]
+    assert bot.limit_psn_ordered(cards, None) == cards[:10]

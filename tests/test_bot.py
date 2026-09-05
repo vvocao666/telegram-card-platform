@@ -284,7 +284,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertIn('<b>本次识别PUBG图片：</b><a href="https://t.me/"><b>【 1 】</b></a><b>张</b>', reply)
         self.assertNotIn("点击卡密复制", reply)
 
-    def test_psn_limit_is_applied_before_summary_and_output(self):
+    def test_psn_three_card_batch_is_kept_in_summary_and_output(self):
         reply = bot.format_reply(
             [
                 bot.OcrResult(
@@ -301,8 +301,8 @@ class BotFormattingTests(unittest.TestCase):
 
         self.assertIn("AAAA-BBBB-CCCC", reply)
         self.assertIn("DDDD-EEEE-FFFF", reply)
-        self.assertNotIn("GGGG-HHHH-IIII", reply)
-        self.assertIn('<b>本次识别PSN卡密：</b><a href="https://t.me/"><b>【 2 】</b></a><b>个</b>', reply)
+        self.assertIn("GGGG-HHHH-IIII", reply)
+        self.assertIn('<b>本次识别PSN卡密：</b><a href="https://t.me/"><b>【 3 】</b></a><b>个</b>', reply)
         self.assertNotIn("点击卡密复制", reply)
 
     def test_labeled_psn_suppresses_unlabeled_noise(self):
