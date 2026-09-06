@@ -2287,12 +2287,9 @@ def ledger_keyboard(scope: str | None = None, view_mode: str | None = None) -> I
         ],
     ]
     if scope and view_mode:
-        rows.append(
-            [
-                InlineKeyboardButton("简单模式", callback_data=f"ledger:view:compact:{scope}"),
-                InlineKeyboardButton("详细模式", callback_data=f"ledger:view:detailed:{scope}"),
-            ]
-        )
+        next_mode = "detailed" if view_mode == "compact" else "compact"
+        button_text = "简洁模式" if view_mode == "compact" else "详细模式"
+        rows.append([InlineKeyboardButton(button_text, callback_data=f"ledger:view:{next_mode}:{scope}")])
     return InlineKeyboardMarkup(rows)
 
 
