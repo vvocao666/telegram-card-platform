@@ -2285,10 +2285,6 @@ def ledger_keyboard(scope: str | None = None, view_mode: str | None = None) -> I
             InlineKeyboardButton("昨日账单", callback_data="ledger:yesterday"),
             InlineKeyboardButton("今日账单", callback_data="ledger:today"),
         ],
-        [
-            InlineKeyboardButton("完整账单", callback_data="ledger:full"),
-            InlineKeyboardButton("使用说明", callback_data="ledger:help"),
-        ],
     ]
     if scope and view_mode:
         next_mode = "compact" if view_mode == "detailed" else "detailed"

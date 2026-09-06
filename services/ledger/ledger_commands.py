@@ -49,6 +49,8 @@ HELP_TEXT = """【记账】
 
 <code>账单</code>：查看总额和最近流水
 
+<code>指令</code> / <code>使用说明</code>：查看完整功能说明
+
 <code>撤销</code>：撤销最后一笔或回复指定流水撤销
 
 <code>清空</code>：清空当前群账单
@@ -166,7 +168,7 @@ def handle_text(
                 return CommandResult("", follow_up_text=_payout_confirmation(amount))
         return None
 
-    if normalized in {"/start", "/help", "help", "帮助", "菜单"}:
+    if normalized in {"/start", "/help", "help", "帮助", "菜单", "指令", "使用说明"}:
         return CommandResult(HELP_TEXT)
 
     if normalized == "/id":
@@ -308,6 +310,7 @@ def handle_text(
 def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all_records: bool = False) -> str:
     entries = _entries_for_scope(store, chat_id, scope)
     summary = _summarize_entries(store, chat_id, entries)
+    view_mode = store.get_ledger_view_mode(chat_id)
     title = _bill_title(scope)
     recent_entries = entries if show_all_records else entries[-RECENT_LIMIT:]
     numbered_entries = list(enumerate(entries, start=1))
@@ -317,10 +320,10 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
     payout_entries = all_payout_entries[-RECENT_LIMIT:]
     lines = [
         f"已入款({len(all_income_entries)}笔)",
-        *_format_group_lines(income_entries),
+        *_format_group_lines(income_entries, hide_operator=view_mode == "compact"),
         "--------------------------------",
         f"已下发({len(all_payout_entries)}笔)",
-        *_format_group_lines(payout_entries),
+        *_format_group_lines(payout_entries, hide_operator=view_mode == "compact"),
         "--------------------------------",
         title,
         f"总入款金额：{summary.income}",
@@ -331,7 +334,7 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
         f"已下发：{_format_usdt(summary.payout_usdt)}U",
         f"未下发：【{_blue(f'{_format_usdt(summary.balance_usdt)}U')}】",
     ]
-    if recent_entries and store.get_ledger_view_mode(chat_id) == "detailed":
+    if recent_entries and view_mode == "detailed":
         lines.append("")
         lines.append("最近流水：")
         start_number = len(entries) - len(recent_entries) + 1
@@ -376,7 +379,11 @@ def _format_entry_time(created_at: str) -> str:
     return parsed.astimezone(LOCAL_TZ).strftime("%H:%M:%S")
 
 
-def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
+def _format_group_lines(
+    entries: list[tuple[int, LedgerEntry]],
+    *,
+    hide_operator: bool = False,
+) -> list[str]:
     if not entries:
         return []
     lines = []
@@ -388,6 +395,8 @@ def _format_group_lines(entries: list[tuple[int, LedgerEntry]]) -> list[str]:
         else:
             calculation = f"{amount}/{_format_compact_money(entry.rate)}={net_amount}"
         attribution = entry.note or entry.operator_name
+        if hide_operator and attribution == entry.operator_name:
+            attribution = ""
         suffix = f" {escape(attribution)}" if attribution else ""
         lines.append(f"{_format_entry_time(entry.created_at)} {calculation}{suffix}")
     return lines
