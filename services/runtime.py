@@ -2282,14 +2282,17 @@ def ledger_owner_ids(chat_id: int | None = None) -> set[int]:
 def ledger_keyboard(scope: str | None = None, view_mode: str | None = None) -> InlineKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton("昨日账单", callback_data="ledger:yesterday"),
             InlineKeyboardButton("今日账单", callback_data="ledger:today"),
+            InlineKeyboardButton("昨日账单", callback_data="ledger:yesterday"),
         ],
     ]
     if scope and view_mode:
-        next_mode = "compact" if view_mode == "detailed" else "detailed"
-        button_text = "简洁模式" if next_mode == "compact" else "详细模式"
-        rows.append([InlineKeyboardButton(button_text, callback_data=f"ledger:view:{next_mode}:{scope}")])
+        rows.append(
+            [
+                InlineKeyboardButton("简单模式", callback_data=f"ledger:view:compact:{scope}"),
+                InlineKeyboardButton("详细模式", callback_data=f"ledger:view:detailed:{scope}"),
+            ]
+        )
     return InlineKeyboardMarkup(rows)
 
 
@@ -2442,6 +2445,8 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
         if len(parts) != 4 or parts[2] not in {"compact", "detailed"} or parts[3] not in {"today", "yesterday", "full"}:
             return
         mode, scope = parts[2], parts[3]
+        if ledger_store.get_ledger_view_mode(query.message.chat_id) == mode:
+            return
         ledger_store.set_ledger_view_mode(query.message.chat_id, mode)
         bill = ledger_commands.format_bill(
             ledger_store,

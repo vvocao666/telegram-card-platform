@@ -867,7 +867,7 @@ class BotFormattingTests(unittest.TestCase):
             finally:
                 store.close()
 
-    def test_ledger_zero_amount_shows_current_bill(self):
+    def test_ledger_zero_amount_shows_full_bill(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ledger_storage.LedgerStore(Path(temp_dir) / "ledger.sqlite3")
             try:
@@ -877,7 +877,7 @@ class BotFormattingTests(unittest.TestCase):
                 result = ledger_commands.handle_text(store, -1001, actor, "+0", {12345}, message_id=11)
 
                 self.assertIsNotNone(result)
-                self.assertIn("今日账单", result.text)
+                self.assertIn("完整账单", result.text)
                 self.assertIn("总入款金额：100.00", result.text)
             finally:
                 store.close()

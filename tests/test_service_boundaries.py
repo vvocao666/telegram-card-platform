@@ -78,6 +78,12 @@ def test_runtime_keeps_no_duplicate_handler_registry():
     assert "from handlers.registry import register_handlers" in source
 
 
+def test_chinese_usage_command_has_an_explicit_handler() -> None:
+    source = Path("handlers/registry.py").read_text(encoding="utf-8")
+
+    assert 'filters.Regex(r"^/使用说明' in source
+
+
 def test_handler_registry_preserves_critical_order_and_groups():
     class App:
         def __init__(self):

@@ -49,7 +49,7 @@ HELP_TEXT = """【记账】
 
 <code>账单</code>：查看总额和最近流水
 
-<code>指令</code> / <code>使用说明</code>：查看完整功能说明
+<code>/使用说明</code>：查看完整功能说明
 
 <code>撤销</code>：撤销最后一笔或回复指定流水撤销
 
@@ -168,7 +168,7 @@ def handle_text(
                 return CommandResult("", follow_up_text=_payout_confirmation(amount))
         return None
 
-    if normalized in {"/start", "/help", "help", "帮助", "菜单", "指令", "使用说明"}:
+    if normalized in {"/start", "/help", "help", "帮助", "菜单", "/使用说明"}:
         return CommandResult(HELP_TEXT)
 
     if normalized == "/id":
@@ -284,7 +284,8 @@ def handle_text(
     if parsed is not None:
         kind, amount, note = parsed
         if amount == 0:
-            return CommandResult(format_bill(store, chat_id, scope="today", show_all_records=True))
+            scope = "full" if normalized == "+0" else "today"
+            return CommandResult(format_bill(store, chat_id, scope=scope, show_all_records=True))
         try:
             entry_note = _entry_attribution(kind, note, actor, reply_user)
             entry = store.add_entry(
