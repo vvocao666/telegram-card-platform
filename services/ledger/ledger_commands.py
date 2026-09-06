@@ -331,7 +331,7 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
         f"已下发：{_format_usdt(summary.payout_usdt)}U",
         f"未下发：【{_blue(f'{_format_usdt(summary.balance_usdt)}U')}】",
     ]
-    if recent_entries:
+    if recent_entries and store.get_ledger_view_mode(chat_id) == "detailed":
         lines.append("")
         lines.append("最近流水：")
         start_number = len(entries) - len(recent_entries) + 1

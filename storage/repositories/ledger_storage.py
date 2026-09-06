@@ -117,6 +117,7 @@ class LedgerStore:
                 class_mode TEXT NOT NULL DEFAULT '',
                 class_notice_pending INTEGER NOT NULL DEFAULT 0,
                 ledger_reset_hour INTEGER NOT NULL DEFAULT 0,
+                ledger_view_mode TEXT NOT NULL DEFAULT 'detailed',
                 owner_id INTEGER,
                 created_at TEXT NOT NULL
             );
@@ -218,6 +219,7 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "class_mode", "TEXT NOT NULL DEFAULT ''")
         self._add_column_if_missing("chat_settings", "class_notice_pending", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 0")
+        self._add_column_if_missing("chat_settings", "ledger_view_mode", "TEXT NOT NULL DEFAULT 'detailed'")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
         self._migrate_legacy_fee_snapshots()
@@ -348,6 +350,24 @@ class LedgerStore:
         self.conn.execute(
             "UPDATE chat_settings SET ledger_enabled = ? WHERE chat_id = ?",
             (1 if enabled else 0, chat_id),
+        )
+        self.conn.commit()
+
+    def get_ledger_view_mode(self, chat_id: int) -> str:
+        self.ensure_chat(chat_id)
+        row = self.conn.execute(
+            "SELECT ledger_view_mode FROM chat_settings WHERE chat_id = ?",
+            (chat_id,),
+        ).fetchone()
+        return "compact" if row["ledger_view_mode"] == "compact" else "detailed"
+
+    def set_ledger_view_mode(self, chat_id: int, mode: str) -> None:
+        if mode not in {"compact", "detailed"}:
+            raise ValueError("ledger view mode must be compact or detailed")
+        self.ensure_chat(chat_id)
+        self.conn.execute(
+            "UPDATE chat_settings SET ledger_view_mode = ? WHERE chat_id = ?",
+            (mode, chat_id),
         )
         self.conn.commit()
 

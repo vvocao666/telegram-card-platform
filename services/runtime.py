@@ -2279,19 +2279,29 @@ def ledger_owner_ids(chat_id: int | None = None) -> set[int]:
     return owner_ids
 
 
-def ledger_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def ledger_keyboard(scope: str | None = None, view_mode: str | None = None) -> InlineKeyboardMarkup:
+    rows = [
         [
-            [
-                InlineKeyboardButton("昨日账单", callback_data="ledger:yesterday"),
-                InlineKeyboardButton("今日账单", callback_data="ledger:today"),
-            ],
-            [
-                InlineKeyboardButton("完整账单", callback_data="ledger:full"),
-                InlineKeyboardButton("使用说明", callback_data="ledger:help"),
-            ],
-        ]
-    )
+            InlineKeyboardButton("昨日账单", callback_data="ledger:yesterday"),
+            InlineKeyboardButton("今日账单", callback_data="ledger:today"),
+        ],
+        [
+            InlineKeyboardButton("完整账单", callback_data="ledger:full"),
+            InlineKeyboardButton("使用说明", callback_data="ledger:help"),
+        ],
+    ]
+    if scope and view_mode:
+        next_mode = "compact" if view_mode == "detailed" else "detailed"
+        button_text = "简洁模式" if next_mode == "compact" else "详细模式"
+        rows.append([InlineKeyboardButton(button_text, callback_data=f"ledger:view:{next_mode}:{scope}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _ledger_bill_scope(text: str) -> str | None:
+    for scope, title in (("today", "今日账单"), ("yesterday", "昨日账单"), ("full", "完整账单")):
+        if f"\n{title}\n" in f"\n{text}\n":
+            return scope
+    return None
 
 
 def ledger_actor(update: Update) -> LedgerActor:
@@ -2342,9 +2352,11 @@ def is_owner_update(update: Update | None) -> bool:
 
 
 async def reply_ledger(message, text: str) -> None:
+    scope = _ledger_bill_scope(text)
+    view_mode = ledger_store.get_ledger_view_mode(message.chat_id) if scope else None
     await message.reply_text(
         text,
-        reply_markup=ledger_keyboard(),
+        reply_markup=ledger_keyboard(scope, view_mode),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
@@ -2426,8 +2438,28 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if not query or not query.message:
         return
-    text = LEDGER_CALLBACK_TEXT.get(query.data or "")
+    callback_data = query.data or ""
+    text = LEDGER_CALLBACK_TEXT.get(callback_data)
     await query.answer()
+    if callback_data.startswith("ledger:view:"):
+        parts = callback_data.split(":")
+        if len(parts) != 4 or parts[2] not in {"compact", "detailed"} or parts[3] not in {"today", "yesterday", "full"}:
+            return
+        mode, scope = parts[2], parts[3]
+        ledger_store.set_ledger_view_mode(query.message.chat_id, mode)
+        bill = ledger_commands.format_bill(
+            ledger_store,
+            query.message.chat_id,
+            scope=scope,
+            show_all_records=True,
+        )
+        await query.edit_message_text(
+            bill,
+            reply_markup=ledger_keyboard(scope, mode),
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+        return
     if not text:
         return
     result = handle_ledger_command_text(
