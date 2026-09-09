@@ -2350,12 +2350,13 @@ def is_owner_update(update: Update | None) -> bool:
 async def reply_ledger(message, text: str) -> None:
     scope = _ledger_bill_scope(text)
     view_mode = ledger_store.get_ledger_view_mode(message.chat_id) if scope else None
-    await message.reply_text(
-        text,
-        reply_markup=ledger_keyboard(scope, view_mode),
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
+    for index, chunk in enumerate(split_html_message(text)):
+        await message.reply_text(
+            chunk,
+            reply_markup=ledger_keyboard(scope, view_mode) if index == 0 else None,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
 
 
 async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE, allow_trc20: bool = True) -> bool:
@@ -2451,12 +2452,19 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
             scope=scope,
             show_all_records=True,
         )
+        chunks = split_html_message(bill)
         await query.edit_message_text(
-            bill,
+            chunks[0],
             reply_markup=ledger_keyboard(scope, mode),
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
+        for chunk in chunks[1:]:
+            await query.message.reply_text(
+                chunk,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
         return
     if not text:
         return

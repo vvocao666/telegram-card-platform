@@ -165,6 +165,90 @@ class FakeQuery:
         self.edits.append((text, kwargs))
 
 
+def test_explicit_bills_show_all_income_and_payout_rows(monkeypatch, tmp_path) -> None:
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    actor = ledger_commands.Actor(7, "boss", "Boss")
+    monkeypatch.setattr(runtime, "ledger_store", store)
+    try:
+        older = store.add_entry(-1001, "income", "9999", "USDT", "旧账期", 7, "Boss", 1)
+        store.conn.execute(
+            "UPDATE entries SET accounting_date=? WHERE id=?",
+            (store.previous_accounting_date(-1001), older.id),
+        )
+        store.conn.commit()
+        for index in range(1, 5):
+            store.add_entry(-1001, "income", str(index * 100), "USDT", f"入款{index}", 7, "Boss", index + 1)
+            store.add_entry(-1001, "payout", str(index * 10), "USDT", f"下发{index}", 7, "Boss", index + 5)
+
+        for mode in ("compact", "detailed"):
+            store.set_ledger_view_mode(-1001, mode)
+            for text in ("今日账单", "+0", "完整账单"):
+                bill = ledger_commands.handle_text(store, -1001, actor, text, {7}).text
+                top = bill.split("\n\n最近流水：", 1)[0]
+                assert "已入款(4笔)" in top
+                assert "已下发(4笔)" in top
+                assert "总入款金额：1000" in top.splitlines()
+                assert "已下发：100U" in top.splitlines()
+                for index in range(1, 5):
+                    assert top.count(f"入款{index}") == 1
+                    assert top.count(f"下发{index}") == 1
+                assert "旧账期" not in bill
+
+        store.set_ledger_view_mode(-1001, "detailed")
+        query = FakeQuery("ledger:view:compact:full")
+        asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=query), object()))
+        assert "入款1" in query.edits[-1][0]
+        assert "下发1" in query.edits[-1][0]
+
+        store.conn.execute(
+            "UPDATE entries SET accounting_date=? WHERE id<>?",
+            (store.previous_accounting_date(-1001), older.id),
+        )
+        store.conn.commit()
+        yesterday = ledger_commands.handle_text(store, -1001, actor, "昨日账单", {7}).text
+        for index in range(1, 5):
+            assert f"入款{index}" in yesterday
+            assert f"下发{index}" in yesterday
+    finally:
+        store.close()
+
+
+def test_long_full_bill_and_mode_toggle_send_every_row_in_chunks(monkeypatch, tmp_path) -> None:
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    monkeypatch.setattr(runtime, "ledger_store", store)
+    sent = []
+
+    async def reply_text(text, **kwargs):
+        assert len(text) <= 4096
+        sent.append((text, kwargs))
+
+    message = SimpleNamespace(chat_id=-1001, reply_text=reply_text)
+    try:
+        store.set_ledger_view_mode(-1001, "compact")
+        for index in range(180):
+            store.add_entry(-1001, "income", "1", "USDT", f"row-{index:03}", 7, "Boss", index + 1)
+        bill = ledger_commands.format_bill(store, -1001, scope="full", show_all_records=True)
+        asyncio.run(runtime.reply_ledger(message, bill))
+        assert len(sent) > 1
+        assert "\n".join(text for text, _ in sent) == bill
+        assert sent[0][1]["reply_markup"] is not None
+        assert all(kwargs["reply_markup"] is None for _, kwargs in sent[1:])
+
+        sent.clear()
+        query = FakeQuery("ledger:view:detailed:full")
+        query.message = message
+        asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=query), object()))
+        assert len(query.edits[0][0]) <= 4096
+        assert sent
+        combined = "\n".join([query.edits[0][0], *(text for text, _ in sent)])
+        expected = ledger_commands.format_bill(store, -1001, scope="full", show_all_records=True)
+        assert combined == expected
+        for index in range(180):
+            assert f"row-{index:03}" in combined
+    finally:
+        store.close()
+
+
 def test_ledger_view_button_toggles_message_and_saved_mode(monkeypatch, tmp_path) -> None:
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     monkeypatch.setattr(runtime, "ledger_store", store)

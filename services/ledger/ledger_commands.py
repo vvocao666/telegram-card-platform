@@ -321,8 +321,8 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
     numbered_entries = list(enumerate(entries, start=1))
     all_income_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "income"]
     all_payout_entries = [(number, entry) for number, entry in numbered_entries if entry.kind == "payout"]
-    income_entries = all_income_entries[-RECENT_LIMIT:]
-    payout_entries = all_payout_entries[-RECENT_LIMIT:]
+    income_entries = all_income_entries if show_all_records else all_income_entries[-RECENT_LIMIT:]
+    payout_entries = all_payout_entries if show_all_records else all_payout_entries[-RECENT_LIMIT:]
     lines = [
         f"已入款({len(all_income_entries)}笔)",
         *_format_group_lines(income_entries, hide_operator=view_mode == "compact"),
