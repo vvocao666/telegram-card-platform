@@ -897,7 +897,7 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIsNotNone(income)
                 self.assertIsNotNone(bill)
                 self.assertIn("1000/10=100U", bill.text)
-                self.assertIn("汇率：10.00", bill.text)
+                self.assertIn("汇率：10 | 费率：0.00%", bill.text)
                 self.assertIn("总入款金额：1000.00", bill.text)
                 self.assertIn("应下发：1000.00 | 100.00U", bill.text)
                 self.assertIn("已下发：0.00U", bill.text)

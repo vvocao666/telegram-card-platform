@@ -214,6 +214,7 @@ class LedgerStore:
         self._add_column_if_missing("entries", "payable_usdt", "TEXT NOT NULL DEFAULT '0.00'")
         self._add_column_if_missing("entries", "accounting_date", "TEXT")
         self._add_column_if_missing("chat_settings", "fee_percent", "TEXT NOT NULL DEFAULT '0.0000'")
+        self._add_column_if_missing("chat_settings", "rate_is_realtime", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "ledger_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "class_mode", "TEXT NOT NULL DEFAULT ''")
@@ -320,14 +321,24 @@ class LedgerStore:
         row = self.conn.execute("SELECT rate, fee_percent FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
         return rate(row["rate"]), rate(row["fee_percent"])
 
-    def set_rate(self, chat_id: int, value: Decimal | str) -> Decimal:
+    def set_rate(self, chat_id: int, value: Decimal | str, *, is_realtime: bool = False) -> Decimal:
         self.ensure_chat(chat_id)
         new_rate = rate(value)
         if new_rate <= 0:
             raise ValueError("汇率必须大于0")
-        self.conn.execute("UPDATE chat_settings SET rate = ? WHERE chat_id = ?", (str(new_rate), chat_id))
+        self.conn.execute(
+            "UPDATE chat_settings SET rate = ?, rate_is_realtime = ? WHERE chat_id = ?",
+            (str(new_rate), int(is_realtime), chat_id),
+        )
         self.conn.commit()
         return new_rate
+
+    def is_realtime_rate(self, chat_id: int) -> bool:
+        self.ensure_chat(chat_id)
+        row = self.conn.execute(
+            "SELECT rate_is_realtime FROM chat_settings WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+        return bool(row["rate_is_realtime"])
 
     def set_fee_percent(self, chat_id: int, value: Decimal | str) -> Decimal:
         self.ensure_chat(chat_id)

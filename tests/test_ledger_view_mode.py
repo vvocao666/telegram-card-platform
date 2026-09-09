@@ -91,6 +91,45 @@ def test_instruction_text_aliases_open_help(tmp_path) -> None:
         store.close()
 
 
+def test_bill_rate_and_fee_share_one_line_with_exact_fixed_rate(tmp_path) -> None:
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        store.set_fee_percent(-1001, "5")
+        for mode in ("compact", "detailed"):
+            store.set_ledger_view_mode(-1001, mode)
+            for value, label in (("1", "1"), ("6.8", "6.8"), ("6.8754", "6.8754")):
+                store.set_rate(-1001, value)
+                for scope in ("today", "yesterday", "full"):
+                    bill = ledger_commands.format_bill(store, -1001, scope=scope)
+                    assert f"汇率：{label} | 费率：5.00%" in bill.splitlines()
+                    assert "\n费率：" not in bill
+    finally:
+        store.close()
+
+
+def test_realtime_rate_label_persists_and_manual_rate_clears_it(tmp_path) -> None:
+    db_path = tmp_path / "ledger.sqlite3"
+    store = LedgerStore(db_path)
+    try:
+        store.set_rate(-1001, "7.2", is_realtime=True)
+        entry = store.add_entry(-1001, "income", "720", "USDT", "", 7, "Boss", 1)
+    finally:
+        store.close()
+
+    store = LedgerStore(db_path)
+    try:
+        assert "汇率：7.20 | 费率：0.00%" in ledger_commands.format_bill(store, -1001)
+        actor = ledger_commands.Actor(7, "boss", "Boss")
+        ledger_commands.handle_text(store, -1001, actor, "设置汇率1", {7})
+        bill = ledger_commands.format_bill(store, -1001)
+        assert "汇率：1 | 费率：0.00%" in bill
+        assert "实时汇率" not in bill
+        assert store.entries(-1001)[0] == entry
+        assert "应下发：720.00 | 100.00U" in bill
+    finally:
+        store.close()
+
+
 class FakeQuery:
     def __init__(self, data: str) -> None:
         self.data = data

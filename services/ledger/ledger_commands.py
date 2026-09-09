@@ -315,6 +315,7 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
     entries = _entries_for_scope(store, chat_id, scope)
     summary = _summarize_entries(store, chat_id, entries)
     view_mode = store.get_ledger_view_mode(chat_id)
+    rate_label = _format_money(summary.rate) if store.is_realtime_rate(chat_id) else _format_rate(summary.rate)
     title = _bill_title(scope)
     recent_entries = entries if show_all_records else entries[-RECENT_LIMIT:]
     numbered_entries = list(enumerate(entries, start=1))
@@ -331,8 +332,7 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
         "--------------------------------",
         title,
         f"总入款金额：{summary.income}",
-        f"汇率：{_format_money(summary.rate)}",
-        f"费率：{_format_percent(summary.fee_percent)}",
+        f"汇率：{rate_label} | 费率：{_format_percent(summary.fee_percent)}",
         "",
         f"应下发：{summary.payable_amount} | {_format_usdt(summary.income_usdt)}U",
         f"已下发：{_format_usdt(summary.payout_usdt)}U",

@@ -2046,7 +2046,7 @@ async def set_realtime_ledger_rate(update: Update) -> bool:
     if not prices:
         await update.message.reply_text(f"❌ 获取欧意实时汇率失败，已保留当前群原汇率：{_format_calc_result(old_rate)}")
         return True
-    new_rate = ledger_store.set_rate(update.effective_chat.id, prices[0])
+    new_rate = ledger_store.set_rate(update.effective_chat.id, prices[0], is_realtime=True)
     updated_at = datetime.now(LEDGER_TZ).strftime("%Y-%m-%d %H:%M:%S")
     await update.message.reply_text(
         "\n".join(

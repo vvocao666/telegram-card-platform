@@ -71,7 +71,7 @@ def test_fee_calculation_rate_ten(tmp_path):
 
         assert bill is not None
         assert "总入款金额：50000.00" in bill.text
-        assert "汇率：10.00" in bill.text
+        assert "汇率：10 | 费率：10.00%" in bill.text
         assert "费率：10.00%" in bill.text
         assert "手续费：" not in bill.text
         assert "费率：10.00%\n\n应下发：" in bill.text
@@ -407,6 +407,9 @@ def test_set_realtime_rate_updates_current_group_only(monkeypatch, tmp_path):
 
         assert handled is True
         assert store.get_settings(-1001)[0] == Decimal("7.2300")
+        assert store.is_realtime_rate(-1001) is True
+        assert store.is_realtime_rate(-2002) is False
+        assert "汇率：7.23 | 费率：0.00%" in ledger_commands.format_bill(store, -1001)
         assert "✅ 当前群实时汇率已更新" in update.message.replies[-1]
         assert "汇率：7.23" in update.message.replies[-1]
         assert "来源：欧意 USDT/CNY 最新 1 档" in update.message.replies[-1]
@@ -457,6 +460,7 @@ def test_set_realtime_rate_failure_keeps_old_rate(monkeypatch, tmp_path):
         assert handled is True
         assert store.get_settings(-1001)[0] == Decimal("6.6600")
         assert "❌ 获取欧意实时汇率失败" in update.message.replies[-1]
+        assert store.is_realtime_rate(-1001) is False
         assert "6.66" in update.message.replies[-1]
     finally:
         store.close()
