@@ -197,8 +197,21 @@ def test_explicit_bills_show_all_income_and_payout_rows(monkeypatch, tmp_path) -
         store.set_ledger_view_mode(-1001, "detailed")
         query = FakeQuery("ledger:view:compact:full")
         asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=query), object()))
-        assert "入款1" in query.edits[-1][0]
-        assert "下发1" in query.edits[-1][0]
+        compact = query.edits[-1][0]
+        assert "入款1" not in compact
+        assert "下发1" not in compact
+        assert "已入款(4笔)" in compact
+        assert "总入款金额：1000" in compact.splitlines()
+        for index in range(2, 5):
+            assert f"入款{index}" in compact
+            assert f"下发{index}" in compact
+        complete = ledger_commands.handle_text(store, -1001, actor, "+0", {7}).text
+        assert "入款1" in complete
+        assert "下发1" in complete
+        detailed_query = FakeQuery("ledger:view:detailed:full")
+        asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=detailed_query), object()))
+        assert "入款1" in detailed_query.edits[-1][0]
+        assert "下发1" in detailed_query.edits[-1][0]
 
         store.conn.execute(
             "UPDATE entries SET accounting_date=? WHERE id<>?",

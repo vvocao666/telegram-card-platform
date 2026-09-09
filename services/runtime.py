@@ -2451,7 +2451,7 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
             ledger_store,
             query.message.chat_id,
             scope=scope,
-            show_all_records=True,
+            show_all_records=mode == "detailed",
         )
         chunks = split_html_message(bill)
         await query.edit_message_text(
