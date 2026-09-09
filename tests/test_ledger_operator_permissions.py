@@ -36,7 +36,7 @@ def test_operator_can_manage_ledger_without_permission_escalation(tmp_path) -> N
         assert "已设置为：10.00" in ledger_commands.handle_text(
             store, CHAT_ID, operator, "设置汇率 10", {OWNER_ID}
         ).text
-        assert "已设置为：5.00%" in ledger_commands.handle_text(
+        assert "已设置为：5%" in ledger_commands.handle_text(
             store, CHAT_ID, operator, "设置费率 5", {OWNER_ID}
         ).text
         assert "每天 01:00" in ledger_commands.handle_text(
