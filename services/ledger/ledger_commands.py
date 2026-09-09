@@ -331,10 +331,10 @@ def format_bill(store: LedgerStore, chat_id: int, scope: str = "today", show_all
         *_format_group_lines(payout_entries, hide_operator=view_mode == "compact"),
         "--------------------------------",
         title,
-        f"总入款金额：{summary.income}",
+        f"总入款金额：{_format_compact_money(summary.income)}",
         f"汇率：{rate_label} | 费率：{_format_percent(summary.fee_percent)}",
         "",
-        f"应下发：{summary.payable_amount} | {_format_usdt(summary.income_usdt)}U",
+        f"应下发：{_format_compact_money(summary.payable_amount)} | {_format_usdt(summary.income_usdt)}U",
         f"已下发：{_format_usdt(summary.payout_usdt)}U",
         f"未下发：【{_blue(f'{_format_usdt(summary.balance_usdt)}U')}】",
     ]
@@ -361,7 +361,8 @@ def format_entry(
     note = f" {escape(entry.note)}" if entry.note else ""
     operator_name = escape(entry.operator_name)
     display_amount = entry.net_amount if entry.kind == "income" else abs(entry.net_amount)
-    amount_value = f"{display_amount:+.2f} U" if entry.kind == "income" else f"{sign}{display_amount} U"
+    amount_sign = "+" if entry.kind == "income" and display_amount >= 0 else ""
+    amount_value = f"{amount_sign}{_format_compact_money(display_amount)} U" if entry.kind == "income" else f"{sign}{_format_compact_money(display_amount)} U"
     amount_text = _blue(amount_value) if entry.kind == "payout" else amount_value
     if for_bill:
         attribution = entry.note or entry.operator_name
@@ -416,7 +417,7 @@ def _format_summary_rate(value: Decimal) -> str:
 
 
 def _format_usdt(value: Decimal) -> str:
-    return _format_money(value)
+    return _format_compact_money(value)
 
 
 def _format_money(value: Decimal) -> str:
@@ -424,14 +425,11 @@ def _format_money(value: Decimal) -> str:
 
 
 def _format_compact_money(value: Decimal) -> str:
-    rounded = money(value)
-    if rounded == rounded.to_integral_value():
-        return format(rounded, ".0f")
-    return f"{rounded:.2f}"
+    return _format_rate(money(value))
 
 
 def _format_percent(value: Decimal) -> str:
-    return f"{money(value):.2f}%"
+    return f"{_format_compact_money(value)}%"
 
 
 def _blue(value: object) -> str:

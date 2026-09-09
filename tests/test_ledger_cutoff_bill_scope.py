@@ -31,13 +31,13 @@ def test_full_bill_resets_at_two_and_yesterday_keeps_previous_period(tmp_path, m
         command("+100 上期入款")
         command("下发40 上期下发")
         before = command("+0")
-        assert "总入款金额：100.00" in before
+        assert "总入款金额：100" in before
         assert "更早账期" not in before
 
         Clock.current = datetime(2026, 9, 9, 2, 0, tzinfo=ledger_storage.LEDGER_TZ)
         for text in ("+0", "今日账单", "完整账单", "全部账单", "总账单", "/fullbill"):
             bill = command(text)
-            assert "总入款金额：0.00" in bill
+            assert "总入款金额：0" in bill
             assert "已入款(0笔)" in bill
             assert "已下发(0笔)" in bill
             assert "上期" not in bill
@@ -47,8 +47,8 @@ def test_full_bill_resets_at_two_and_yesterday_keeps_previous_period(tmp_path, m
         command("下发10 本期下发")
         for text in ("+0", "今日账单"):
             bill = command(text)
-            assert "总入款金额：73.00" in bill
-            assert "已下发：10.00U" in bill
+            assert "总入款金额：73" in bill
+            assert "已下发：10U" in bill
             assert "已入款(1笔)" in bill
             assert "已下发(1笔)" in bill
             assert "本期入款" in bill
@@ -56,8 +56,8 @@ def test_full_bill_resets_at_two_and_yesterday_keeps_previous_period(tmp_path, m
             assert "更早账期" not in bill
 
         yesterday = command("昨日账单")
-        assert "总入款金额：100.00" in yesterday
-        assert "已下发：40.00U" in yesterday
+        assert "总入款金额：100" in yesterday
+        assert "已下发：40U" in yesterday
         assert "上期入款" in yesterday
         assert "本期" not in yesterday
         assert "更早账期" not in yesterday

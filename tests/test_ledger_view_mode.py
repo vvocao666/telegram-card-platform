@@ -18,7 +18,7 @@ def test_compact_mode_hides_recent_entries_and_persists(tmp_path) -> None:
         store.set_ledger_view_mode(-1001, "compact")
         compact = ledger_commands.format_bill(store, -1001)
         assert "已入款(1笔)" in compact
-        assert "总入款金额：100.00" in compact
+        assert "总入款金额：100" in compact
         assert "最近流水：" not in compact
     finally:
         store.close()
@@ -58,8 +58,8 @@ def test_compact_mode_hides_operator_but_keeps_reply_user_and_manual_note(tmp_pa
         store.set_ledger_view_mode(-1001, "compact")
         compact = ledger_commands.format_bill(store, -1001)
         assert " Boss" not in compact
-        assert "25/10=2.50U Customer" in compact
-        assert "12.50/10=1.25U 单独备注" in compact
+        assert "25/10=2.5U Customer" in compact
+        assert "12.5/10=1.25U 单独备注" in compact
         assert '<a href="https://t.me/">-50U</a> Boss' not in compact
     finally:
         store.close()
@@ -101,8 +101,28 @@ def test_bill_rate_and_fee_share_one_line_with_exact_fixed_rate(tmp_path) -> Non
                 store.set_rate(-1001, value)
                 for scope in ("today", "yesterday", "full"):
                     bill = ledger_commands.format_bill(store, -1001, scope=scope)
-                    assert f"汇率：{label} | 费率：5.00%" in bill.splitlines()
+                    assert f"汇率：{label} | 费率：5%" in bill.splitlines()
                     assert "\n费率：" not in bill
+    finally:
+        store.close()
+
+
+def test_bill_amounts_trim_trailing_zeros_without_changing_entries(tmp_path) -> None:
+    store = LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        store.add_entry(-1001, "income", "95.50", "USDT", "", 7, "Boss", 1)
+        store.add_entry(-1001, "payout", "90", "USDT", "", 7, "Boss", 2)
+        original = store.entries(-1001)
+        for mode in ("compact", "detailed"):
+            store.set_ledger_view_mode(-1001, mode)
+            bill = ledger_commands.format_bill(store, -1001)
+            assert "总入款金额：95.5" in bill.splitlines()
+            assert "应下发：95.5 | 95.5U" in bill.splitlines()
+            assert "已下发：90U" in bill.splitlines()
+            assert ">5.5U</a>" in bill
+            assert ".00" not in bill
+            assert "95.50" not in bill
+        assert store.entries(-1001) == original
     finally:
         store.close()
 
@@ -118,14 +138,14 @@ def test_realtime_rate_label_persists_and_manual_rate_clears_it(tmp_path) -> Non
 
     store = LedgerStore(db_path)
     try:
-        assert "汇率：7.20 | 费率：0.00%" in ledger_commands.format_bill(store, -1001)
+        assert "汇率：7.20 | 费率：0%" in ledger_commands.format_bill(store, -1001)
         actor = ledger_commands.Actor(7, "boss", "Boss")
         ledger_commands.handle_text(store, -1001, actor, "设置汇率1", {7})
         bill = ledger_commands.format_bill(store, -1001)
-        assert "汇率：1 | 费率：0.00%" in bill
+        assert "汇率：1 | 费率：0%" in bill
         assert "实时汇率" not in bill
         assert store.entries(-1001)[0] == entry
-        assert "应下发：720.00 | 100.00U" in bill
+        assert "应下发：720 | 100U" in bill
     finally:
         store.close()
 

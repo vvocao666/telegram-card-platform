@@ -16,9 +16,9 @@ def test_set_fee_rate_ten_success(tmp_path):
         result = ledger_commands.handle_text(store, -1001, actor(), "设置费率10", {12345})
 
         assert result is not None
-        assert "✅ 当前群费率已设置为：10.00%" in result.text
+        assert "✅ 当前群费率已设置为：10%" in result.text
         assert "当前汇率：1.00" in result.text
-        assert "当前费率：10.00%" in result.text
+        assert "当前费率：10%" in result.text
         assert store.get_settings(-1001)[1] == Decimal("10.0000")
     finally:
         store.close()
@@ -30,7 +30,7 @@ def test_set_fee_rate_zero_success(tmp_path):
         result = ledger_commands.handle_text(store, -1001, actor(), "/set_fee 0", {12345})
 
         assert result is not None
-        assert "0.00%" in result.text
+        assert "0%" in result.text
         assert store.get_settings(-1001)[1] == Decimal("0.0000")
     finally:
         store.close()
@@ -70,12 +70,12 @@ def test_fee_calculation_rate_ten(tmp_path):
         bill = ledger_commands.handle_text(store, -1001, boss, "账单", {12345})
 
         assert bill is not None
-        assert "总入款金额：50000.00" in bill.text
-        assert "汇率：10 | 费率：10.00%" in bill.text
-        assert "费率：10.00%" in bill.text
+        assert "总入款金额：50000" in bill.text
+        assert "汇率：10 | 费率：10%" in bill.text
+        assert "费率：10%" in bill.text
         assert "手续费：" not in bill.text
-        assert "费率：10.00%\n\n应下发：" in bill.text
-        assert "应下发：45000.00 | 4500.00U" in bill.text
+        assert "费率：10%\n\n应下发：" in bill.text
+        assert "应下发：45000 | 4500U" in bill.text
     finally:
         store.close()
 
@@ -91,7 +91,7 @@ def test_fee_calculation_rate_six_point_eight(tmp_path):
 
         assert bill is not None
         assert "手续费：" not in bill.text
-        assert "应下发：45000.00 | 6617.65U" in bill.text
+        assert "应下发：45000 | 6617.65U" in bill.text
     finally:
         store.close()
 
@@ -147,12 +147,12 @@ def test_negative_amount_adjusts_income_without_creating_a_payout(tmp_path):
         adjustment = ledger_commands.handle_text(store, -1001, boss, "-100", {12345}, message_id=2)
 
         assert adjustment is not None
-        assert "总入款金额：900.00" in adjustment.text
-        assert "应下发：900.00 | 900.00U" in adjustment.text
+        assert "总入款金额：900" in adjustment.text
+        assert "应下发：900 | 900U" in adjustment.text
         assert "已入款(2笔)" in adjustment.text
         assert "减分(1笔)" not in adjustment.text
         assert "已下发(0笔)" in adjustment.text
-        assert "已下发：0.00U" in adjustment.text
+        assert "已下发：0U" in adjustment.text
         assert [(entry.kind, entry.amount) for entry in store.entries(-1001)] == [
             ("income", Decimal("1000.00")),
             ("income", Decimal("-100.00")),
@@ -189,8 +189,8 @@ def test_group_lines_use_compact_amounts_and_command_sender_attribution(tmp_path
         )
 
         assert income_lines[0].endswith("100/10=10U User 12345")
-        assert income_lines[1].endswith("25/10=2.50U User 67890")
-        assert income_lines[2].endswith("12.50/10=1.25U 雄霸小火箭")
+        assert income_lines[1].endswith("25/10=2.5U User 67890")
+        assert income_lines[2].endswith("12.5/10=1.25U 雄霸小火箭")
         assert payout_lines[0].endswith(
             '<a href="https://t.me/">-50U</a> User 12345'
         )
@@ -214,16 +214,16 @@ def test_payout_sign_is_preserved_in_paid_and_unpaid_totals(tmp_path):
 
         positive = ledger_commands.handle_text(store, -1001, boss, "下发100", {12345}, message_id=1)
         assert positive is not None
-        assert "应下发：0.00 | 0.00U" in positive.text
-        assert "已下发：100.00U" in positive.text
-        assert '未下发：【<a href="https://t.me/">-100.00U</a>】' in positive.text
+        assert "应下发：0 | 0U" in positive.text
+        assert "已下发：100U" in positive.text
+        assert '未下发：【<a href="https://t.me/">-100U</a>】' in positive.text
 
         store.clear_entries(-1001)
         negative = ledger_commands.handle_text(store, -1001, boss, "下发-200", {12345}, message_id=2)
         assert negative is not None
-        assert "应下发：0.00 | 0.00U" in negative.text
-        assert "已下发：-200.00U" in negative.text
-        assert '未下发：【<a href="https://t.me/">200.00U</a>】' in negative.text
+        assert "应下发：0 | 0U" in negative.text
+        assert "已下发：-200U" in negative.text
+        assert '未下发：【<a href="https://t.me/">200U</a>】' in negative.text
         assert "--200" not in negative.text
 
         entry = store.entries(-1001)[0]
@@ -291,9 +291,9 @@ def test_historical_bill_does_not_recalculate_after_fee_change(tmp_path):
         assert before is not None
         assert after is not None
         assert "手续费：" not in before.text
-        assert "应下发：900.00 | 90.00U" in before.text
+        assert "应下发：900 | 90U" in before.text
         assert "手续费：" not in after.text
-        assert "应下发：900.00 | 90.00U" in after.text
+        assert "应下发：900 | 90U" in after.text
     finally:
         store.close()
 
@@ -345,7 +345,7 @@ def test_legacy_data_migrates_with_zero_fee(tmp_path, monkeypatch):
         assert entry.payable_usdt == Decimal("5000.00")
         assert bill is not None
         assert "手续费：" not in bill.text
-        assert "应下发：50000.00 | 5000.00U" in bill.text
+        assert "应下发：50000 | 5000U" in bill.text
     finally:
         store.close()
 
@@ -409,7 +409,7 @@ def test_set_realtime_rate_updates_current_group_only(monkeypatch, tmp_path):
         assert store.get_settings(-1001)[0] == Decimal("7.2300")
         assert store.is_realtime_rate(-1001) is True
         assert store.is_realtime_rate(-2002) is False
-        assert "汇率：7.23 | 费率：0.00%" in ledger_commands.format_bill(store, -1001)
+        assert "汇率：7.23 | 费率：0%" in ledger_commands.format_bill(store, -1001)
         assert "✅ 当前群实时汇率已更新" in update.message.replies[-1]
         assert "汇率：7.23" in update.message.replies[-1]
         assert "来源：欧意 USDT/CNY 最新 1 档" in update.message.replies[-1]

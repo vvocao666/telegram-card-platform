@@ -859,10 +859,10 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIn("已入款(2笔)", bill.text)
                 self.assertNotIn("减分(1笔)", bill.text)
                 self.assertIn("已下发(0笔)", bill.text)
-                self.assertIn("总入款金额：60.00", bill.text)
-                self.assertIn("应下发：60.00 | 60.00U", bill.text)
-                self.assertIn("已下发：0.00U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">60.00U</a>】', bill.text)
+                self.assertIn("总入款金额：60", bill.text)
+                self.assertIn("应下发：60 | 60U", bill.text)
+                self.assertIn("已下发：0U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">60U</a>】', bill.text)
                 self.assertIn("#2 减分", bill.text)
             finally:
                 store.close()
@@ -878,7 +878,7 @@ class BotFormattingTests(unittest.TestCase):
 
                 self.assertIsNotNone(result)
                 self.assertIn("完整账单", result.text)
-                self.assertIn("总入款金额：100.00", result.text)
+                self.assertIn("总入款金额：100", result.text)
             finally:
                 store.close()
 
@@ -897,19 +897,19 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIsNotNone(income)
                 self.assertIsNotNone(bill)
                 self.assertIn("1000/10=100U", bill.text)
-                self.assertIn("汇率：10 | 费率：0.00%", bill.text)
-                self.assertIn("总入款金额：1000.00", bill.text)
-                self.assertIn("应下发：1000.00 | 100.00U", bill.text)
-                self.assertIn("已下发：0.00U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">100.00U</a>】', bill.text)
+                self.assertIn("汇率：10 | 费率：0%", bill.text)
+                self.assertIn("总入款金额：1000", bill.text)
+                self.assertIn("应下发：1000 | 100U", bill.text)
+                self.assertIn("已下发：0U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">100U</a>】', bill.text)
                 self.assertLess(bill.text.index("总入款金额："), bill.text.index("汇率："))
                 self.assertLess(bill.text.index("汇率："), bill.text.index("应下发："))
                 self.assertLess(bill.text.index("应下发："), bill.text.index("已下发："))
                 self.assertLess(bill.text.index("已下发："), bill.text.index("未下发："))
                 self.assertIn("未下发：【<a", bill.text)
                 self.assertIn("#1 加分", bill.text)
-                self.assertIn("：+100.00 U", bill.text)
-                self.assertNotIn("：+1000.00 U", bill.text)
+                self.assertIn("：+100 U", bill.text)
+                self.assertNotIn("：+1000 U", bill.text)
             finally:
                 store.close()
 
@@ -925,10 +925,10 @@ class BotFormattingTests(unittest.TestCase):
                 bill = ledger_commands.handle_text(store, -1001, actor, "账单", {12345})
 
                 self.assertIsNotNone(bill)
-                self.assertIn("总入款金额：-500.00", bill.text)
-                self.assertIn("应下发：-500.00 | -50.00U", bill.text)
-                self.assertIn("已下发：0.00U", bill.text)
-                self.assertIn('未下发：【<a href="https://t.me/">-50.00U</a>】', bill.text)
+                self.assertIn("总入款金额：-500", bill.text)
+                self.assertIn("应下发：-500 | -50U", bill.text)
+                self.assertIn("已下发：0U", bill.text)
+                self.assertIn('未下发：【<a href="https://t.me/">-50U</a>】', bill.text)
             finally:
                 store.close()
 
@@ -952,7 +952,7 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIn("记账功能已开启", enabled.text)
                 self.assertIsNotNone(income)
                 self.assertIsNotNone(bill)
-                self.assertIn("总入款金额：100.00", bill.text)
+                self.assertIn("总入款金额：100", bill.text)
                 self.assertNotIn("笔数：", bill.text)
             finally:
                 store.close()
@@ -996,8 +996,8 @@ class BotFormattingTests(unittest.TestCase):
 
                 self.assertIsNotNone(result)
                 self.assertEqual([old_entry.id, today_entry.id], [entry.id for entry in remaining])
-                self.assertIn("总入款金额：200.00", result.text)
-                self.assertNotIn("总入款金额：300.00", result.text)
+                self.assertIn("总入款金额：200", result.text)
+                self.assertNotIn("总入款金额：300", result.text)
             finally:
                 store.close()
 
@@ -1015,11 +1015,11 @@ class BotFormattingTests(unittest.TestCase):
                 full_result = ledger_commands.handle_text(store, -1001, actor, "完整账单", {12345})
 
                 self.assertIsNotNone(result)
-                self.assertIn("总入款金额：50.00", result.text)
-                self.assertNotIn("总入款金额：150.00", result.text)
+                self.assertIn("总入款金额：50", result.text)
+                self.assertNotIn("总入款金额：150", result.text)
                 self.assertIsNotNone(full_result)
-                self.assertIn("总入款金额：50.00", full_result.text)
-                self.assertNotIn("总入款金额：150.00", full_result.text)
+                self.assertIn("总入款金额：50", full_result.text)
+                self.assertNotIn("总入款金额：150", full_result.text)
             finally:
                 store.close()
 
@@ -1120,7 +1120,7 @@ class BotFormattingTests(unittest.TestCase):
                 result = ledger_commands.handle_text(store, -1001, guest, "+100", {12345})
 
                 self.assertIsNotNone(result)
-                self.assertIn("总入款金额：100.00", result.text)
+                self.assertIn("总入款金额：100", result.text)
             finally:
                 store.close()
 
