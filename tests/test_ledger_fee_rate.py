@@ -298,7 +298,7 @@ def test_historical_bill_does_not_recalculate_after_fee_change(tmp_path):
         store.close()
 
 
-def test_legacy_data_migrates_with_zero_fee(tmp_path):
+def test_legacy_data_migrates_with_zero_fee(tmp_path, monkeypatch):
     db_path = tmp_path / "ledger.sqlite3"
     conn = sqlite3.connect(db_path)
     conn.executescript(
@@ -336,6 +336,7 @@ def test_legacy_data_migrates_with_zero_fee(tmp_path):
     store = LedgerStore(db_path)
     try:
         entry = store.entries(-1001)[0]
+        monkeypatch.setattr(store, "current_accounting_date", lambda chat_id: entry.accounting_date)
         bill = ledger_commands.handle_text(store, -1001, actor(), "完整账单", {12345})
 
         assert entry.fee_percent == Decimal("0.0000")

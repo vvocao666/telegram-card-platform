@@ -49,6 +49,8 @@ HELP_TEXT = """【记账】
 
 <code>账单</code>：查看总额和最近流水
 
+<code>+0</code>：查看本次日切后的完整账单，不累计历史账期
+
 <code>/使用说明</code>：查看完整功能说明
 
 <code>撤销</code>：撤销最后一笔或回复指定流水撤销
@@ -76,7 +78,8 @@ HELP_TEXT = """【记账】
 <code>查看日切</code>：查看当前群日切时间和下次日切时间
 
 日切后会自动开始新的当前账期。
-历史流水不会删除。
+今日账单和 +0 只统计当前账期，昨日账单查询上一账期。
+历史流水保留归档，不再累计到当前账单。
 修改日切只影响后续账期，不重算历史账单。
 所有日切时间均为北京时间。
 
@@ -459,7 +462,7 @@ def _reply_entry_number(text: str) -> int | None:
 
 
 def _entries_for_scope(store: LedgerStore, chat_id: int, scope: str) -> list[LedgerEntry]:
-    if scope == "today":
+    if scope in {"today", "full"}:
         return store.entries(chat_id, accounting_date=store.current_accounting_date(chat_id))
     if scope == "yesterday":
         return store.entries(chat_id, accounting_date=store.previous_accounting_date(chat_id))

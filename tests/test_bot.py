@@ -1018,7 +1018,8 @@ class BotFormattingTests(unittest.TestCase):
                 self.assertIn("总入款金额：50.00", result.text)
                 self.assertNotIn("总入款金额：150.00", result.text)
                 self.assertIsNotNone(full_result)
-                self.assertIn("总入款金额：150.00", full_result.text)
+                self.assertIn("总入款金额：50.00", full_result.text)
+                self.assertNotIn("总入款金额：150.00", full_result.text)
             finally:
                 store.close()
 
