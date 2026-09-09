@@ -261,7 +261,6 @@ def handle_text(
 
     if normalized in {"撤销", "撤销账单", "回滚", "/undo"}:
         entry = store.entry_for_source_message(chat_id, reply_message_id) if reply_message_id is not None else None
-        entry_number = store.active_entry_number(chat_id, entry.id) if entry is not None else None
         if entry is None:
             entry_number = _reply_entry_number(reply_text or "")
             if entry_number is None:
@@ -272,10 +271,7 @@ def handle_text(
             entry = store.void_entry(chat_id, entry.id)
         if entry is None:
             return CommandResult("没有找到这笔可撤销流水。")
-        return CommandResult(
-            f"已撤销：{format_entry(store, chat_id, entry, number=entry_number)}\n\n{format_bill(store, chat_id)}",
-            changed=True,
-        )
+        return CommandResult(format_bill(store, chat_id), changed=True)
 
     if normalized in {"清账", "清空", "清空账单", "清除账单", "/clear"}:
         if not _can_operate(store, chat_id, actor.user_id, owner_ids):

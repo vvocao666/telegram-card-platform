@@ -233,6 +233,7 @@ def test_long_full_bill_and_mode_toggle_send_every_row_in_chunks(monkeypatch, tm
         assert "\n".join(text for text, _ in sent) == bill
         assert sent[0][1]["reply_markup"] is not None
         assert all(kwargs["reply_markup"] is None for _, kwargs in sent[1:])
+        assert all(kwargs["do_quote"] is False for _, kwargs in sent)
 
         sent.clear()
         query = FakeQuery("ledger:view:detailed:full")
@@ -240,6 +241,7 @@ def test_long_full_bill_and_mode_toggle_send_every_row_in_chunks(monkeypatch, tm
         asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=query), object()))
         assert len(query.edits[0][0]) <= 4096
         assert sent
+        assert all(kwargs["do_quote"] is False for _, kwargs in sent)
         combined = "\n".join([query.edits[0][0], *(text for text, _ in sent)])
         expected = ledger_commands.format_bill(store, -1001, scope="full", show_all_records=True)
         assert combined == expected

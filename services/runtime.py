@@ -2353,6 +2353,7 @@ async def reply_ledger(message, text: str) -> None:
     for index, chunk in enumerate(split_html_message(text)):
         await message.reply_text(
             chunk,
+            do_quote=False,
             reply_markup=ledger_keyboard(scope, view_mode) if index == 0 else None,
             parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
@@ -2462,6 +2463,7 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
         for chunk in chunks[1:]:
             await query.message.reply_text(
                 chunk,
+                do_quote=False,
                 parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             )
