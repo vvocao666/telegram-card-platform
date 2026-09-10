@@ -57,9 +57,17 @@ async def start_cleanup_menu(update, context):
     if not is_owner_update(update):
         await update.message.reply_text("只有机器人主人可以使用 /del。", do_quote=False)
         return
-    groups = [dict(row) for row in runtime.ledger_store.list_active_bot_groups()]
+    context.user_data.pop("cleanup_selection", None)
+    groups = []
+    for row in runtime.ledger_store.list_active_bot_groups():
+        try:
+            member = await context.bot.get_chat_member(int(row["chat_id"]), context.bot.id)
+        except TelegramError:
+            continue
+        if can_delete_group_messages(member, row["chat_type"]):
+            groups.append(dict(row))
     if not groups:
-        await update.message.reply_text("还没有记录到群。请先让机器人加入群，并让群里产生一条消息。", do_quote=False)
+        await update.message.reply_text("目前没有可显示的群，请确认机器人已加入群并具有管理员删除消息权限。", do_quote=False)
         return
     state = {"token": secrets.token_hex(4), "groups": groups, "selected": set(), "page": 0, "stage": "select"}
     sent = await update.message.reply_text(selection_text(state), reply_markup=selection_keyboard(state), do_quote=False)
