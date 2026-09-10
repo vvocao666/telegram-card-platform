@@ -17,6 +17,20 @@ UpdatePredicate = Callable[[Update | None], bool]
 BroadcastTextExtractor = Callable[[str, str], str]
 
 
+def group_selection_keyboard(groups, selected: set[int], prefix: str) -> InlineKeyboardMarkup:
+    rows = []
+    for row in groups:
+        chat_id = int(row["chat_id"])
+        title = row["title"] or str(chat_id)
+        mark = "√" if chat_id in selected else "□"
+        rows.append([InlineKeyboardButton(f"{mark} {title}", callback_data=f"{prefix}:toggle:{chat_id}")])
+    rows.append([
+        InlineKeyboardButton("下一步", callback_data=f"{prefix}:next"),
+        InlineKeyboardButton("取消", callback_data=f"{prefix}:cancel"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
 @dataclass(slots=True)
 class BroadcastController:
     """封装 owner 私聊群广播流程，选择状态保存在 Telegram context 中。"""
@@ -28,20 +42,9 @@ class BroadcastController:
     logger: logging.Logger
 
     def group_keyboard(self, selected: set[int] | None = None) -> InlineKeyboardMarkup:
-        selected = selected or set()
-        rows: list[list[InlineKeyboardButton]] = []
-        for row in self.ledger_store.list_active_bot_groups():
-            chat_id = int(row["chat_id"])
-            title = row["title"] or str(chat_id)
-            prefix = "√" if chat_id in selected else "□"
-            rows.append([InlineKeyboardButton(f"{prefix} {title}", callback_data=f"broadcast:toggle:{chat_id}")])
-        rows.append(
-            [
-                InlineKeyboardButton("下一步", callback_data="broadcast:next"),
-                InlineKeyboardButton("取消", callback_data="broadcast:cancel"),
-            ]
+        return group_selection_keyboard(
+            self.ledger_store.list_active_bot_groups(), selected or set(), "broadcast",
         )
-        return InlineKeyboardMarkup(rows)
 
     def selected_titles(self, selected: set[int]) -> list[str]:
         groups = {

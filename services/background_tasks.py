@@ -61,6 +61,8 @@ async def stop_managed_background_tasks(
     await _cancel_task(app.bot_data.pop("server_file_cleanup_task", None))
     await _cancel_task(app.bot_data.pop("remote_ocr_probe_task", None))
     await _cancel_task(app.bot_data.pop("daily_ocr_stats_task", None))
+    for task in list(app.bot_data.pop("private_message_cleanup_tasks", {}).values()):
+        await _cancel_task(task)
     for task in list(app.bot_data.pop("group_message_cleanup_tasks", {}).values()):
         await _cancel_task(task)
     for callback in close_callbacks:

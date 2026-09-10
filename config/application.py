@@ -4,9 +4,9 @@ from collections.abc import Callable
 from typing import Any
 
 from telegram.ext import Application
-from telegram.request import HTTPXRequest
 
 from config.settings import load_settings
+from services.group.message_positions import GroupMessagePositions, PositionTrackingRequest
 
 
 def build_telegram_application(
@@ -29,14 +29,17 @@ def build_telegram_application(
     if settings.proxy_url:
         request_kwargs["proxy_url"] = settings.proxy_url
 
+    positions = GroupMessagePositions(settings.ledger_db_path.with_suffix(".message-positions.sqlite3"))
+
     app = (
         Application.builder()
         .token(settings.bot_token)
-        .request(HTTPXRequest(**request_kwargs))
-        .get_updates_request(HTTPXRequest(**request_kwargs))
+        .request(PositionTrackingRequest(positions=positions, **request_kwargs))
+        .get_updates_request(PositionTrackingRequest(positions=positions, **request_kwargs))
         .post_init(post_init)
         .post_shutdown(post_shutdown)
         .build()
     )
+    app.bot_data["group_message_positions"] = positions
     register_handlers(app)
     return app

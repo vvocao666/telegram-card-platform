@@ -34,6 +34,7 @@ from handlers.broadcast_handler import (
 )
 from handlers.card_ocr_handler import handle_photo
 from handlers.message_cleanup_handler import delete_group_messages_command
+from handlers.message_cleanup_menu import handle_cleanup_callback
 from handlers.ocr_stats_handler import group_daily_ocr_stats_command
 from handlers.ledger_handler import (
     handle_bot_chat_member,
@@ -56,6 +57,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("id", show_id))
     app.add_handler(CommandHandler("version", show_version))
     app.add_handler(CommandHandler("del", delete_group_messages_command))
+    app.add_handler(CallbackQueryHandler(handle_cleanup_callback, pattern=r"^cleanup:"))
     app.add_handler(CommandHandler("ocr_debug", ocr_debug_command))
     app.add_handler(CommandHandler("ocr_candidates", ocr_candidates_command))
     app.add_handler(CommandHandler("ocr_font_stats", ocr_font_stats_command))
