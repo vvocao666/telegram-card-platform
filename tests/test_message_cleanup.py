@@ -97,6 +97,8 @@ def test_unauthorized_requests_never_delete(monkeypatch, options):
     asyncio.run(handler.delete_group_messages_command(update, context))
     context.bot.delete_messages.assert_not_called()
     assert not context.bot_data.get("group_message_cleanup_tasks")
+    if "status" in options or "can_delete" in options:
+        update.message.reply_text.assert_not_awaited()
 
 
 @pytest.mark.parametrize("invalid", ["anonymous", "args", "old", "permission_lookup_failed"])

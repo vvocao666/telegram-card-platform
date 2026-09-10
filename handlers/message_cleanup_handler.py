@@ -80,6 +80,5 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
         await message.reply_text("暂时无法确认机器人权限，未开始清理，请稍后重试。", do_quote=False)
         return
     if not can_delete_group_messages(member, chat.type):
-        await message.reply_text("请先将机器人设为管理员，并开启“删除消息”权限。", do_quote=False)
         return
     enqueue_group_cleanup(context, chat.id, chat.type, context.chat_data, message.message_id, message)
