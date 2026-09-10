@@ -34,7 +34,7 @@ def build_telegram_application(
     app = (
         Application.builder()
         .token(settings.bot_token)
-        .request(PositionTrackingRequest(positions=positions, **request_kwargs))
+        .request(PositionTrackingRequest(positions=positions, connection_pool_size=8, **request_kwargs))
         .get_updates_request(PositionTrackingRequest(positions=positions, **request_kwargs))
         .post_init(post_init)
         .post_shutdown(post_shutdown)

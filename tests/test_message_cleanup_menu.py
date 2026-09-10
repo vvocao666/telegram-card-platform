@@ -321,3 +321,4 @@ def test_application_tracks_polling_and_outgoing_messages(monkeypatch, tmp_path)
     assert isinstance(app.bot.request, PositionTrackingRequest)
     assert all(isinstance(r, PositionTrackingRequest) for r in app.bot._request)
     assert all(r.positions is app.bot_data["group_message_positions"] for r in app.bot._request)
+    assert app.bot.request._client_kwargs["limits"].max_connections >= 5
