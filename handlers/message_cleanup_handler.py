@@ -33,7 +33,11 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
         await message.reply_text("这条 /del 已过期，请重新发送。", do_quote=False)
         return
     tasks = context.bot_data.setdefault("group_message_cleanup_tasks", {})
+    logger.info("Group cleanup request active=%s message_id=%s", chat.id in tasks, message.message_id)
     if chat.id in tasks:
+        context.chat_data["message_cleanup_requested_through"] = max(
+            context.chat_data["message_cleanup_requested_through"], message.message_id,
+        )
         return
     try:
         member = await context.bot.get_chat_member(chat.id, context.bot.id)
@@ -44,13 +48,18 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
         await message.reply_text("请先将机器人设为管理员，并开启“删除消息”权限。", do_quote=False)
         return
     first_id = context.chat_data.get("message_cleanup_completed_through", 0) + 1
+    context.chat_data["message_cleanup_requested_through"] = message.message_id
 
     async def run_cleanup() -> None:
         try:
-            await delete_message_range(context.bot, chat.id, chat.type, first_id, message.message_id)
-            context.chat_data["message_cleanup_completed_through"] = message.message_id
-        except TelegramError:
-            logger.warning("Group message cleanup interrupted by Telegram API")
+            completed_id = await delete_message_range(
+                context.bot, chat.id, chat.type, first_id, message.message_id,
+                lambda: context.chat_data["message_cleanup_requested_through"],
+            )
+            context.chat_data["message_cleanup_completed_through"] = completed_id
+            logger.info("Group cleanup completed through message_id=%s", completed_id)
+        except TelegramError as exc:
+            logger.warning("Group message cleanup interrupted by Telegram API: %s", type(exc).__name__)
             try:
                 await message.reply_text(
                     "清理中断，部分消息可能已删除；请检查机器人权限及网络后重新发送 /del。",
@@ -60,5 +69,6 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
                 logger.warning("Could not send group message cleanup failure notice")
         finally:
             tasks.pop(chat.id, None)
+            context.chat_data.pop("message_cleanup_requested_through", None)
 
     tasks[chat.id] = asyncio.create_task(run_cleanup())

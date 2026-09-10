@@ -177,6 +177,39 @@ def test_duplicate_command_does_not_start_second_task_and_shutdown_cancels(monke
     asyncio.run(run())
 
 
+def test_new_del_during_scan_cleans_new_messages_before_older_history(monkeypatch, no_wait):
+    context, update, _ = context_and_update(monkeypatch)
+    first_batch_started = asyncio.Event()
+    continue_scan = asyncio.Event()
+    batches = []
+
+    async def delete_messages(*, chat_id, message_ids):
+        batches.append(message_ids)
+        if len(batches) == 1:
+            first_batch_started.set()
+            await continue_scan.wait()
+
+    context.bot.delete_messages = AsyncMock(side_effect=delete_messages)
+
+    async def run():
+        await handler.delete_group_messages_command(update, context)
+        task = context.bot_data["group_message_cleanup_tasks"][update.effective_chat.id]
+        await first_batch_started.wait()
+        second = SimpleNamespace(
+            message=SimpleNamespace(**vars(update.message)), effective_chat=update.effective_chat,
+        )
+        second.message.message_id = 210
+        await handler.delete_group_messages_command(second, context)
+        continue_scan.set()
+        await task
+        assert context.chat_data["message_cleanup_completed_through"] == 210
+
+    asyncio.run(run())
+    assert batches[1] == [210, 209, 208, 207, 206]
+    assert batches[2] == list(range(105, 5, -1))
+    update.message.reply_text.assert_not_awaited()
+
+
 def test_del_registration_routes_bot_suffix_and_rejects_other_bot():
     handlers = []
     app = SimpleNamespace(add_handler=lambda item, group=0: handlers.append(item))

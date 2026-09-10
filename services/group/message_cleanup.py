@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import timedelta
 
 from telegram.error import BadRequest, RetryAfter
@@ -13,7 +14,10 @@ def can_delete_group_messages(member, chat_type: str) -> bool:
     )
 
 
-async def delete_message_range(bot, chat_id: int, chat_type: str, first_id: int, last_id: int) -> None:
+async def delete_message_range(
+    bot, chat_id: int, chat_type: str, first_id: int, last_id: int,
+    latest_message_id: Callable[[], int] | None = None,
+) -> int:
     """Telegram enforces the 48-hour limit; never infer message age from a failed ID."""
     async def delete_batch(ids: list[int]) -> None:
         while True:
@@ -42,5 +46,14 @@ async def delete_message_range(bot, chat_id: int, chat_type: str, first_id: int,
 
     # ponytail: without a history API, the first pass scans IDs; completed passes
     # can be skipped by the caller. Do not stop on gaps or undeletable service messages.
-    for end in range(last_id, first_id - 1, -100):
+    end = last_id
+    while True:
+        requested_id = latest_message_id() if latest_message_id else last_id
+        if requested_id > last_id:
+            await delete_message_range(bot, chat_id, chat_type, last_id + 1, requested_id)
+            last_id = requested_id
+            continue
+        if end < first_id:
+            return last_id
         await delete_batch(list(range(end, max(first_id - 1, end - 100), -1)))
+        end -= 100
