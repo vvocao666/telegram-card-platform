@@ -34,7 +34,6 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
         return
     tasks = context.bot_data.setdefault("group_message_cleanup_tasks", {})
     if chat.id in tasks:
-        await message.reply_text("本群正在清理，请等待完成。", do_quote=False)
         return
     try:
         member = await context.bot.get_chat_member(chat.id, context.bot.id)
@@ -44,24 +43,22 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
     if not can_delete_group_messages(member, chat.type):
         await message.reply_text("请先将机器人设为管理员，并开启“删除消息”权限。", do_quote=False)
         return
-    status = await message.reply_text(
-        "正在清理本群未满 48 小时的可删除消息；历史记录较多时需要等待。", do_quote=False
-    )
     first_id = context.chat_data.get("message_cleanup_completed_through", 0) + 1
 
     async def run_cleanup() -> None:
         try:
             await delete_message_range(context.bot, chat.id, chat.type, first_id, message.message_id)
             context.chat_data["message_cleanup_completed_through"] = message.message_id
-            result = "本次清理完成。超过 48 小时、不可删除的系统消息及清理开始后的新消息会保留。"
         except TelegramError:
             logger.warning("Group message cleanup interrupted by Telegram API")
-            result = "清理中断，部分消息可能已删除；请检查机器人权限及网络后重新发送 /del。"
+            try:
+                await message.reply_text(
+                    "清理中断，部分消息可能已删除；请检查机器人权限及网络后重新发送 /del。",
+                    do_quote=False,
+                )
+            except TelegramError:
+                logger.warning("Could not send group message cleanup failure notice")
         finally:
             tasks.pop(chat.id, None)
-        try:
-            await status.edit_text(result)
-        except TelegramError:
-            logger.warning("Could not update group message cleanup status")
 
     tasks[chat.id] = asyncio.create_task(run_cleanup())

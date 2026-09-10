@@ -120,6 +120,7 @@ def test_owner_command_batches_current_chat_and_remembers_completed_range(monkey
 
     async def run():
         await handler.delete_group_messages_command(update, context)
+        update.message.reply_text.assert_not_awaited()
         await context.bot_data["group_message_cleanup_tasks"][update.effective_chat.id]
         assert context.chat_data["message_cleanup_completed_through"] == 205
         assert not context.bot_data["group_message_cleanup_tasks"]
@@ -131,8 +132,8 @@ def test_owner_command_batches_current_chat_and_remembers_completed_range(monkey
     batches = [call.kwargs["message_ids"] for call in context.bot.delete_messages.await_args_list]
     assert batches == [list(range(205, 105, -1)), list(range(105, 5, -1)), [5, 4, 3, 2, 1], [207, 206]]
     assert all(call.kwargs["chat_id"] == update.effective_chat.id for call in context.bot.delete_messages.await_args_list)
-    assert "清理完成" in status.edit_text.await_args.args[0]
-    assert update.message.reply_text.await_args.kwargs["do_quote"] is False
+    status.edit_text.assert_not_awaited()
+    update.message.reply_text.assert_not_awaited()
 
 
 def test_failure_reports_partial_cleanup_and_allows_retry(monkeypatch, no_wait):
@@ -146,7 +147,9 @@ def test_failure_reports_partial_cleanup_and_allows_retry(monkeypatch, no_wait):
     asyncio.run(run())
     assert not context.chat_data
     assert not context.bot_data["group_message_cleanup_tasks"]
-    assert "清理中断" in status.edit_text.await_args.args[0]
+    assert "清理中断" in update.message.reply_text.await_args.args[0]
+    assert update.message.reply_text.await_args.kwargs["do_quote"] is False
+    status.edit_text.assert_not_awaited()
 
 
 def test_duplicate_command_does_not_start_second_task_and_shutdown_cancels(monkeypatch):
@@ -166,7 +169,7 @@ def test_duplicate_command_does_not_start_second_task_and_shutdown_cancels(monke
         await started.wait()
         await handler.delete_group_messages_command(update, context)
         assert context.bot_data["group_message_cleanup_tasks"][update.effective_chat.id] is task
-        assert "正在清理" in update.message.reply_text.await_args.args[0]
+        update.message.reply_text.assert_not_awaited()
         await stop_managed_background_tasks(SimpleNamespace(bot_data=context.bot_data))
         assert task.cancelled()
         assert not context.chat_data
