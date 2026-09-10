@@ -44,4 +44,3 @@ async def delete_message_range(bot, chat_id: int, chat_type: str, first_id: int,
     # can be skipped by the caller. Do not stop on gaps or undeletable service messages.
     for end in range(last_id, first_id - 1, -100):
         await delete_batch(list(range(end, max(first_id - 1, end - 100), -1)))
-

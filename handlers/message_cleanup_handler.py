@@ -65,4 +65,3 @@ async def delete_group_messages_command(update: Update, context: ContextTypes.DE
             logger.warning("Could not update group message cleanup status")
 
     tasks[chat.id] = asyncio.create_task(run_cleanup())
-
