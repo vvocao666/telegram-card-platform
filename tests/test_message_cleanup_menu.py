@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from telegram.error import Forbidden, TimedOut
+from telegram.error import Forbidden, RetryAfter, TimedOut
 from telegram.request import HTTPXRequest
 
 import handlers.message_cleanup_menu as menu
@@ -30,7 +30,7 @@ def setup_menu(monkeypatch, tmp_path, count=3):
         bot=bot, bot_data={"group_message_positions": positions}, user_data={}, args=[],
         application=SimpleNamespace(chat_data=defaultdict(dict)),
     )
-    sent = SimpleNamespace(message_id=50)
+    sent = SimpleNamespace(message_id=50, edit_text=AsyncMock())
     message = SimpleNamespace(reply_text=AsyncMock(return_value=sent))
     query = SimpleNamespace(message=sent, data="", answer=AsyncMock(), edit_message_text=AsyncMock())
     update = SimpleNamespace(message=message, effective_chat=SimpleNamespace(type="private"), callback_query=query)
@@ -72,8 +72,8 @@ def test_menu_without_eligible_groups_invalidates_previous_selection(monkeypatch
     asyncio.run(menu.start_cleanup_menu(update, context))
 
     assert "cleanup_selection" not in context.user_data
-    assert "目前没有可显示的群" in update.message.reply_text.await_args.args[0]
-    assert "reply_markup" not in update.message.reply_text.await_args.kwargs
+    assert "目前没有可显示的群" in update.callback_query.message.edit_text.await_args.args[0]
+    assert "reply_markup" not in update.callback_query.message.edit_text.await_args.kwargs
     context.bot.delete_messages.assert_not_awaited()
 
 
@@ -91,6 +91,71 @@ def test_menu_rechecks_permission_before_deleting(monkeypatch, tmp_path):
     asyncio.run(run())
     context.bot.delete_messages.assert_not_awaited()
     assert "完成 0 个群" in update.callback_query.edit_message_text.await_args.args[0]
+
+
+def test_menu_acknowledges_before_bounded_parallel_permission_checks(monkeypatch, tmp_path):
+    context, update, groups = setup_menu(monkeypatch, tmp_path, count=107)
+    active = peak = 0
+
+    async def check(chat_id, bot_id):
+        nonlocal active, peak
+        update.message.reply_text.assert_awaited_once()
+        assert "正在加载" in update.message.reply_text.await_args.args[0]
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return SimpleNamespace(status="administrator", can_delete_messages=True)
+
+    context.bot.get_chat_member.side_effect = check
+    asyncio.run(menu.start_cleanup_menu(update, context))
+
+    assert peak == 5
+    assert active == 0
+    assert context.user_data["cleanup_selection"]["groups"] == groups
+    update.callback_query.message.edit_text.assert_awaited_once()
+    context.bot.delete_messages.assert_not_awaited()
+
+
+@pytest.mark.parametrize("timeout_scope", ["single", "menu"])
+def test_menu_timeout_keeps_verified_groups_and_cancels_pending_queries(monkeypatch, tmp_path, timeout_scope):
+    context, update, groups = setup_menu(monkeypatch, tmp_path)
+    monkeypatch.setattr(menu, "PERMISSION_QUERY_TIMEOUT" if timeout_scope == "single" else "MENU_LOAD_TIMEOUT", 0.02)
+    active = 0
+
+    async def check(chat_id, bot_id):
+        nonlocal active
+        if chat_id == groups[0]["chat_id"]:
+            return SimpleNamespace(status="administrator", can_delete_messages=True)
+        active += 1
+        try:
+            await asyncio.Event().wait()
+        finally:
+            active -= 1
+
+    context.bot.get_chat_member.side_effect = check
+    asyncio.run(menu.start_cleanup_menu(update, context))
+
+    assert active == 0
+    assert context.user_data["cleanup_selection"]["groups"] == groups[:1]
+    context.bot.delete_messages.assert_not_awaited()
+
+
+def test_permission_rate_limit_stops_queued_queries_and_repeated_commands(monkeypatch, tmp_path):
+    context, update, _ = setup_menu(monkeypatch, tmp_path, count=30)
+    context.bot.get_chat_member.side_effect = RetryAfter(30)
+
+    async def run():
+        await menu.start_cleanup_menu(update, context)
+        count = context.bot.get_chat_member.await_count
+        assert count <= 5
+        assert "cleanup_selection" not in context.user_data
+        await menu.start_cleanup_menu(update, context)
+        assert context.bot.get_chat_member.await_count == count
+        assert "暂受限" in update.message.reply_text.await_args.args[0]
+
+    asyncio.run(run())
+    context.bot.delete_messages.assert_not_awaited()
 
 
 def test_menu_multiselect_cancel_and_broadcast_state_are_independent(monkeypatch, tmp_path):

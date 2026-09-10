@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import TelegramError
+from telegram.error import RetryAfter, TelegramError
 
 from handlers.admin_handler import is_owner_update
 from handlers.message_cleanup_handler import enqueue_group_cleanup
@@ -16,6 +17,8 @@ from services.group.message_cleanup import can_delete_group_messages
 
 logger = logging.getLogger(__name__)
 PAGE_SIZE = 20
+PERMISSION_QUERY_TIMEOUT = 8
+MENU_LOAD_TIMEOUT = 20
 
 
 def selection_keyboard(state):
@@ -58,19 +61,53 @@ async def start_cleanup_menu(update, context):
         await update.message.reply_text("只有机器人主人可以使用 /del。", do_quote=False)
         return
     context.user_data.pop("cleanup_selection", None)
-    groups = []
-    for row in runtime.ledger_store.list_active_bot_groups():
-        try:
-            member = await context.bot.get_chat_member(int(row["chat_id"]), context.bot.id)
-        except TelegramError:
-            continue
-        if can_delete_group_messages(member, row["chat_type"]):
-            groups.append(dict(row))
+    if context.bot_data.get("cleanup_permission_retry_at", 0) > time.monotonic():
+        await update.message.reply_text("群权限查询暂受限，请稍后重新发送 /del。", do_quote=False)
+        return
+    sent = await update.message.reply_text("正在加载可清理的群列表……", do_quote=False)
+    candidates = [dict(row) for row in runtime.ledger_store.list_active_bot_groups()]
+    eligible = set()
+    semaphore = asyncio.Semaphore(5)
+    interrupted = False
+
+    async def check_permission(index, row):
+        nonlocal interrupted
+        async with semaphore:
+            if context.bot_data.get("cleanup_permission_retry_at", 0) > time.monotonic():
+                return
+            try:
+                member = await asyncio.wait_for(
+                    context.bot.get_chat_member(int(row["chat_id"]), context.bot.id),
+                    PERMISSION_QUERY_TIMEOUT,
+                )
+            except RetryAfter as exc:
+                delay = exc.retry_after
+                seconds = delay.total_seconds() if hasattr(delay, "total_seconds") else delay
+                context.bot_data["cleanup_permission_retry_at"] = max(
+                    context.bot_data.get("cleanup_permission_retry_at", 0), time.monotonic() + seconds,
+                )
+                interrupted = True
+                return
+            except (TelegramError, asyncio.TimeoutError):
+                return
+            if can_delete_group_messages(member, row["chat_type"]):
+                eligible.add(index)
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(check_permission(i, row) for i, row in enumerate(candidates))),
+            MENU_LOAD_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        interrupted = True
+    groups = [row for i, row in enumerate(candidates) if i in eligible]
+    logger.info("Cleanup menu permissions checked candidates=%s eligible=%s interrupted=%s", len(candidates), len(groups), interrupted)
+    notice = "\n部分群权限尚未确认，请稍后重新发送 /del 刷新。" if interrupted else ""
     if not groups:
-        await update.message.reply_text("目前没有可显示的群，请确认机器人已加入群并具有管理员删除消息权限。", do_quote=False)
+        await sent.edit_text("目前没有可显示的群，请确认机器人已加入群并具有管理员删除消息权限。" + notice)
         return
     state = {"token": secrets.token_hex(4), "groups": groups, "selected": set(), "page": 0, "stage": "select"}
-    sent = await update.message.reply_text(selection_text(state), reply_markup=selection_keyboard(state), do_quote=False)
+    await sent.edit_text(selection_text(state) + notice, reply_markup=selection_keyboard(state))
     state["message_id"] = sent.message_id
     context.user_data["cleanup_selection"] = state
 
