@@ -387,11 +387,12 @@ class LedgerStore:
         row = self.conn.execute("SELECT recognition_enabled FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
         return bool(row["recognition_enabled"])
 
-    def set_recognition_enabled(self, chat_id: int, enabled: bool) -> None:
+    def set_recognition_enabled(self, chat_id: int, enabled: bool, *, silent: bool = False) -> None:
         self.ensure_chat(chat_id)
         self.conn.execute(
-            "UPDATE chat_settings SET recognition_enabled = ? WHERE chat_id = ?",
-            (1 if enabled else 0, chat_id),
+            "UPDATE chat_settings SET recognition_enabled = ?, "
+            "class_notice_pending = CASE WHEN ? THEN 0 ELSE class_notice_pending END WHERE chat_id = ?",
+            (1 if enabled else 0, silent, chat_id),
         )
         self.conn.commit()
 

@@ -36,6 +36,7 @@ from handlers.card_ocr_handler import handle_photo
 from handlers.message_cleanup_handler import delete_group_messages_command
 from handlers.message_cleanup_menu import handle_cleanup_callback
 from handlers.ocr_stats_handler import group_daily_ocr_stats_command
+from handlers.recognition_menu import COMMAND_PATTERN, handle_recognition_callback, handle_recognition_command
 from handlers.ledger_handler import (
     handle_bot_chat_member,
     handle_class_mode_command,
@@ -58,6 +59,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("version", show_version))
     app.add_handler(CommandHandler("del", delete_group_messages_command))
     app.add_handler(CallbackQueryHandler(handle_cleanup_callback, pattern=r"^cleanup:"))
+    app.add_handler(CallbackQueryHandler(handle_recognition_callback, pattern=r"^recognition:"))
     app.add_handler(CommandHandler("ocr_debug", ocr_debug_command))
     app.add_handler(CommandHandler("ocr_candidates", ocr_candidates_command))
     app.add_handler(CommandHandler("ocr_font_stats", ocr_font_stats_command))
@@ -94,6 +96,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CallbackQueryHandler(handle_broadcast_callback, pattern=r"^broadcast:"))
     app.add_handler(MessageHandler(filters.Regex(r"^/使用说明(?:@\w+)?\s*$"), handle_ledger_command))
     app.add_handler(MessageHandler(filters.Regex(r"^/(?:上课|下课)(?:@\w+)?\s*$"), handle_class_mode_command), group=-2)
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.Regex(COMMAND_PATTERN), handle_recognition_command), group=-2)
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.COMMAND, handle_class_mode_notice_once), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_priority_ledger_text), group=-1)
     app.add_handler(
