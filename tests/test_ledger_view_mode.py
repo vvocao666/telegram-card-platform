@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import services.runtime as runtime
 from services.ledger import ledger_commands
@@ -153,13 +154,17 @@ def test_realtime_rate_label_persists_and_manual_rate_clears_it(tmp_path) -> Non
 class FakeQuery:
     def __init__(self, data: str) -> None:
         self.data = data
-        self.message = SimpleNamespace(chat_id=-1001)
+        self.message = SimpleNamespace(chat_id=-1001, message_id=100)
+        self.bot = SimpleNamespace(delete_message=AsyncMock(), edit_message_text=AsyncMock())
         self.from_user = SimpleNamespace(id=7, username="boss", first_name="Boss", last_name="")
         self.answered = False
         self.edits: list[tuple[str, dict]] = []
 
     async def answer(self) -> None:
         self.answered = True
+
+    def get_bot(self):
+        return self.bot
 
     async def edit_message_text(self, text: str, **kwargs) -> None:
         self.edits.append((text, kwargs))
@@ -234,8 +239,9 @@ def test_long_full_bill_and_mode_toggle_send_every_row_in_chunks(monkeypatch, tm
     async def reply_text(text, **kwargs):
         assert len(text) <= 4096
         sent.append((text, kwargs))
+        return SimpleNamespace(message_id=100 + len(sent))
 
-    message = SimpleNamespace(chat_id=-1001, reply_text=reply_text)
+    message = SimpleNamespace(chat_id=-1001, message_id=101, reply_text=reply_text)
     try:
         store.set_ledger_view_mode(-1001, "compact")
         for index in range(180):
@@ -282,7 +288,8 @@ def test_ledger_view_button_toggles_message_and_saved_mode(monkeypatch, tmp_path
         unchanged_query = FakeQuery("ledger:view:compact:today")
         asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=unchanged_query), object()))
         assert unchanged_query.answered is True
-        assert unchanged_query.edits == []
+        assert unchanged_query.edits
+        assert "最近流水：" not in unchanged_query.edits[-1][0]
 
         detailed_query = FakeQuery("ledger:view:detailed:today")
         asyncio.run(runtime.handle_ledger_callback(SimpleNamespace(callback_query=detailed_query), object()))

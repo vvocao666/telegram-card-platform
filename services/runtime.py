@@ -37,6 +37,7 @@ from services.calculator import (
     normalize_calc_expression,  # noqa: F401 - compatibility export
 )
 from services.ledger import ledger_commands
+from services.ledger.bill_messages import replace_bill, send_bill
 from services.ledger.ledger_commands import Actor as LedgerActor
 from services.ledger.ledger_commands import handle_text as handle_ledger_command_text
 from services.ledger.message_identity import actor_from_message as ledger_actor_from_message
@@ -2350,14 +2351,7 @@ def is_owner_update(update: Update | None) -> bool:
 async def reply_ledger(message, text: str) -> None:
     scope = _ledger_bill_scope(text)
     view_mode = ledger_store.get_ledger_view_mode(message.chat_id) if scope else None
-    for index, chunk in enumerate(split_html_message(text)):
-        await message.reply_text(
-            chunk,
-            do_quote=False,
-            reply_markup=ledger_keyboard(scope, view_mode) if index == 0 else None,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
+    await send_bill(message, split_html_message(text), ledger_keyboard(scope, view_mode), ledger_store)
 
 
 async def handle_ledger_text(update: Update, context: ContextTypes.DEFAULT_TYPE, allow_trc20: bool = True) -> bool:
@@ -2444,8 +2438,6 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
         if len(parts) != 4 or parts[2] not in {"compact", "detailed"} or parts[3] not in {"today", "yesterday", "full"}:
             return
         mode, scope = parts[2], parts[3]
-        if ledger_store.get_ledger_view_mode(query.message.chat_id) == mode:
-            return
         ledger_store.set_ledger_view_mode(query.message.chat_id, mode)
         bill = ledger_commands.format_bill(
             ledger_store,
@@ -2454,19 +2446,7 @@ async def handle_ledger_callback(update: Update, context: ContextTypes.DEFAULT_T
             show_all_records=mode == "detailed",
         )
         chunks = split_html_message(bill)
-        await query.edit_message_text(
-            chunks[0],
-            reply_markup=ledger_keyboard(scope, mode),
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-        for chunk in chunks[1:]:
-            await query.message.reply_text(
-                chunk,
-                do_quote=False,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
+        await replace_bill(query, chunks, ledger_keyboard(scope, mode), ledger_store)
         return
     if not text:
         return

@@ -204,6 +204,19 @@ class LedgerStore:
                 is_active INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS ledger_entry_messages (
+                chat_id INTEGER NOT NULL,
+                source_message_id INTEGER NOT NULL,
+                PRIMARY KEY (chat_id, source_message_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS ledger_bill_pages (
+                chat_id INTEGER NOT NULL,
+                root_message_id INTEGER NOT NULL,
+                page_message_id INTEGER NOT NULL,
+                PRIMARY KEY (chat_id, root_message_id, page_message_id)
+            );
             """
         )
         self._add_column_if_missing("entries", "source_message_id", "INTEGER")
@@ -220,11 +233,18 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "class_mode", "TEXT NOT NULL DEFAULT ''")
         self._add_column_if_missing("chat_settings", "class_notice_pending", "INTEGER NOT NULL DEFAULT 0")
         self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 3")
+        self._add_column_if_missing("chat_settings", "ledger_transition_at", "TEXT")
+        self._add_column_if_missing("chat_settings", "ledger_transition_current", "TEXT")
+        self._add_column_if_missing("chat_settings", "ledger_transition_previous", "TEXT")
         self._add_column_if_missing("chat_settings", "ledger_view_mode", "TEXT NOT NULL DEFAULT 'detailed'")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
         self._migrate_legacy_fee_snapshots()
         self._migrate_legacy_accounting_dates()
+        self.conn.execute(
+            "INSERT OR IGNORE INTO ledger_entry_messages SELECT chat_id, source_message_id "
+            "FROM entries WHERE source_message_id IS NOT NULL"
+        )
         self.conn.commit()
 
     def _add_column_if_missing(self, table: str, column: str, definition: str) -> None:
@@ -315,6 +335,22 @@ class LedgerStore:
             (chat_id, self._now()),
         )
         self.conn.commit()
+
+    def bill_pages(self, chat_id: int, root_message_id: int) -> list[int]:
+        return [row[0] for row in self.conn.execute(
+            "SELECT page_message_id FROM ledger_bill_pages WHERE chat_id = ? AND root_message_id = ? "
+            "ORDER BY page_message_id", (chat_id, root_message_id)
+        )]
+
+    def remember_bill_page(self, chat_id: int, root_message_id: int, page_message_id: int) -> None:
+        with self.conn:
+            self.conn.execute("INSERT OR IGNORE INTO ledger_bill_pages VALUES (?, ?, ?)",
+                              (chat_id, root_message_id, page_message_id))
+
+    def forget_bill_page(self, chat_id: int, root_message_id: int, page_message_id: int) -> None:
+        with self.conn:
+            self.conn.execute("DELETE FROM ledger_bill_pages WHERE chat_id = ? AND root_message_id = ? "
+                              "AND page_message_id = ?", (chat_id, root_message_id, page_message_id))
 
     def get_settings(self, chat_id: int) -> tuple[Decimal, Decimal]:
         self.ensure_chat(chat_id)
@@ -431,9 +467,19 @@ class LedgerStore:
         self.ensure_chat(chat_id)
         if hour < 0 or hour > 23:
             raise ValueError("日切时间必须是0到23点")
+        if self.get_ledger_reset_hour(chat_id) == hour:
+            return hour
+        now = datetime.now(LEDGER_TZ)
+        current, previous = self._accounting_periods(chat_id, now)
+        transition = None
+        if self.conn.execute("SELECT 1 FROM entries WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone():
+            transition = datetime.combine(now.date(), time(hour=hour), tzinfo=LEDGER_TZ)
+            if transition <= now:
+                transition += timedelta(days=1)
         self.conn.execute(
-            "UPDATE chat_settings SET ledger_reset_hour = ? WHERE chat_id = ?",
-            (hour, chat_id),
+            "UPDATE chat_settings SET ledger_reset_hour = ?, ledger_transition_at = ?, "
+            "ledger_transition_current = ?, ledger_transition_previous = ? WHERE chat_id = ?",
+            (hour, transition.isoformat() if transition else None, current, previous, chat_id),
         )
         self.conn.commit()
         return hour
@@ -455,11 +501,27 @@ class LedgerStore:
         return (local_time - timedelta(hours=cutoff)).date().isoformat()
 
     def current_accounting_date(self, chat_id: int) -> str:
-        return self.accounting_date_for(reset_hour=self.get_ledger_reset_hour(chat_id))
+        return self._accounting_periods(chat_id)[0]
 
     def previous_accounting_date(self, chat_id: int) -> str:
-        current = datetime.fromisoformat(self.current_accounting_date(chat_id)).date()
-        return (current - timedelta(days=1)).isoformat()
+        return self._accounting_periods(chat_id)[1]
+
+    def _accounting_periods(self, chat_id: int, now: datetime | None = None) -> tuple[str, str]:
+        self.ensure_chat(chat_id)
+        now = now or datetime.now(LEDGER_TZ)
+        row = self.conn.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
+        current = self.accounting_date_for(now.isoformat(), int(row["ledger_reset_hour"]))
+        previous = (datetime.fromisoformat(current).date() - timedelta(days=1)).isoformat()
+        if row["ledger_transition_at"]:
+            boundary = datetime.fromisoformat(row["ledger_transition_at"])
+            if now < boundary:
+                return row["ledger_transition_current"], row["ledger_transition_previous"]
+            # The first new period may share a date with the old one; use its full start time.
+            if now < boundary + timedelta(days=1):
+                return boundary.isoformat(), row["ledger_transition_current"]
+            if now < boundary + timedelta(days=2):
+                return current, boundary.isoformat()
+        return current, previous
 
     def next_cutoff_at(self, chat_id: int, now: datetime | None = None) -> datetime:
         cutoff_hour = self.get_ledger_reset_hour(chat_id)
@@ -604,7 +666,7 @@ class LedgerStore:
         operator_id: int,
         operator_name: str,
         source_message_id: int | None = None,
-    ) -> LedgerEntry:
+    ) -> LedgerEntry | None:
         if kind not in {"income", "payout"}:
             raise ValueError("kind must be income or payout")
         amount_value = money(amount)
@@ -625,36 +687,43 @@ class LedgerStore:
             payable_usdt = money(amount_value)
             net = amount_value
         now = self._now()
-        accounting_date = self.accounting_date_for(now, self.get_ledger_reset_hour(chat_id))
-        cursor = self.conn.execute(
-            """
-            INSERT INTO entries (
-                chat_id, kind, amount, currency, rate, fee_percent, fee_amount,
-                payable_amount, payable_usdt, net_amount, note,
-                operator_id, operator_name, accounting_date, created_at, source_message_id
+        accounting_date = self._accounting_periods(chat_id, datetime.fromisoformat(now))[0]
+        with self.conn:
+            if source_message_id is not None:
+                receipt = self.conn.execute(
+                    "INSERT OR IGNORE INTO ledger_entry_messages VALUES (?, ?)",
+                    (chat_id, source_message_id),
+                )
+                if receipt.rowcount == 0:
+                    return None
+            cursor = self.conn.execute(
+                """
+                INSERT INTO entries (
+                    chat_id, kind, amount, currency, rate, fee_percent, fee_amount,
+                    payable_amount, payable_usdt, net_amount, note,
+                    operator_id, operator_name, accounting_date, created_at, source_message_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    chat_id,
+                    kind,
+                    str(amount_value),
+                    currency.upper(),
+                    str(current_rate),
+                    str(fee_percent),
+                    str(fee_amount),
+                    str(payable_amount),
+                    str(payable_usdt),
+                    str(money(net)),
+                    note,
+                    operator_id,
+                    operator_name,
+                    accounting_date,
+                    now,
+                    source_message_id,
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                chat_id,
-                kind,
-                str(amount_value),
-                currency.upper(),
-                str(current_rate),
-                str(fee_percent),
-                str(fee_amount),
-                str(payable_amount),
-                str(payable_usdt),
-                str(money(net)),
-                note,
-                operator_id,
-                operator_name,
-                accounting_date,
-                now,
-                source_message_id,
-            ),
-        )
-        self.conn.commit()
         return self.get_entry(int(cursor.lastrowid))
 
     def get_entry(self, entry_id: int) -> LedgerEntry:

@@ -155,7 +155,7 @@ def handle_text(
                 [
                     f"✅ 当前群日切时间已设置为：每天 {hour:02d}:00",
                     "",
-                    "当前账期不回溯修改。",
+                    "当前流水保留到下次日切，再开启新账期。",
                     f"下一次日切时间：{store.next_cutoff_at(chat_id).strftime('%Y-%m-%d %H:%M')}（北京时间）",
                 ]
             ),
@@ -293,6 +293,8 @@ def handle_text(
             )
         except ValueError as exc:
             return CommandResult(str(exc))
+        if entry is None:
+            return CommandResult("")
         return CommandResult(format_bill(store, chat_id), changed=True)
 
     return None
@@ -479,7 +481,7 @@ def _bill_title(scope: str) -> str:
 def _format_cutoff_status(store: LedgerStore, chat_id: int, hour: int | None = None) -> str:
     cutoff_hour = store.get_ledger_reset_hour(chat_id) if hour is None else hour
     current_rate, current_fee = store.get_settings(chat_id)
-    current_period = store.current_accounting_date(chat_id)
+    current_period = store.current_accounting_date(chat_id).replace("T", " ").removesuffix("+08:00")
     next_cutoff = store.next_cutoff_at(chat_id).strftime("%Y-%m-%d %H:%M")
     return "\n".join(
         [
