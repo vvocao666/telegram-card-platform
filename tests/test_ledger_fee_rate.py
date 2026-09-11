@@ -96,7 +96,7 @@ def test_fee_calculation_rate_six_point_eight(tmp_path):
         store.close()
 
 
-def test_payout_returns_compact_transfer_confirmation(tmp_path):
+def test_payout_returns_bill_without_transfer_confirmation(tmp_path):
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     try:
         boss = actor()
@@ -114,15 +114,12 @@ def test_payout_returns_compact_transfer_confirmation(tmp_path):
         lower_alias = ledger_commands.handle_text(store, -1001, boss, "下分300", {12345}, message_id=9)
 
         assert payout is not None
-        assert payout.follow_up_text == '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
+        assert "已下发：1000U" in payout.text
+        assert "请您查收" not in payout.text
         assert income is not None
-        assert income.follow_up_text is None
         assert private_payout is not None
-        assert private_payout.follow_up_text is None
         assert shorthand_adjustment is not None
-        assert shorthand_adjustment.follow_up_text is None
         assert negative_named_payout is not None
-        assert negative_named_payout.follow_up_text is None
         assert payout_alias is None
         assert slash_alias is None
         assert payout_slash_alias is None
@@ -233,7 +230,7 @@ def test_payout_sign_is_preserved_in_paid_and_unpaid_totals(tmp_path):
         store.close()
 
 
-def test_payout_confirmation_still_sends_when_ledger_is_disabled_without_writing_entry(tmp_path):
+def test_payout_is_silent_when_ledger_is_disabled_without_writing_entry(tmp_path):
     store = LedgerStore(tmp_path / "ledger.sqlite3")
     try:
         boss = actor()
@@ -243,11 +240,7 @@ def test_payout_confirmation_still_sends_when_ledger_is_disabled_without_writing
         signed_payout = ledger_commands.handle_text(store, -1001, boss, "-500", {12345}, message_id=2)
         income = ledger_commands.handle_text(store, -1001, boss, "+100", {12345}, message_id=3)
 
-        assert named_payout is not None
-        assert named_payout.text == ""
-        assert named_payout.follow_up_text == (
-            '💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。'
-        )
+        assert named_payout is None
         assert signed_payout is None
         assert income is None
         assert store.entries(-1001) == []
@@ -335,6 +328,8 @@ def test_legacy_data_migrates_with_zero_fee(tmp_path, monkeypatch):
 
     store = LedgerStore(db_path)
     try:
+        assert store.get_ledger_reset_hour(-1001) == 0
+        assert store.get_ledger_reset_hour(-2002) == 3
         entry = store.entries(-1001)[0]
         monkeypatch.setattr(store, "current_accounting_date", lambda chat_id: entry.accounting_date)
         bill = ledger_commands.handle_text(store, -1001, actor(), "完整账单", {12345})

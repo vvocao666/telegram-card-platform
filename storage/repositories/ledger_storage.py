@@ -116,7 +116,7 @@ class LedgerStore:
                 recognition_enabled INTEGER NOT NULL DEFAULT 1,
                 class_mode TEXT NOT NULL DEFAULT '',
                 class_notice_pending INTEGER NOT NULL DEFAULT 0,
-                ledger_reset_hour INTEGER NOT NULL DEFAULT 0,
+                ledger_reset_hour INTEGER NOT NULL DEFAULT 3,
                 ledger_view_mode TEXT NOT NULL DEFAULT 'detailed',
                 owner_id INTEGER,
                 created_at TEXT NOT NULL
@@ -219,7 +219,7 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "recognition_enabled", "INTEGER NOT NULL DEFAULT 1")
         self._add_column_if_missing("chat_settings", "class_mode", "TEXT NOT NULL DEFAULT ''")
         self._add_column_if_missing("chat_settings", "class_notice_pending", "INTEGER NOT NULL DEFAULT 0")
-        self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 0")
+        self._add_column_if_missing("chat_settings", "ledger_reset_hour", "INTEGER NOT NULL DEFAULT 3")
         self._add_column_if_missing("chat_settings", "ledger_view_mode", "TEXT NOT NULL DEFAULT 'detailed'")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
@@ -309,8 +309,8 @@ class LedgerStore:
     def ensure_chat(self, chat_id: int) -> None:
         self.conn.execute(
             """
-            INSERT OR IGNORE INTO chat_settings (chat_id, rate, fee_percent, created_at)
-            VALUES (?, '1.0000', '0.0000', ?)
+            INSERT OR IGNORE INTO chat_settings (chat_id, rate, fee_percent, ledger_reset_hour, created_at)
+            VALUES (?, '1.0000', '0.0000', 3, ?)
             """,
             (chat_id, self._now()),
         )

@@ -363,7 +363,7 @@ def test_group_service_preserves_command_and_welcome_contract():
     assert "• 群记账功能" in text
     assert "查看实时汇率：采用欧意 USDT/CNY 最新 1 档价格更新本群汇率" in text
     assert "设置日切：设置每日账务日切时间" in text
-    assert "日切：每天 00:00（北京时间）" in text
+    assert "日切：每天 03:00（北京时间）" in text
 
 
 def test_permission_utils_preserve_owner_matching_contract():

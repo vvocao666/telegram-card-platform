@@ -53,7 +53,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertEqual(ledger_commands.HELP_TEXT, help_text)
         self.assertIn("【记账】", help_text)
         self.assertIn("<code>+10000</code>：入款 10000 RMB", help_text)
-        self.assertIn("<code>日切0</code>：默认每天凌晨 0 点账单自动归 0", help_text)
+        self.assertIn("<code>日切3</code>：默认每天凌晨 3 点账单自动归 0", help_text)
         self.assertIn("<code>设置实时汇率</code>：使用欧意 USDT/CNY 最新 1 档价格更新当前群汇率", help_text)
         self.assertIn("<code>币价</code> / <code>bj</code> / <code>z0</code>：查看欧意 USDT/CNY 最新 5 档价格", help_text)
         self.assertNotIn("TRX 能量租赁", help_text)
@@ -205,7 +205,7 @@ class BotFormattingTests(unittest.TestCase):
         self.assertIn("<code>查看费率</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>关闭记账</code> / <code>开启记账</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>关闭识别</code> / <code>开启识别</code>", ledger_commands.HELP_TEXT)
-        self.assertIn("<code>日切0</code>", ledger_commands.HELP_TEXT)
+        self.assertIn("<code>日切3</code>", ledger_commands.HELP_TEXT)
         self.assertIn("<code>设置汇率 1</code>", ledger_commands.HELP_TEXT)
         self.assertIn("默认新群汇率为 1", ledger_commands.HELP_TEXT)
 
@@ -1057,7 +1057,7 @@ class BotFormattingTests(unittest.TestCase):
 
                 self.assertIsNotNone(result)
                 self.assertIn("只有群主或操作员可以设置日切时间", result.text)
-                self.assertEqual(0, store.get_ledger_reset_hour(-1001))
+                self.assertEqual(3, store.get_ledger_reset_hour(-1001))
             finally:
                 store.close()
 
@@ -1104,7 +1104,7 @@ class BotFormattingTests(unittest.TestCase):
                 status = ledger_commands.handle_text(store, -1001, actor, "查看日切", {12345})
 
                 self.assertEqual(1, store.get_ledger_reset_hour(-1001))
-                self.assertEqual(0, store.get_ledger_reset_hour(-2002))
+                self.assertEqual(3, store.get_ledger_reset_hour(-2002))
                 self.assertIsNotNone(status)
                 self.assertIn("当前群账务设置", status.text)
                 self.assertIn("日切时间：每天 01:00", status.text)

@@ -102,7 +102,7 @@ def test_ledger_text_service_keeps_recognition_toggle_behavior() -> None:
     assert message.replies == ["卡密识别已关闭，后续图片不会识别卡密。发送“开启识别”可重新开启。"]
 
 
-def test_ledger_text_service_sends_payout_confirmation_after_bill() -> None:
+def test_ledger_text_service_sends_only_payout_bill() -> None:
     message = FakeMessage("下发1000")
     update = SimpleNamespace(
         message=message,
@@ -126,18 +126,16 @@ def test_ledger_text_service_sends_payout_confirmation_after_bill() -> None:
         actor_from_message=lambda _message: None,
         handle_command_text=lambda **_kwargs: SimpleNamespace(
             text="账单内容",
-            follow_up_text='💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。',
         ),
         reply_ledger=lambda _message, text: _append_async(bill_replies, text),
     )
 
     assert asyncio.run(handle_ledger_text(update, hooks)) is True
     assert bill_replies == ["账单内容"]
-    assert message.replies == ['💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。']
-    assert message.reply_kwargs == [{"parse_mode": "HTML", "disable_web_page_preview": True}]
+    assert message.replies == []
 
 
-def test_ledger_text_service_sends_confirmation_without_empty_bill_reply() -> None:
+def test_ledger_text_service_is_silent_without_command_result() -> None:
     message = FakeMessage("下发1000")
     update = SimpleNamespace(
         message=message,
@@ -159,17 +157,13 @@ def test_ledger_text_service_sends_confirmation_without_empty_bill_reply() -> No
         calculate_expression=lambda _text: None,
         actor_from_update=lambda _update: None,
         actor_from_message=lambda _message: None,
-        handle_command_text=lambda **_kwargs: SimpleNamespace(
-            text="",
-            follow_up_text='💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。',
-        ),
+        handle_command_text=lambda **_kwargs: None,
         reply_ledger=lambda _message, text: _append_async(bill_replies, text),
     )
 
-    assert asyncio.run(handle_ledger_text(update, hooks)) is True
+    assert asyncio.run(handle_ledger_text(update, hooks)) is False
     assert bill_replies == []
-    assert message.replies == ['💰<b><a href="https://t.me/">【 1000 UU 】</a></b>  已转✅，请您查收。']
-    assert message.reply_kwargs == [{"parse_mode": "HTML", "disable_web_page_preview": True}]
+    assert message.replies == []
 
 
 async def _false_async() -> bool:

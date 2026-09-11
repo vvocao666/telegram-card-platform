@@ -26,7 +26,6 @@ class Actor:
 class CommandResult:
     text: str
     changed: bool = False
-    follow_up_text: str | None = None
 
 
 AMOUNT_RE = re.compile(r"(?P<amount>\d+(?:\.\d+)?)")
@@ -59,7 +58,7 @@ HELP_TEXT = """【记账】
 
 <code>关闭记账</code> / <code>开启记账</code>：暂停或恢复记账
 
-<code>日切0</code>：默认每天凌晨 0 点账单自动归 0
+<code>日切3</code>：默认每天凌晨 3 点账单自动归 0
 
 【汇率与费率】
 
@@ -164,11 +163,6 @@ def handle_text(
         )
 
     if not store.is_ledger_enabled(chat_id):
-        parsed = _parse_entry(normalized)
-        if parsed is not None:
-            kind, amount, _note = parsed
-            if _should_confirm_payout(normalized, kind, amount, chat_id):
-                return CommandResult("", follow_up_text=_payout_confirmation(amount))
         return None
 
     if normalized in {"/start", "/help", "help", "帮助", "菜单", "/使用说明"}:
@@ -299,10 +293,7 @@ def handle_text(
             )
         except ValueError as exc:
             return CommandResult(str(exc))
-        follow_up_text = None
-        if _should_confirm_payout(normalized, kind, amount, chat_id):
-            follow_up_text = _payout_confirmation(amount)
-        return CommandResult(format_bill(store, chat_id), changed=True, follow_up_text=follow_up_text)
+        return CommandResult(format_bill(store, chat_id), changed=True)
 
     return None
 
@@ -430,14 +421,6 @@ def _format_percent(value: Decimal) -> str:
 
 def _blue(value: object) -> str:
     return f'<a href="{BLUE_LINK}">{escape(str(value))}</a>'
-
-
-def _payout_confirmation(amount: Decimal) -> str:
-    return f"💰<b>{_blue(f'【 {_format_rate(amount)} UU 】')}</b>  已转✅，请您查收。"
-
-
-def _should_confirm_payout(text: str, kind: str, amount: Decimal, chat_id: int) -> bool:
-    return chat_id < 0 and kind == "payout" and amount > 0 and text.startswith("下发")
 
 
 def _entry_attribution(kind: str, note: str, actor: Actor, reply_user: Actor | None) -> str:
