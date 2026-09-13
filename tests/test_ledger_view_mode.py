@@ -71,12 +71,12 @@ def test_ledger_keyboard_shows_one_current_mode_button() -> None:
 
     assert [[button.text for button in row] for row in keyboard] == [
         ["今日账单", "昨日账单"],
-        ["详细模式"],
+        ["↪️切换简洁模式"],
     ]
     assert keyboard[1][0].callback_data == "ledger:view:compact:today"
 
     compact_keyboard = runtime.ledger_keyboard("today", "compact").inline_keyboard
-    assert [button.text for button in compact_keyboard[1]] == ["简洁模式"]
+    assert [button.text for button in compact_keyboard[1]] == ["↪️切换详细模式"]
     assert compact_keyboard[1][0].callback_data == "ledger:view:detailed:today"
 
 
@@ -282,7 +282,7 @@ def test_ledger_view_button_toggles_message_and_saved_mode(monkeypatch, tmp_path
         assert store.get_ledger_view_mode(-1001) == "compact"
         assert "最近流水：" not in compact_query.edits[-1][0]
         compact_button = compact_query.edits[-1][1]["reply_markup"].inline_keyboard[-1][0]
-        assert compact_button.text == "简洁模式"
+        assert compact_button.text == "↪️切换详细模式"
         assert compact_button.callback_data == "ledger:view:detailed:today"
 
         unchanged_query = FakeQuery("ledger:view:compact:today")
@@ -297,7 +297,7 @@ def test_ledger_view_button_toggles_message_and_saved_mode(monkeypatch, tmp_path
         assert store.get_ledger_view_mode(-1001) == "detailed"
         assert "最近流水：" in detailed_query.edits[-1][0]
         detailed_button = detailed_query.edits[-1][1]["reply_markup"].inline_keyboard[-1][0]
-        assert detailed_button.text == "详细模式"
+        assert detailed_button.text == "↪️切换简洁模式"
         assert detailed_button.callback_data == "ledger:view:compact:today"
     finally:
         store.close()
