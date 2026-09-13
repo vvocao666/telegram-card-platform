@@ -31,6 +31,7 @@ async def start_managed_background_tasks(
     remote_url: str,
     remote_probe_loop: AsyncLoopFactory,
     daily_stats_loop: AsyncLoopFactory | None = None,
+    ledger_reminder_loop: AsyncLoopFactory | None = None,
 ) -> None:
     """启动唯一后台任务，重复初始化时不会创建第二份循环。"""
     if cleanup_enabled and not _task_is_active(app.bot_data.get("server_file_cleanup_task")):
@@ -40,6 +41,8 @@ async def start_managed_background_tasks(
         app.bot_data["remote_ocr_probe_task"] = asyncio.create_task(remote_probe_loop())
     if daily_stats_loop is not None and not _task_is_active(app.bot_data.get("daily_ocr_stats_task")):
         app.bot_data["daily_ocr_stats_task"] = asyncio.create_task(daily_stats_loop())
+    if ledger_reminder_loop is not None and not _task_is_active(app.bot_data.get("ledger_cutoff_reminder_task")):
+        app.bot_data["ledger_cutoff_reminder_task"] = asyncio.create_task(ledger_reminder_loop())
 
 
 async def _cancel_task(value: object) -> None:
@@ -61,6 +64,7 @@ async def stop_managed_background_tasks(
     await _cancel_task(app.bot_data.pop("server_file_cleanup_task", None))
     await _cancel_task(app.bot_data.pop("remote_ocr_probe_task", None))
     await _cancel_task(app.bot_data.pop("daily_ocr_stats_task", None))
+    await _cancel_task(app.bot_data.pop("ledger_cutoff_reminder_task", None))
     for task in list(app.bot_data.pop("private_message_cleanup_tasks", {}).values()):
         await _cancel_task(task)
     for task in list(app.bot_data.pop("group_message_cleanup_tasks", {}).values()):

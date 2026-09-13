@@ -217,6 +217,21 @@ class LedgerStore:
                 page_message_id INTEGER NOT NULL,
                 PRIMARY KEY (chat_id, root_message_id, page_message_id)
             );
+
+            CREATE TABLE IF NOT EXISTS ledger_reminder_schedule (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                starts_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ledger_cutoff_reminders (
+                chat_id INTEGER NOT NULL,
+                accounting_date TEXT NOT NULL,
+                cutoff_at TEXT NOT NULL,
+                balance_usdt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                message_id INTEGER,
+                PRIMARY KEY (chat_id, accounting_date)
+            );
             """
         )
         self._add_column_if_missing("entries", "source_message_id", "INTEGER")
@@ -236,6 +251,7 @@ class LedgerStore:
         self._add_column_if_missing("chat_settings", "ledger_transition_at", "TEXT")
         self._add_column_if_missing("chat_settings", "ledger_transition_current", "TEXT")
         self._add_column_if_missing("chat_settings", "ledger_transition_previous", "TEXT")
+        self._add_column_if_missing("chat_settings", "ledger_transition_previous_cutoff", "TEXT")
         self._add_column_if_missing("chat_settings", "ledger_view_mode", "TEXT NOT NULL DEFAULT 'detailed'")
         self._add_column_if_missing("chat_settings", "owner_id", "INTEGER")
         self._add_column_if_missing("known_users", "is_bot", "INTEGER NOT NULL DEFAULT 0")
@@ -471,6 +487,7 @@ class LedgerStore:
             return hour
         now = datetime.now(LEDGER_TZ)
         current, previous = self._accounting_periods(chat_id, now)
+        closed = self.latest_closed_period(chat_id, now)
         transition = None
         if self.conn.execute("SELECT 1 FROM entries WHERE chat_id = ? LIMIT 1", (chat_id,)).fetchone():
             transition = datetime.combine(now.date(), time(hour=hour), tzinfo=LEDGER_TZ)
@@ -478,8 +495,10 @@ class LedgerStore:
                 transition += timedelta(days=1)
         self.conn.execute(
             "UPDATE chat_settings SET ledger_reset_hour = ?, ledger_transition_at = ?, "
-            "ledger_transition_current = ?, ledger_transition_previous = ? WHERE chat_id = ?",
-            (hour, transition.isoformat() if transition else None, current, previous, chat_id),
+            "ledger_transition_current = ?, ledger_transition_previous = ?, "
+            "ledger_transition_previous_cutoff = ? WHERE chat_id = ?",
+            (hour, transition.isoformat() if transition else None, current, previous,
+             closed[1].isoformat() if closed else None, chat_id),
         )
         self.conn.commit()
         return hour
@@ -530,6 +549,17 @@ class LedgerStore:
         if candidate <= local_now:
             candidate += timedelta(days=1)
         return candidate
+
+    def latest_closed_period(self, chat_id: int, now: datetime) -> tuple[str, datetime] | None:
+        """Return the closed period and its actual cutoff, including a pending cutoff change."""
+        now = now.astimezone(LEDGER_TZ)
+        _, previous = self._accounting_periods(chat_id, now)
+        row = self.conn.execute("SELECT * FROM chat_settings WHERE chat_id = ?", (chat_id,)).fetchone()
+        if row["ledger_transition_at"] and now < datetime.fromisoformat(row["ledger_transition_at"]):
+            saved = row["ledger_transition_previous_cutoff"]
+            # Legacy pending transitions did not retain the old cutoff hour; do not invent one.
+            return (previous, datetime.fromisoformat(saved)) if saved else None
+        return previous, self.next_cutoff_at(chat_id, now) - timedelta(days=1)
 
     def get_chat_owner_id(self, chat_id: int) -> int | None:
         self.ensure_chat(chat_id)

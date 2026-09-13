@@ -118,6 +118,7 @@ from services.ocr.result_pipeline import (
 )
 from services.ocr.today_cache import append_today_ocr_cache, today_ocr_cache_summary
 from services.ocr.daily_stats_report import daily_ocr_stats_loop
+from services.ledger.cutoff_reminders import ledger_cutoff_reminder_loop
 from services.ocr.history_service import (
     CardHistoryDuplicate,
     CardHistoryHooks,
@@ -609,6 +610,7 @@ async def start_background_tasks(app: Application) -> None:
             audit_root=DEFAULT_AUDIT_ROOT,
             logger=logger,
         ),
+        ledger_reminder_loop=lambda: ledger_cutoff_reminder_loop(app.bot, ledger_store, logger=logger),
     )
 
 
