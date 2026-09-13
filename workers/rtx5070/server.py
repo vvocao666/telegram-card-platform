@@ -219,6 +219,7 @@ def _process_ocr(image_bytes, suffix):
             "line_recoveries": line_recoveries,
             "cpu_ocr": cpu_payload,
             "thin_strip_padding_applied": prepared_input.padding_applied,
+            "small_list_upscale_applied": prepared_input.upscale_applied,
             "cached": False,
         }
         _cache_set(image_sha1, response)

@@ -46,7 +46,7 @@ def test_dark_thin_strip_gets_black_padding():
     assert np.all(decoded[0, 0] == (0, 0, 0))
 
 
-def test_narrow_vertical_card_list_gets_edge_padding():
+def test_small_narrow_vertical_card_list_is_upscaled_without_padding():
     source = _encoded_image(206, 320, (255, 255, 255))
 
     prepared = prepare_worker_input(
@@ -55,10 +55,24 @@ def test_narrow_vertical_card_list_gets_edge_padding():
         {"width": 206, "height": 320, "image_variance": 100.0},
     )
 
-    assert prepared.padding_applied is True
-    assert (prepared.offset_x, prepared.offset_y) == (12, 20)
+    assert prepared.padding_applied is False
+    assert prepared.upscale_applied is True
     decoded = cv2.imdecode(np.frombuffer(prepared.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-    assert decoded.shape[:2] == (360, 230)
+    assert decoded.shape[:2] == (640, 412)
+
+
+def test_larger_narrow_vertical_card_list_keeps_edge_padding():
+    source = _encoded_image(400, 600, (255, 255, 255))
+
+    prepared = prepare_worker_input(
+        source,
+        ".png",
+        {"width": 400, "height": 600, "image_variance": 100.0},
+    )
+
+    assert prepared.padding_applied is True
+    assert prepared.upscale_applied is False
+    assert (prepared.offset_x, prepared.offset_y) == (16, 20)
 
 
 def test_regular_image_is_unchanged():

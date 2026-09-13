@@ -54,19 +54,25 @@ def recognize_remote(
             runtime.REMOTE_OCR_TIMEOUT,
             runtime.REMOTE_OCR_CONNECT_TIMEOUT,
         )
-        if runtime.LOCAL_HYBRID_FLAGS.worker_queue_v2:
-            with runtime.remote_ocr_execution_slot():
-                with image_path.open("rb") as image_file:
-                    response = client.post(
-                        f"{runtime.REMOTE_OCR_URL}/ocr",
-                        files={"file": (image_path.name, image_file, "image/jpeg")},
-                    )
-        else:
+        def post_once() -> Any:
+            if runtime.LOCAL_HYBRID_FLAGS.worker_queue_v2:
+                with runtime.remote_ocr_execution_slot():
+                    with image_path.open("rb") as image_file:
+                        return client.post(
+                            f"{runtime.REMOTE_OCR_URL}/ocr",
+                            files={"file": (image_path.name, image_file, "image/jpeg")},
+                        )
             with image_path.open("rb") as image_file:
-                response = client.post(
+                return client.post(
                     f"{runtime.REMOTE_OCR_URL}/ocr",
                     files={"file": (image_path.name, image_file, "image/jpeg")},
                 )
+
+        try:
+            response = post_once()
+        except httpx.ConnectTimeout:
+            runtime.logger.warning("REMOTE OCR CONNECT RETRY attempt=1")
+            response = post_once()
         latency_ms = int((time.time() - started_at) * 1000)
         if response.status_code != 200:
             if runtime.LOCAL_HYBRID_FLAGS.busy_offline_separation and response.status_code in {429, 503}:

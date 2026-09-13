@@ -391,6 +391,65 @@ def test_remote_ocr_invalid_json_falls_back(monkeypatch, tmp_path):
     assert bot.remote_ocr_status["today_remote_failed"] == 1
 
 
+def test_remote_ocr_retries_one_connect_timeout_and_reopens_image(monkeypatch, tmp_path):
+    calls = {"post": 0}
+    payload = {
+        "ok": True,
+        "cards": [
+            {"text": card, "score": 0.99}
+            for card in (
+                "S07403-ABCD-EFGH-JKLMN",
+                "S07403-BCDE-FGHJ-KLMNP",
+                "S07403-CDEF-GHJK-LMNPQ",
+                "S07403-DEFG-HJKL-MNPQR",
+                "S07403-EFGH-JKLM-NPQRS",
+            )
+        ],
+    }
+    payload["texts"] = list(payload["cards"])
+
+    class RetryClient:
+        def post(self, *args, **kwargs):
+            calls["post"] += 1
+            assert kwargs["files"]["file"][1].read() == b"fake-image"
+            if calls["post"] == 1:
+                raise httpx.ConnectTimeout("transient connect failure")
+            return FakeResponse(payload=payload)
+
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: RetryClient())
+
+    result = bot.run_remote_ocr(write_image(tmp_path))
+
+    assert result is not None
+    assert result.cards == tuple(item["text"] for item in payload["cards"])
+    assert calls["post"] == 2
+    assert not bot.remote_ocr_is_circuit_open()
+    assert bot.remote_ocr_status["today_remote_success"] == 1
+    assert bot.remote_ocr_status["today_remote_failed"] == 0
+
+
+def test_remote_ocr_opens_circuit_after_two_connect_timeouts(monkeypatch, tmp_path):
+    calls = {"post": 0}
+
+    class OfflineClient:
+        def post(self, *args, **kwargs):
+            calls["post"] += 1
+            raise httpx.ConnectTimeout("offline")
+
+    monkeypatch.setattr(
+        bot,
+        "LOCAL_HYBRID_FLAGS",
+        SimpleNamespace(worker_queue_v2=False, busy_offline_separation=False),
+    )
+    monkeypatch.setattr(bot.httpx, "Client", lambda timeout: OfflineClient())
+
+    assert bot.run_remote_ocr(write_image(tmp_path)) is None
+
+    assert calls["post"] == 2
+    assert bot.remote_ocr_is_circuit_open()
+    assert bot.remote_ocr_status["today_remote_failed"] == 1
+
+
 def test_remote_ocr_connection_failure_opens_circuit(monkeypatch, tmp_path):
     calls = {"post": 0}
 

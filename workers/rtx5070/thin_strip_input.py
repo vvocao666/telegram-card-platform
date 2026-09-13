@@ -16,6 +16,7 @@ class PreparedWorkerInput:
     data: bytes
     suffix: str
     padding_applied: bool = False
+    upscale_applied: bool = False
     offset_x: int = 0
     offset_y: int = 0
 
@@ -25,10 +26,10 @@ def prepare_worker_input(
     suffix: str,
     metrics: dict[str, Any],
 ) -> PreparedWorkerInput:
-    """Add a small background border when text can touch an image edge.
+    """Prepare small card screenshots without changing recognized text.
 
-    The border gives the detector room around glyphs touching an image edge. It
-    does not crop, resize, rewrite, or infer any card character.
+    Very narrow lists are enlarged before detection so small glyphs keep their
+    full shape. Extreme strips and larger narrow lists retain edge padding.
     """
     width = int(metrics.get("width", 0) or 0)
     height = int(metrics.get("height", 0) or 0)
@@ -47,6 +48,23 @@ def prepare_worker_input(
         image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         if image is None:
             return PreparedWorkerInput(image_bytes, suffix)
+
+        if narrow_vertical_list and width < 350:
+            upscaled = cv2.resize(
+                image,
+                None,
+                fx=2,
+                fy=2,
+                interpolation=cv2.INTER_LANCZOS4,
+            )
+            success, encoded = cv2.imencode(".png", upscaled)
+            if not success:
+                return PreparedWorkerInput(image_bytes, suffix)
+            return PreparedWorkerInput(
+                encoded.tobytes(),
+                ".png",
+                upscale_applied=True,
+            )
 
         border_x = max(12, min(48, round(width * 0.04)))
         border_y = max(6, min(20, round(height * 0.15)))
