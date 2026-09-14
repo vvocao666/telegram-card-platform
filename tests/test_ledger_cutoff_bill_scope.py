@@ -6,6 +6,49 @@ from services.ledger import ledger_commands
 from storage.repositories import ledger_storage
 
 
+@pytest.mark.parametrize("hour,now_hour,start_day,end_day", [(3, 2, 13, 14), (3, 3, 14, 15), (5, 14, 14, 15)])
+def test_cutoff_status_displays_actual_period_range(tmp_path, monkeypatch, hour, now_hour, start_day, end_day):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 14, now_hour, tzinfo=ledger_storage.LEDGER_TZ).astimezone(tz)
+
+    monkeypatch.setattr(ledger_storage, "datetime", Clock)
+    store = ledger_storage.LedgerStore(tmp_path / "ledger.sqlite3")
+    try:
+        store.set_ledger_reset_hour(-1001, hour)
+        text = ledger_commands._format_cutoff_status(store, -1001)
+        assert f"当前账期：2026-09-{start_day:02d} {hour:02d}:00 至 2026-09-{end_day:02d} {hour:02d}:00" in text
+        assert f"下次日切：2026-09-{end_day:02d} {hour:02d}:00" in text
+    finally:
+        store.close()
+
+
+def test_cutoff_status_keeps_old_start_during_transition_and_restart(tmp_path, monkeypatch):
+    class Clock(datetime):
+        current = datetime(2026, 9, 14, 14, tzinfo=ledger_storage.LEDGER_TZ)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current.astimezone(tz)
+
+    monkeypatch.setattr(ledger_storage, "datetime", Clock)
+    path = tmp_path / "ledger.sqlite3"
+    store = ledger_storage.LedgerStore(path)
+    store.add_entry(-1001, "income", "100", "U", "", 1, "Test")
+    original = store.entries(-1001)
+    store.set_ledger_reset_hour(-1001, 5)
+    store.close()
+    store = ledger_storage.LedgerStore(path)
+    try:
+        assert "当前账期：2026-09-14 03:00 至 2026-09-15 05:00" in ledger_commands._format_cutoff_status(store, -1001)
+        Clock.current = datetime(2026, 9, 15, 5, tzinfo=ledger_storage.LEDGER_TZ)
+        assert "当前账期：2026-09-15 05:00 至 2026-09-16 05:00" in ledger_commands._format_cutoff_status(store, -1001)
+        assert store.entries(-1001) == original
+    finally:
+        store.close()
+
+
 @pytest.mark.parametrize("view_mode", ["compact", "detailed"])
 @pytest.mark.parametrize("cutoff_hour", [2, 3])
 def test_full_bill_resets_and_yesterday_keeps_previous_period(tmp_path, monkeypatch, view_mode, cutoff_hour):

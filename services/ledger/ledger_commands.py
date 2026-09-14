@@ -482,13 +482,17 @@ def _format_cutoff_status(store: LedgerStore, chat_id: int, hour: int | None = N
     cutoff_hour = store.get_ledger_reset_hour(chat_id) if hour is None else hour
     current_rate, current_fee = store.get_settings(chat_id)
     current_period = store.current_accounting_date(chat_id).replace("T", " ").removesuffix("+08:00")
-    next_cutoff = store.next_cutoff_at(chat_id).strftime("%Y-%m-%d %H:%M")
+    period_end = store.next_cutoff_at(chat_id)
+    closed = store.latest_closed_period(chat_id, period_end - timedelta(microseconds=1))
+    if closed is not None:
+        current_period = closed[1].strftime("%Y-%m-%d %H:%M")
+    next_cutoff = period_end.strftime("%Y-%m-%d %H:%M")
     return "\n".join(
         [
             "📅 当前群账务设置",
             "",
             f"日切时间：每天 {cutoff_hour:02d}:00（北京时间）",
-            f"当前账期：{current_period}",
+            f"当前账期：{current_period} 至 {next_cutoff}",
             f"下次日切：{next_cutoff}",
             f"当前汇率：{_format_money(current_rate)}",
             f"当前费率：{_format_percent(current_fee)}",
